@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumisite.app/schema/lumisite.session/0.1.0/session.schema.json",
+  "title": "lumisite.session manifest (session.json) v0.1.0",
+  "description": "Unknown properties must be ignored by readers (forward compatibility). NDJSON record types are described in $defs (PoseSample, ImuSample, GpsFix, GpsStatusSample, CorrectedPoint, DerivedSurveyPoint).",
+  "type": "object",
+  "required": ["format", "formatVersion", "exportedUtcMs", "generator", "site", "session", "events", "files", "derivedSummary", "dxfPreparation"],
+  "properties": {
+    "format": { "const": "lumisite.session" },
+    "formatVersion": { "type": "string", "pattern": "^0\\.1\\.[0-9]+$" },
+    "exportedUtcMs": { "type": "integer" },
+    "generator": { "type": "string" },
+    "site": { "$ref": "#/$defs/Site" },
+    "session": { "$ref": "#/$defs/SessionHeader" },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/SessionEvent" } },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/FileEntry" } },
+    "derivedSummary": {
+      "type": "object",
+      "required": ["trajectoryPoints", "trajectoryLengthM", "posesWithoutCalibration", "trackingStateCounts", "notes"],
+      "properties": {
+        "trajectoryPoints": { "type": "integer" },
+        "trajectoryLengthM": { "type": "number" },
+        "posesWithoutCalibration": { "type": "integer" },
+        "trackingStateCounts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "dxfPreparation": {
+      "type": "object",
+      "properties": {
+        "status": { "const": "NOT_GENERATED" },
+        "planarCrs": { "type": "string" }, "units": { "type": "string" }, "axisMapping": { "type": "string" },
+        "pointsFile": { "type": "string" }, "trajectoryFile": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "integrity": { "type": "object", "description": "export path (e.g. raw/imu.ndjson) -> line numbers already unreadable in the device journal (abrupt shutdown)", "additionalProperties": { "type": "array", "items": { "type": "integer" } } }
+  },
+  "$defs": {
+    "Stamp": {
+      "type": "object", "required": ["utcEpochMs", "monotonicNs", "timeBaseId"],
+      "properties": {
+        "utcEpochMs": { "type": "integer", "description": "System.currentTimeMillis() at record time" },
+        "monotonicNs": { "type": "integer", "description": "SystemClock.elapsedRealtimeNanos() at record time" },
+        "timeBaseId": { "type": "string" },
+        "sensorNs": { "type": ["integer", "null"], "description": "native sensor/frame/location timestamp when available" }
+      }
+    },
+    "TimeBase": {
+      "type": "object", "required": ["id", "deviceId", "clock", "referenceUtcEpochMs", "referenceMonotonicNs"],
+      "properties": { "id": { "type": "string" }, "deviceId": { "type": "string" }, "clock": { "type": "string" },
+        "referenceUtcEpochMs": { "type": "integer" }, "referenceMonotonicNs": { "type": "integer" }, "notes": { "type": ["string", "null"] } }
+    },
+    "LatLon": { "type": "object", "required": ["lat", "lon"], "properties": { "lat": { "type": "number" }, "lon": { "type": "number" }, "altM": { "type": ["number", "null"] } } },
+    "Enu": { "type": "object", "required": ["e", "n"], "properties": { "e": { "type": "number" }, "n": { "type": "number" }, "u": { "type": "number" } } },
+    "Similarity2D": { "type": "object", "required": ["scale", "rotationRad", "tx", "ty"],
+      "properties": { "scale": { "type": "number" }, "rotationRad": { "type": "number" }, "tx": { "type": "number" }, "ty": { "type": "number" } } },
+    "CrsInfo": { "type": "object", "required": ["id", "kind", "definition"],
+      "properties": { "id": { "type": "string" }, "kind": { "type": "string" }, "definition": { "type": "string" }, "origin": { "$ref": "#/$defs/LatLon" },
+        "axes": { "type": "array", "items": { "type": "string" } }, "units": { "type": "string" } } },
+    "TrackingState": { "enum": ["INITIALIZING", "TRACKING", "DEGRADED", "LOST", "STOPPED", "UNAVAILABLE"] },
+    "Site": {
+      "type": "object", "required": ["id", "name", "origin", "originSource", "createdUtcMs", "crs"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "origin": { "$ref": "#/$defs/LatLon" }, "originSource": { "type": "string" },
+        "createdUtcMs": { "type": "integer" }, "crs": { "type": "array", "items": { "$ref": "#/$defs/CrsInfo" } },
+        "osm": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/OsmSnapshot" }] },
+        "selectedBuildingOsmRef": { "type": ["string", "null"] },
+        "plans": { "type": "array", "items": { "type": "object" } },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+    "OsmSnapshot": {
+      "type": "object", "required": ["source", "endpoint", "query", "retrievedUtcMs", "bbox", "features"],
+      "properties": {
+        "source": { "type": "string" }, "endpoint": { "type": "string" }, "query": { "type": "string" }, "retrievedUtcMs": { "type": "integer" },
+        "license": { "type": "string" }, "attribution": { "type": "string" }, "crs": { "type": "string" },
+        "bbox": { "type": "object", "required": ["south", "west", "north", "east"] },
+        "features": { "type": "array", "items": { "type": "object", "required": ["osmType", "osmId", "tags", "geometry", "category"],
+          "properties": { "osmType": { "enum": ["node", "way", "relation"] }, "osmId": { "type": "integer" },
+            "tags": { "type": "object", "additionalProperties": { "type": "string" } },
+            "geometry": { "type": "array", "items": { "$ref": "#/$defs/LatLon" } }, "category": { "type": "string" } } } },
+        "rawResponse": { "type": ["string", "null"] }
+      }
+    },
+    "SessionHeader": {
+      "type": "object", "required": ["id", "siteId", "name", "createdUtcMs", "device", "timeBases", "localFrame"],
+      "properties": {
+        "id": { "type": "string" }, "siteId": { "type": "string" }, "name": { "type": "string" }, "createdUtcMs": { "type": "integer" },
+        "device": { "type": "object", "required": ["id", "manufacturer", "model", "osVersion", "appVersion", "arSupport"] },
+        "timeBases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/TimeBase" } },
+        "localFrame": { "$ref": "#/$defs/CrsInfo" }
+      }
+    },
+    "FileEntry": {
+      "type": "object", "required": ["path", "category", "recordType", "records", "sha256", "bytes"],
+      "properties": { "path": { "type": "string" }, "category": { "enum": ["raw", "derived"] }, "recordType": { "type": "string" },
+        "records": { "type": "integer" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "bytes": { "type": "integer" } }
+    },
+    "PoseSample": {
+      "type": "object", "required": ["t", "p", "q", "tracking"],
+      "properties": { "t": { "$ref": "#/$defs/Stamp" }, "p": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "q": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }, "tracking": { "$ref": "#/$defs/TrackingState" },
+        "failureReason": { "type": ["string", "null"] }, "source": { "type": "string" } }
+    },
+    "ImuSample": { "type": "object", "required": ["t", "sensorType", "sensorName", "values", "accuracy"] },
+    "GpsFix": { "type": "object", "required": ["t", "provider", "lat", "lon"] },
+    "GpsStatusSample": { "type": "object", "required": ["t", "provider", "status"] },
+    "CorrectedPoint": { "type": "object", "description": "derived/trajectory_site.ndjson record" },
+    "DerivedSurveyPoint": { "type": "object", "required": ["surveyEventId", "kind", "monotonicNs", "utcEpochMs", "positionSource", "tracking"] },
+    "ReferencePoint": { "type": "object", "required": ["label", "site", "source"],
+      "properties": { "label": { "type": "string" }, "site": { "$ref": "#/$defs/Enu" }, "latLon": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/LatLon" }] },
+        "source": { "type": "string" }, "uncertaintyM": { "type": ["number", "null"] } } },
+    "LocalObservation": { "type": "object", "required": ["reference"],
+      "properties": { "pose": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/PoseSample" }] }, "reference": { "$ref": "#/$defs/ReferencePoint" } } },
+    "SessionEvent": {
+      "type": "object", "required": ["type", "id", "t"],
+      "properties": { "type": { "type": "string" }, "id": { "type": "string" }, "t": { "$ref": "#/$defs/Stamp" } },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "calibration" } } }, "then": { "required": ["method", "observations", "transform", "scaleFixed"],
+          "properties": { "method": { "enum": ["ONE_POINT_HEADING", "TWO_POINTS", "TWO_POINTS_KNOWN_DISTANCE"] },
+            "observations": { "type": "array", "items": { "$ref": "#/$defs/LocalObservation" } }, "transform": { "$ref": "#/$defs/Similarity2D" } } } },
+        { "if": { "properties": { "type": { "const": "relocalization" } } }, "then": { "required": ["observation", "estimatedBefore", "correctedAfter", "deltaM", "transformBefore", "transformAfter", "correctionModel"],
+          "properties": { "estimatedBefore": { "$ref": "#/$defs/Enu" }, "correctedAfter": { "$ref": "#/$defs/Enu" },
+            "transformBefore": { "$ref": "#/$defs/Similarity2D" }, "transformAfter": { "$ref": "#/$defs/Similarity2D" } } } },
+        { "if": { "properties": { "type": { "const": "sync" } } }, "then": { "required": ["syncCode", "method", "role", "eventMonotonicNs"],
+          "properties": { "method": { "enum": ["MANUAL_TAP", "AUDIO_CHIRP"] }, "role": { "enum": ["EMITTER", "RECEIVER", "PARTICIPANT"] } } } },
+        { "if": { "properties": { "type": { "const": "survey" } } }, "then": { "required": ["kind", "tracking", "positionSource"],
+          "properties": { "tracking": { "$ref": "#/$defs/TrackingState" }, "payload": { "type": ["object", "null"] },
+            "dxf": { "oneOf": [{ "type": "null" }, { "type": "object", "required": ["layer", "blockName"] }] } } } },
+        { "if": { "properties": { "type": { "const": "tracking_state" } } }, "then": { "required": ["state"] } },
+        { "if": { "properties": { "type": { "const": "time_base_added" } } }, "then": { "required": ["timeBase", "reason"] } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"t":{"utcEpochMs":1700000012000,"monotonicNs":17000000000,"timeBaseId":"tb-1"},"provider":"gps","lat":48.85668,"lon":2.35231,"horizontalAccuracyM":18.0,"altitudeM":52.0,"verticalAccuracyM":9.0,"speedMps":0.4,"bearingDeg":12.0,"fixUtcMs":1700000011700,"satellitesUsed":5,"satellitesVisible":11}

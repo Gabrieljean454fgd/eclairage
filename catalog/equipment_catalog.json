@@ -1,0 +1,550 @@
+{
+  "catalog_version": "lumisite-catalog-1.0",
+  "source": "Noms des blocs du DWG eclairage03 (hors xref 02-Plan au sol), docs/PROPOSITIONS.md § 6.3. Corrections validées (D4) : bloc secour → bloc secours, tableau divisionaire → tableau divisionnaire. Renommages en attente dans pending_rename (non appliqués).",
+  "famille_note": "Le regroupement par famille est une proposition d'affichage, à valider par Sébastien.",
+  "entries": [
+    {
+      "block_name": "Amplificateur",
+      "aliases": [],
+      "label": "Amplificateur",
+      "famille": "sonorisation",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "amplificateur",
+      "keywords": [
+        "amplificateur"
+      ]
+    },
+    {
+      "block_name": "bloc secours",
+      "aliases": [
+        "bloc secour"
+      ],
+      "label": "bloc secours",
+      "famille": "sécurité",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "bloc_secours",
+      "keywords": [
+        "bloc",
+        "secours"
+      ]
+    },
+    {
+      "block_name": "boîte de dérivation",
+      "aliases": [],
+      "label": "boîte de dérivation",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1,
+          0.5
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "boîte_de_dérivation",
+      "keywords": [
+        "boîte",
+        "dérivation"
+      ]
+    },
+    {
+      "block_name": "bougeoir électrifié",
+      "aliases": [],
+      "label": "bougeoir électrifié",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "bougeoir_électrifié",
+      "keywords": [
+        "bougeoir",
+        "électrifié"
+      ]
+    },
+    {
+      "block_name": "Camera",
+      "aliases": [],
+      "label": "Camera",
+      "famille": "sûreté",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "camera",
+      "keywords": [
+        "camera"
+      ],
+      "pending_rename": "caméra"
+    },
+    {
+      "block_name": "Déclencheur Manuel",
+      "aliases": [],
+      "label": "Déclencheur Manuel",
+      "famille": "sécurité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "déclencheur_manuel",
+      "keywords": [
+        "déclencheur",
+        "manuel"
+      ]
+    },
+    {
+      "block_name": "Diffuseur Sonore Radio",
+      "aliases": [],
+      "label": "Diffuseur Sonore Radio",
+      "famille": "sécurité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "diffuseur_sonore_radio",
+      "keywords": [
+        "diffuseur",
+        "sonore",
+        "radio"
+      ]
+    },
+    {
+      "block_name": "enceinte",
+      "aliases": [],
+      "label": "enceinte",
+      "famille": "sonorisation",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "enceinte",
+      "keywords": [
+        "enceinte"
+      ]
+    },
+    {
+      "block_name": "extincteur",
+      "aliases": [],
+      "label": "extincteur",
+      "famille": "sécurité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          0.6
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "extincteur",
+      "keywords": [
+        "extincteur"
+      ]
+    },
+    {
+      "block_name": "haut-parleur",
+      "aliases": [],
+      "label": "haut-parleur",
+      "famille": "sonorisation",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "haut-parleur",
+      "keywords": [
+        "haut-parleur"
+      ]
+    },
+    {
+      "block_name": "hublot ecl",
+      "aliases": [],
+      "label": "hublot ecl",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "hublot_ecl",
+      "keywords": [
+        "hublot",
+        "ecl"
+      ],
+      "pending_rename": "hublot éclairage"
+    },
+    {
+      "block_name": "interrupteur",
+      "aliases": [],
+      "label": "interrupteur",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "interrupteur",
+      "keywords": [
+        "interrupteur"
+      ]
+    },
+    {
+      "block_name": "lampe",
+      "aliases": [],
+      "label": "lampe",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "lampe",
+      "keywords": [
+        "lampe"
+      ]
+    },
+    {
+      "block_name": "Lanterne EP moderne",
+      "aliases": [],
+      "label": "Lanterne EP moderne",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "lanterne_ep_moderne",
+      "keywords": [
+        "lanterne",
+        "moderne"
+      ]
+    },
+    {
+      "block_name": "lineaire fluo",
+      "aliases": [],
+      "label": "lineaire fluo",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1,
+          1.67
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "lineaire_fluo",
+      "keywords": [
+        "lineaire",
+        "fluo"
+      ],
+      "pending_rename": "linéaire fluo"
+    },
+    {
+      "block_name": "Lustre",
+      "aliases": [],
+      "label": "Lustre",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "lustre",
+      "keywords": [
+        "lustre"
+      ]
+    },
+    {
+      "block_name": "micro col",
+      "aliases": [],
+      "label": "micro col",
+      "famille": "sonorisation",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "micro_col",
+      "keywords": [
+        "micro",
+        "col"
+      ]
+    },
+    {
+      "block_name": "PDL",
+      "aliases": [],
+      "label": "PDL",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "pdl",
+      "keywords": [
+        "pdl"
+      ]
+    },
+    {
+      "block_name": "prise électrique",
+      "aliases": [],
+      "label": "prise électrique",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "prise_électrique",
+      "keywords": [
+        "prise",
+        "électrique"
+      ]
+    },
+    {
+      "block_name": "prise xlr",
+      "aliases": [],
+      "label": "prise xlr",
+      "famille": "sonorisation",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "prise_xlr",
+      "keywords": [
+        "prise",
+        "xlr"
+      ]
+    },
+    {
+      "block_name": "projecteur",
+      "aliases": [],
+      "label": "projecteur",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "projecteur",
+      "keywords": [
+        "projecteur"
+      ]
+    },
+    {
+      "block_name": "projecteur thorn contrast",
+      "aliases": [],
+      "label": "projecteur thorn contrast",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          0.571
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "projecteur_thorn_contrast",
+      "keywords": [
+        "projecteur",
+        "thorn",
+        "contrast"
+      ]
+    },
+    {
+      "block_name": "spot",
+      "aliases": [],
+      "label": "spot",
+      "famille": "éclairage",
+      "default_layer": "RES - Elec",
+      "orientable": true,
+      "scale_rules": {
+        "observed": [
+          1.208,
+          2.415,
+          3.614
+        ],
+        "applied": "bureau",
+        "note": "3 tailles purement graphiques liées à des technologies différentes (§ 15) ; jamais saisies sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "spot",
+      "keywords": [
+        "spot"
+      ]
+    },
+    {
+      "block_name": "tableau divisionnaire",
+      "aliases": [
+        "tableau divisionaire"
+      ],
+      "label": "tableau divisionnaire",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "tableau_divisionnaire",
+      "keywords": [
+        "tableau",
+        "divisionnaire"
+      ]
+    },
+    {
+      "block_name": "tgbt",
+      "aliases": [],
+      "label": "tgbt",
+      "famille": "électricité",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {
+        "observed": [
+          1.417
+        ],
+        "applied": "bureau",
+        "note": "échelle de présentation, jamais saisie sur le terrain"
+      },
+      "details_schema": {},
+      "icon": "tgbt",
+      "keywords": [
+        "tgbt"
+      ],
+      "pending_rename": "TGBT"
+    },
+    {
+      "block_name": "autre (à classer)",
+      "aliases": [],
+      "label": "autre (à classer)",
+      "famille": "à classer",
+      "default_layer": "RES - Elec",
+      "orientable": false,
+      "scale_rules": {},
+      "details_schema": {},
+      "icon": "autre",
+      "keywords": [
+        "autre",
+        "classer"
+      ],
+      "is_block": false
+    }
+  ]
+}

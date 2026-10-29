@@ -1,5 +1,6 @@
 package app.lumisite.android.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
@@ -53,7 +55,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
         Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onNew) { Text("Nouveau site") }
+        Button(onClick = onNew) { Text("Nouveau") }
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sites) { s ->
@@ -71,6 +73,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
 
 @Composable
 fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
+    BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
@@ -99,8 +102,15 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
             onFeatureTap = { f -> selected = if (selected == f.ref) null else f.ref },
         )
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Nouveau site", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(name, { name = it }, label = { Text("Nom du site") }, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = onCancel) { Text("← Retour") }
+                Spacer(Modifier.width(8.dp))
+                Text("Nouveau site", style = MaterialTheme.typography.titleLarge)
+            }
+            OutlinedTextField(
+                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
+            )
             HorizontalDivider()
             Text("1. Rechercher (Nominatim/OSM) ou saisir des coordonnées, ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             Row {
@@ -111,7 +121,7 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
                     scope.launch {
                         try { results = withContext(Dispatchers.IO) { OsmClient.search(query) }; if (results.isEmpty()) status = "Aucun résultat." }
                         catch (e: Exception) { status = "Recherche impossible (réseau ?) : ${e.message}. Utilisez des coordonnées ou la carte." }
-                        busy = false
+                        finally { busy = false }
                     }
                 }) { Text("Chercher") }
             }
@@ -142,7 +152,7 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
                             val counts = osm!!.features.groupingBy { it.category }.eachCount()
                             status = "OSM : ${osm!!.features.size} objets $counts. Touchez un bâtiment pour le sélectionner. Les contours OSM peuvent être absents ou imprécis."
                         } catch (e: Exception) { status = "Overpass indisponible : ${e.message}. Le site peut être créé sans données OSM." }
-                        busy = false
+                        finally { busy = false }
                     }
                 }) { Text("Récupérer") }
             }
@@ -150,17 +160,19 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             HorizontalDivider()
             Row {
-                Button(enabled = origin != null && name.isNotBlank(), onClick = {
+                // Enabled as soon as an origin exists, whatever the state of the OSM request.
+                Button(enabled = origin != null, onClick = {
                     val o = origin!!
+                    val siteName = name.trim().ifEmpty { "Site " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) }
                     onSave(Site(
-                        id = Ids.new("site"), name = name.trim(), origin = o, originSource = originSource, createdUtcMs = System.currentTimeMillis(),
+                        id = Ids.new("site"), name = siteName, origin = o, originSource = originSource, createdUtcMs = System.currentTimeMillis(),
                         crs = listOf(
                             app.lumisite.core.geo.CrsInfo("EPSG:4326", "GEOGRAPHIC", "WGS84 lat/lon degrees", axes = listOf("lat", "lon"), units = "deg"),
                             LocalTangentPlane(o).crsInfo(),
                         ),
                         osm = osm, selectedBuildingOsmRef = selected,
                     ))
-                }) { Text("Créer le site") }
+                }) { Text(if (osm == null) "Créer sans données OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = onCancel) { Text("Annuler") }
             }
@@ -170,26 +182,25 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
 
 @Composable
 fun SiteScreen(site: Site, sessions: List<SessionHeader>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
     Row(Modifier.fillMaxSize()) {
         OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, MapContent(origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef), onTap = {})
-        Column(Modifier.weight(0.4f).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(site.name, style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = onBack) { Text("← Retour") }
+                Spacer(Modifier.width(8.dp))
+                Text(site.name, style = MaterialTheme.typography.titleLarge)
+            }
             Text("Origine %.7f, %.7f (%s)".format(site.origin.lat, site.origin.lon, site.originSource), style = MaterialTheme.typography.bodySmall)
             Text(site.osm?.let { "OSM : ${it.features.size} objets, récupérés le ${fmtTime(it.retrievedUtcMs)} (${it.license})" } ?: "Pas de données OSM (site défini manuellement)", style = MaterialTheme.typography.bodySmall)
             Text("Plans importés : ${site.plans.size} (import prévu dans une tranche ultérieure)", style = MaterialTheme.typography.bodySmall)
-            Row {
-                Button(onClick = onNewSession) { Text("Nouvelle session terrain") }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = onBack) { Text("Retour") }
-            }
+            Button(onClick = onNewSession) { Text("Nouvelle session terrain") }
             HorizontalDivider()
             Text("Sessions", style = MaterialTheme.typography.titleMedium)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(sessions) { h ->
-                    Card(Modifier.fillMaxWidth().clickable { onResume(h) }) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text(h.name); Text("${h.id} · ${h.device.model} · reprendre / exporter", style = MaterialTheme.typography.bodySmall)
-                        }
+            sessions.forEach { h ->
+                Card(Modifier.fillMaxWidth().clickable { onResume(h) }) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(h.name); Text("${h.id} · ${h.device.model} · reprendre / exporter", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

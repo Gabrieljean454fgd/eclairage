@@ -315,9 +315,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
-        val est = if (pose != null && seg != null) seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
+        val aim = if (pose != null && seg != null) ar.aim.value else null
+        if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
+        val hit = aim as? app.lumisite.core.compute.AimResult.Hit
+        val est = if (pose != null && seg != null) hit?.let { app.lumisite.core.compute.Aim.toSite(it.point, seg.transform) }
+            ?: seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
         if (manual == null && est == null) { fail(NO_POSITION); return false }
-        val source = if (manual != null) "MANUAL_MAP" else "AR_POSE"
+        val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
+        if (manual == null && hit != null && hit.source != "ESTIMATED") ar.lastObjectY = hit.point.y
         val e = SurveyEvent(
             id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
@@ -447,6 +452,12 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         journal.flushAll()
         return if (localIdx != null) ids.size else 0
+    }
+
+    /** Calibration label shown on the camera image: residual (m) and measured scale of the last calibration. */
+    fun calibrationLabel(): String {
+        val cal = _state.value.events.filterIsInstance<CalibrationEvent>().lastOrNull() ?: return "Non calibré"
+        return "Calibré · résidu %.2f m%s".format(cal.residualM ?: 0.0, cal.measuredScale?.let { " · échelle %.3f".format(it) } ?: "")
     }
 
     fun syncEvents() = _state.value.events.filterIsInstance<SyncEvent>()

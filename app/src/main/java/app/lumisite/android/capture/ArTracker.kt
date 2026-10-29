@@ -13,6 +13,16 @@ import app.lumisite.core.model.TrackingState
 import app.lumisite.core.time.StampFactory
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
+import com.google.ar.core.CameraConfig
+import com.google.ar.core.CameraConfigFilter
+import com.google.ar.core.LightEstimate
+import com.google.ar.core.Plane
+import com.google.ar.core.Pose
+import app.lumisite.core.compute.Aim
+import app.lumisite.core.compute.AimResult
+import app.lumisite.core.compute.V3
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.EnumSet
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Frame
 import com.google.ar.core.Session
@@ -43,6 +53,19 @@ class ArTracker(
     private var viewportW = 0; private var viewportH = 0; private var viewportChanged = false
     private val bg = BackgroundRenderer()
 
+    /** Aim from the camera centre, recomputed every frame on the GL thread (lot 10). */
+    val aim = MutableStateFlow<AimResult?>(null)
+    val planeCount = MutableStateFlow(0)
+    val torchOn = MutableStateFlow(false)
+    /** Height (session frame) of the last object placed by aiming: second level of the aim fallback chain. */
+    @Volatile var lastObjectY: Double? = null
+    @Volatile var configNote: String = ""; private set
+    @Volatile private var pendingTorch: Boolean? = null
+    private var autoTorchChecked = false
+
+    /** Torch on/off; applied on the GL thread. Turned off when the session pauses (never permanent). */
+    fun setTorch(on: Boolean) { pendingTorch = on }
+
     companion object {
         fun availability(ctx: Context): ArCoreApk.Availability = ArCoreApk.getInstance().checkAvailability(ctx)
 
@@ -56,13 +79,22 @@ class ArTracker(
         if (session != null) return true
         return try {
             val s = Session(ctx)
+            // 30 fps, no depth sensor, largest image size first.
+            runCatching {
+                val filter = CameraConfigFilter(s)
+                    .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_30))
+                    .setDepthSensorUsage(EnumSet.of(CameraConfig.DepthSensorUsage.DO_NOT_USE))
+                s.getSupportedCameraConfigs(filter).maxByOrNull { it.imageSize.width * it.imageSize.height }?.let { s.cameraConfig = it }
+            }
             val cfg = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
-                planeFindingMode = Config.PlaneFindingMode.DISABLED
-                lightEstimationMode = Config.LightEstimationMode.DISABLED
+                planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+                lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+                depthMode = Config.DepthMode.DISABLED
             }
             s.configure(cfg)
+            configNote = "caméra ${s.cameraConfig.imageSize.width}×${s.cameraConfig.imageSize.height}, profondeur ${s.config.depthMode}"
             session = s; lastError = null; true
         } catch (e: Exception) {
             lastError = "${e.javaClass.simpleName}: ${e.message}"; false
@@ -77,7 +109,7 @@ class ArTracker(
         try { session?.resume() } catch (e: Exception) { lastError = "resume: ${e.message}" }
     }
 
-    fun pause() { try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" } }
+    fun pause() { torchOn.value = false; try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" } }
 
     /** Call only once the GLSurfaceView is paused (no concurrent onDrawFrame). Never throws. */
     fun close() {
@@ -97,6 +129,31 @@ class ArTracker(
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
         viewportW = width; viewportH = height; viewportChanged = true
+    }
+
+    private fun applyTorch(s: Session) {
+        val want = pendingTorch ?: return
+        pendingTorch = null
+        applyTorchInternal(s, want); torchOn.value = want
+    }
+
+    private fun updateAim(s: Session, frame: Frame, state: TrackingState) {
+        val cam = frame.camera
+        if (!autoTorchChecked && state == TrackingState.TRACKING) { autoTorchChecked = true; if (lowLight(frame)) pendingTorch = true }
+        if (state != TrackingState.TRACKING) { aim.value = AimResult.NoTarget; return }
+        val planes = s.getAllTrackables(Plane::class.java).filter {
+            it.trackingState == com.google.ar.core.TrackingState.TRACKING && it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && it.subsumedBy == null
+        }
+        planeCount.value = planes.size
+        val ap = planes.map { pl ->
+            val c = pl.centerPose
+            Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), Aim.UP, "AR_PLANE") { p ->
+                pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
+            }
+        }
+        val p = cam.pose
+        val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
+        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true)
     }
 
     @Suppress("DEPRECATION")
@@ -134,11 +191,26 @@ class ArTracker(
                 state, null,
             )
         } else null
+        runCatching { applyTorch(s) }
+        runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
         onFrame(pose, state, reason)
     }
 }
 
 /** Minimal external-OES camera background renderer (adapted from the ARCore samples, Apache-2.0). */
+private fun ArTracker.lowLight(frame: Frame): Boolean {
+    val le = frame.lightEstimate
+    if (le.state != LightEstimate.State.VALID) return false
+    val i = le.environmentalHdrMainLightIntensity
+    return 0.2126 * i[0] + 0.7152 * i[1] + 0.0722 * i[2] < 0.15 // threshold to tune on site
+}
+
+private fun ArTracker.applyTorchInternal(s: Session, on: Boolean) {
+    val c = s.config
+    c.flashMode = if (on) Config.FlashMode.TORCH else Config.FlashMode.OFF
+    s.configure(c)
+}
+
 private class BackgroundRenderer {
     var textureId = -1; private set
     private var program = 0

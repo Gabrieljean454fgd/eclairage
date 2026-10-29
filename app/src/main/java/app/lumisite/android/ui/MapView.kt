@@ -147,8 +147,10 @@ fun OsmMap(
         val apply = { map.controller.setZoom(zoom); map.controller.setCenter(c) }
         if (map.isLayoutOccurred) map.post { apply() } else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
     }
+    val tone = LocalMapTone.current
     Box(modifier.clipToBounds()) {
     AndroidView(factory = { map }, modifier = Modifier.fillMaxSize(), update = { mv ->
+        mv.overlayManager.tilesOverlay.setColorFilter(MapFilters.of(tone))
         mv.overlays.clear()
         mv.overlays += MapEventsOverlay(object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { onTap(LatLon(p.latitude, p.longitude)); return true }
@@ -228,7 +230,8 @@ fun OsmMap(
         mv.overlays += CopyrightOverlay(ctx).apply { setTextSize(12) }
         mv.invalidate()
     })
-    if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red)
+    if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red,
+        style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(androidx.compose.ui.graphics.Color.White, blurRadius = 6f)))
     widthM?.let {
         Text(if (it < 100) "largeur visible : %.1f m".format(it) else "largeur visible : %.0f m".format(it),
             Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 28.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(4.dp),

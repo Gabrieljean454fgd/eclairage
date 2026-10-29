@@ -206,6 +206,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TrackingBanner(st.tracking, st.trackingReason)
                 Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
+                ThemeToggle(activity)
                 if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
             }
             if (arReady) {

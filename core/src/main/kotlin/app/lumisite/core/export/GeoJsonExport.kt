@@ -123,7 +123,7 @@ object GeoJsonFeatures {
         val geom = when {
             op == "delete" || ring.isEmpty() -> JsonNull
             s.geometryType == "point" || ring.size == 1 -> buildJsonObject { put("type", "Point"); put("coordinates", ll(ring[0])) }
-            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(ring.map(::ll))) }) }
+            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(ring.map(::ll))); s.holes.orEmpty().forEach { h -> add(JsonArray(h.map(::ll))) } }) }
             else -> buildJsonObject { put("type", "LineString"); put("coordinates", JsonArray(ring.map(::ll))) }
         }
         return buildJsonObject {
@@ -136,6 +136,7 @@ object GeoJsonFeatures {
                     s.radiusM?.let { put("radius_m", r(it, 3)) }
                 })
                 s.label?.let { put("label", it) }; s.comment?.let { put("note", it) }; s.annotationType?.let { put("annotation_type", it) }
+                if (s.kind == "zone") { put("zone_id", s.id); s.zoneKind?.let { put("zone_kind", it) }; s.parentZoneId?.let { put("parent_zone_id", it) }; s.source?.let { put("source", it) } }
                 put("style", buildJsonObject { put("stroke", s.style.stroke); put("fill", s.style.fill); put("width_dp", s.style.widthDp); put("opacity", s.style.opacity) })
                 s.attachedTo?.let { put("attached_to", it) }
                 put("time", buildJsonObject { put("captured_utc", Instant.ofEpochMilli(s.t.utcEpochMs).toString()); put("device_monotonic_ns", s.t.monotonicNs) })

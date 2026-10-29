@@ -365,7 +365,12 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     fun addShape(kind: String, geometryType: String, points: List<Enu>, radiusM: Double? = null, label: String? = null,
                  comment: String? = null, annotationType: String? = null, style: ShapeStyle = ShapeStyle()): String {
-        val e = ShapeEvent(Ids.new("shp"), stamps.now(), kind, geometryType, points, radiusM, label, comment, annotationType, style)
+        if (kind == "zone" && app.lumisite.core.survey.Zones.selfIntersects(points)) {
+            _state.update { it.copy(message = "Zone refusée : le polygone se recoupe. Retracez-le.") }
+            return ""
+        }
+        val e = ShapeEvent(Ids.new("shp"), stamps.now(), kind, geometryType, points, radiusM, label, comment, annotationType, style,
+            zoneKind = if (kind == "zone") "ARCHITECTURAL" else null, source = if (kind == "zone") "MANUAL_MAP" else null)
         record(e, "${if (kind == "annotation") annotationType ?: "Annotation" else "Forme"} enregistrée."); undoStack.addLast(e.id)
         return e.id
     }

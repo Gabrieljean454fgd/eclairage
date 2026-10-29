@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import app.lumisite.core.compute.CorrectedPoint
 import app.lumisite.core.geo.LatLon
+import app.lumisite.core.model.BBox
 import app.lumisite.core.model.OsmFeature
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -41,6 +42,8 @@ data class MapContent(
     val headingSector: List<LatLon> = emptyList(),
     /** When set, the map keeps this point centred ("Suivre"). */
     val follow: LatLon? = null,
+    /** Site rectangle (bbox), drawn as a dashed frame. */
+    val rect: BBox? = null,
 )
 
 private fun gp(p: LatLon) = GeoPoint(p.lat, p.lon)
@@ -86,6 +89,7 @@ fun OsmMap(
                 val sel = f.ref == content.selectedFeatureRef
                 mv.overlays += Polygon(mv).apply {
                     points = f.geometry.map(::gp)
+                    holes = f.holes.map { r -> r.map(::gp) }
                     fillPaint.color = if (sel) Color.argb(90, 255, 160, 0) else Color.argb(40, 60, 90, 200)
                     outlinePaint.color = if (sel) Color.rgb(230, 120, 0) else Color.rgb(60, 90, 200)
                     outlinePaint.strokeWidth = if (sel) 5f else 2f
@@ -100,6 +104,19 @@ fun OsmMap(
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     icon = dot(mv, if (f.category == "street_lamp") Color.rgb(250, 200, 0) else Color.rgb(120, 120, 120), 14)
                 }
+            }
+        }
+        content.features.forEach { f ->
+            if (f.category == "building") f.outers.forEach { r ->
+                mv.overlays += Polygon(mv).apply { points = r.map(::gp); fillPaint.color = Color.argb(40, 60, 90, 200); outlinePaint.color = Color.rgb(60, 90, 200); outlinePaint.strokeWidth = 2f }
+            }
+        }
+        content.rect?.let { b ->
+            mv.overlays += Polyline(mv).apply {
+                setPoints(listOf(GeoPoint(b.south, b.west), GeoPoint(b.south, b.east), GeoPoint(b.north, b.east), GeoPoint(b.north, b.west), GeoPoint(b.south, b.west)))
+                outlinePaint.color = Color.rgb(220, 0, 120); outlinePaint.strokeWidth = 4f
+                outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(16f, 10f), 0f)
+                title = "Rectangle du site"
             }
         }
         content.uncorrected.forEach { seg ->

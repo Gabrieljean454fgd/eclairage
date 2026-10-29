@@ -14,6 +14,7 @@ import app.lumisite.android.data.Repository
 import app.lumisite.android.ui.HomeScreen
 import app.lumisite.android.ui.SessionScreen
 import app.lumisite.android.ui.SiteEditorScreen
+import app.lumisite.android.data.RecentZone
 import app.lumisite.android.ui.SiteScreen
 import org.osmdroid.config.Configuration
 import java.io.File
@@ -40,7 +41,12 @@ class MainActivity : ComponentActivity() {
                     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
                     when (val s = screen) {
                         Screen.Home -> HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite })
-                        Screen.NewSite -> SiteEditorScreen(onSave = { repo.saveSite(it); screen = Screen.SiteDetail(it.id) }, onCancel = { screen = Screen.Home })
+                        Screen.NewSite -> SiteEditorScreen(repo.recentZones(), onSave = { site, fetched ->
+                            repo.saveSite(site)
+                            fetched?.let { runCatching { repo.saveOsmSource(site.id, it.snapshot.retrievedUtcMs, it.snapshot.endpoint, it.raw) } }
+                            site.bbox?.let { repo.addRecentZone(RecentZone(site.name, it)) }
+                            screen = Screen.SiteDetail(site.id)
+                        }, onCancel = { screen = Screen.Home })
                         is Screen.SiteDetail -> {
                             val site = repo.site(s.siteId)
                             if (site == null) screen = Screen.Home else SiteScreen(

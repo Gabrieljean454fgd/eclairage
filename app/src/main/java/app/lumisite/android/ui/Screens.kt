@@ -275,7 +275,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
             origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef,
             rect = site.bbox ?: site.osm?.bbox,
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },
-        ), onTap = {})
+        ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onBack) { Text("← Retour") }

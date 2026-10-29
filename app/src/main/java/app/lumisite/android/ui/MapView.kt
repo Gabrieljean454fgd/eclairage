@@ -14,7 +14,36 @@ import app.lumisite.core.geo.LatLon
 import app.lumisite.core.model.BBox
 import app.lumisite.core.model.OsmFeature
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import android.os.Build
+import android.view.MotionEvent
+import android.widget.Magnifier
+import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.lumisite.core.map.Basemap
+import app.lumisite.core.map.TileMath
+import app.lumisite.core.map.ZoneDownload
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
+import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.cachemanager.CacheManager
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.CopyrightOverlay
@@ -58,18 +87,58 @@ fun OsmMap(
     onTap: (LatLon) -> Unit,
     onFeatureTap: ((OsmFeature) -> Unit)? = null,
     onPointTap: ((String) -> Unit)? = null,
+    /** Site rectangle: tiles are cached only inside it, and "Télécharger la zone" downloads it. */
+    siteBbox: BBox? = null,
+    /** Central cross: the map is moved under it (placement aid). */
+    reticle: Boolean = false,
+    onViewport: ((center: LatLon, widthM: Double) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
+    val basemap = MapPrefs.basemap
+    var widthM by remember { mutableStateOf<Double?>(null) }
+    var menu by remember { mutableStateOf(false) }
     val map = remember {
         MapView(ctx).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(zoom)
             controller.setCenter(gp(center))
-            minZoomLevel = 3.0; maxZoomLevel = 21.0
+            // Over-zoom up to 26: tiles are never requested above the source's native zoom, osmdroid scales lower ones.
+            minZoomLevel = 3.0; maxZoomLevel = Basemap.MAX_ZOOM
+            isTilesScaledToDpi = false
         }
     }
-    val holder = remember { arrayOf<Any?>(null) }
+    val holder = remember { arrayOf<Any?>(null, null) }
+    if (holder[1] != basemap) {
+        holder[1] = basemap
+        val src = tileSourceFor(basemap)
+        map.setTileProvider(MapTileProviderBasic(ctx.applicationContext, src, SiteTileCache(basemap, siteBbox)))
+        map.setTileSource(src)
+    }
+    (map.tileProvider.tileWriter as? SiteTileCache)?.bbox = siteBbox
+    DisposableEffect(Unit) {
+        val l = object : MapListener {
+            fun report(): Boolean {
+                val bb = map.boundingBox
+                val w = TileMath.widthM(bb.centerLatitude, bb.longitudeSpanWithDateLine)
+                widthM = w
+                onViewport?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), w)
+                return false
+            }
+            override fun onScroll(event: ScrollEvent?) = report()
+            override fun onZoom(event: ZoomEvent?) = report()
+        }
+        map.addMapListener(l)
+        val magnifier = if (Build.VERSION.SDK_INT >= 28) Magnifier.Builder(map).setSize(300, 200).setInitialZoom(2f).build() else null
+        map.setOnTouchListener { _, e ->
+            // Magnifier above the finger while placing at room scale (zoom ≥ 20).
+            if (magnifier != null && Build.VERSION.SDK_INT >= 28 && map.zoomLevelDouble >= 20.0 && e.pointerCount == 1) when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> magnifier.show(e.x, e.y)
+                else -> magnifier.dismiss()
+            } else if (magnifier != null && Build.VERSION.SDK_INT >= 28) magnifier.dismiss()
+            false
+        }
+        onDispose { map.removeMapListener(l) }
+    }
     DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
     if (holder[0] != recenterKey) {
         holder[0] = recenterKey
@@ -78,7 +147,8 @@ fun OsmMap(
         val apply = { map.controller.setZoom(zoom); map.controller.setCenter(c) }
         if (map.isLayoutOccurred) map.post { apply() } else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
     }
-    AndroidView(factory = { map }, modifier = modifier.clipToBounds(), update = { mv ->
+    Box(modifier.clipToBounds()) {
+    AndroidView(factory = { map }, modifier = Modifier.fillMaxSize(), update = { mv ->
         mv.overlays.clear()
         mv.overlays += MapEventsOverlay(object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { onTap(LatLon(p.latitude, p.longitude)); return true }
@@ -158,6 +228,55 @@ fun OsmMap(
         mv.overlays += CopyrightOverlay(ctx).apply { setTextSize(12) }
         mv.invalidate()
     })
+    if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red)
+    widthM?.let {
+        Text(if (it < 100) "largeur visible : %.1f m".format(it) else "largeur visible : %.0f m".format(it),
+            Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 28.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(4.dp),
+            style = MaterialTheme.typography.labelSmall)
+    }
+    Box(Modifier.align(Alignment.TopEnd).padding(6.dp)) {
+        OutlinedButton(onClick = { menu = true }, modifier = Modifier.background(androidx.compose.ui.graphics.Color(0xCCFFFFFF))) { Text("Fond : ${basemap.label}") }
+        DropdownMenu(menu, { menu = false }) {
+            Basemap.entries.forEach { b ->
+                val ok = b != Basemap.ESRI || MapPrefs.esriAccepted
+                DropdownMenuItem(
+                    text = { Text((if (b == basemap) "✓ " else "") + b.label + (if (!ok) " (conditions Esri non acceptées)" else "")) },
+                    enabled = ok, onClick = { MapPrefs.basemap = b; MapPrefs.save(ctx); menu = false },
+                )
+            }
+            DropdownMenuItem(
+                text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.esriAccepted, null); Text("Le projet accepte les conditions Esri") } },
+                onClick = {
+                    MapPrefs.esriAccepted = !MapPrefs.esriAccepted
+                    if (!MapPrefs.esriAccepted && MapPrefs.basemap == Basemap.ESRI) MapPrefs.basemap = Basemap.OSM
+                    MapPrefs.save(ctx)
+                },
+            )
+            if (siteBbox != null) DropdownMenuItem(
+                text = { Text(when {
+                    basemap.bulkAllowed -> "Télécharger la zone (${basemap.label})"
+                    basemap == Basemap.OSM -> "OSM : pas de téléchargement en masse (règles OSM) ; la zone se met en cache en la consultant"
+                    else -> "${basemap.label} : en ligne seulement, aucun cache"
+                }) },
+                enabled = basemap.bulkAllowed,
+                onClick = { menu = false; downloadZone(map, basemap, siteBbox) },
+            )
+        }
+    }
+    }
+}
+
+private fun downloadZone(mv: MapView, basemap: Basemap, b: BBox) {
+    val ctx = mv.context
+    val zMax = TileMath.maxZoomUnder(b, ZoneDownload.Z_MIN, basemap.nativeMaxZoom, ZoneDownload.MAX_TILES)
+    if (zMax == null) { Toast.makeText(ctx, "Zone trop grande pour le téléchargement (plus de ${ZoneDownload.MAX_TILES} tuiles).", Toast.LENGTH_LONG).show(); return }
+    val n = TileMath.count(b, ZoneDownload.Z_MIN, zMax)
+    try {
+        CacheManager(mv).downloadAreaAsync(ctx, BoundingBox(b.north, b.east, b.south, b.west), ZoneDownload.Z_MIN, zMax)
+        Toast.makeText(ctx, "Téléchargement de $n tuiles (zooms ${ZoneDownload.Z_MIN} à $zMax)…", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(ctx, "Téléchargement impossible : ${e.message}", Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun dot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {

@@ -87,6 +87,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(Mode.NONE) }
     var picked by remember { mutableStateOf<LatLon?>(null) }
+    var mapCenter by remember { mutableStateOf<LatLon?>(c.site.origin) }
     var arReady by remember { mutableStateOf(false) }
     var arAvail by remember { mutableStateOf<ArCoreApk.Availability?>(null) }
     var perms by remember { mutableStateOf(false) }
@@ -179,7 +180,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 ),
                 onTap = { picked = it },
                 onPointTap = { id -> selectedSurvey = if (selectedSurvey == id) null else id },
+                siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
+                onViewport = { ctr, _ -> mapCenter = ctr },
             )
+            OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 56.dp)) {
+                Text("Point à la croix")
+            }
             OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
                 Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
             }

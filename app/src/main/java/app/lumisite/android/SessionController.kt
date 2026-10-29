@@ -24,6 +24,8 @@ import app.lumisite.core.geo.CrsInfo
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.journal.SessionJournal
+import app.lumisite.core.export.GeoJsonSeqWriter
+import java.io.File
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.model.AudioDetection
 import app.lumisite.core.model.CalibrationEvent
@@ -158,6 +160,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         ar.close()
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
         runCatching { journal.close() }
+        runCatching { features.close() }
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }
@@ -244,9 +247,15 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         _state.update { it.copy(trajectory = splitTraj, uncorrected = split(uncorrected), currentSite = traj.lastOrNull()?.site, distanceSinceFixM = distanceSinceFix(splitTraj, seg?.fromNs)) }
     }
 
+    private val features by lazy { GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId) }
+
     private fun record(e: SessionEvent, msg: String? = null) {
         if (closed) return
         journal.event(e)
+        // GeoJSONSeq written live (fsync per object) so the exchange file survives an abrupt stop.
+        if (e is SurveyEvent) runCatching {
+            features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site)
+        }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
         _state.update { it.copy(events = it.events + e, message = msg) }
         if (e is CalibrationEvent || e is RelocalizationEvent) recompute()
     }

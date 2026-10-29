@@ -56,6 +56,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.lumisite.android.SessionController
+import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.AudioSync
 import app.lumisite.android.data.Repository
@@ -77,7 +78,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private enum class Mode { NONE, CALIBRATE, RELOCALIZE, SURVEY, SYNC, EXPORT }
+private enum class Mode { NONE, SYNC, CALIBRATE, SURVEY, RELOCALIZE, EXPORT }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -91,6 +92,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var perms by remember { mutableStateOf(false) }
     var showUncorrected by remember { mutableStateOf(true) }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
+    var selectedSurvey by remember { mutableStateOf<String?>(null) }
+    var follow by remember { mutableStateOf(false) }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms = true }
     fun granted(p: String) = ContextCompat.checkSelfPermission(activity, p) == PackageManager.PERMISSION_GRANTED
@@ -152,9 +155,17 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val relocLines = events.filterIsInstance<RelocalizationEvent>().map {
         MapLine(c.ltp.toLatLon(it.estimatedBefore), c.ltp.toLatLon(it.correctedAfter), android.graphics.Color.RED, "Recalage %.2f m".format(it.deltaM))
     }
-    val surveyPts = events.filterIsInstance<SurveyEvent>().mapNotNull { s ->
-        (s.manualSite ?: s.estimatedSite)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${s.kind} ${s.note ?: ""}", android.graphics.Color.MAGENTA) }
+    val surveys = SurveyPositions.resolveAll(events)
+    val surveyPts = surveys.mapNotNull { r ->
+        r.site?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
     }
+    val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
+    val heading = c.currentHeadingDeg()
+    val sector = if (st.currentSite != null && heading != null) {
+        val o = st.currentSite!!
+        fun at(deg: Double, r: Double) = Math.toRadians(deg).let { c.ltp.toLatLon(Enu(o.e + r * kotlin.math.sin(it), o.n + r * kotlin.math.cos(it), 0.0)) }
+        listOf(c.ltp.toLatLon(o.copy(u = 0.0)), at(heading - 25, 3.0), at(heading, 3.5), at(heading + 25, 3.0))
+    } else emptyList()
 
     val map: @Composable (Modifier) -> Unit = { m ->
         Box(m) {
@@ -163,10 +174,15 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
                     trajectory = st.trajectory, uncorrected = if (showUncorrected) st.uncorrected else emptyList(),
-                    lines = relocLines, points = surveyPts, current = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }, picked = picked,
+                    lines = relocLines, points = surveyPts, current = currentLl, picked = picked,
+                    headingSector = sector, follow = if (follow) currentLl else null,
                 ),
                 onTap = { picked = it },
+                onPointTap = { id -> selectedSurvey = if (selectedSurvey == id) null else id },
             )
+            OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+                Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
+            }
             Text(
                 "Trajectoire estimée (vert) : non garantie. Gris pointillé : sans recalage. Rouge : corrections.",
                 Modifier.align(Alignment.TopStart).background(Color(0xCCFFFFFF)).padding(6.dp), style = MaterialTheme.typography.labelSmall,
@@ -225,6 +241,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(showUncorrected, { showUncorrected = it }); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
             }
+            surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
                 Mode.CALIBRATE -> CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
@@ -313,16 +330,55 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
     Button(onClick = { ref("Recalage")?.let { c.relocalize(it, headingCorr.replace(',', '.').toDoubleOrNull(), note.ifBlank { null }) } }) { Text("Je suis ici : recaler") }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }) }
+    }
+}
+
 @Composable
 private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: Boolean, ref: (String) -> ReferencePoint?) {
-    var kind by remember { mutableStateOf("LUMINAIRE") }
+    var family by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING) }
-    Text("Relevé : associé à la position estimée courante et à l'heure.", style = MaterialTheme.typography.labelLarge)
-    Row { listOf("LUMINAIRE", "MESURE", "OBSERVATION", "AUTRE").forEach { k -> FilterChip(kind == k, { kind = k }, { Text(k) }); Spacer(Modifier.width(4.dp)) } }
-    OutlinedTextField(note, { note = it }, label = { Text("Note (facultative)") })
+    Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
+    FamilyGrid(c, family) { family = it }
+    OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") })
     Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { useMap = it }); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
-    Button(enabled = !useMap || hasPick, onClick = { c.survey(kind, note, if (useMap) ref("Relevé") else null); note = "" }) { Text("Enregistrer le relevé") }
+    Button(enabled = family != null && (!useMap || hasPick), onClick = {
+        val manual = if (useMap) ref("Relevé") else null
+        if (!useMap || manual != null) { if (c.survey(family!!, note, manual)) note = "" }
+    }) { Text("Enregistrer le relevé") }
+}
+
+@Composable
+private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, onDone: () -> Unit) {
+    var note by remember(r.event.id) { mutableStateOf(r.event.note ?: "") }
+    var changeFamily by remember(r.event.id) { mutableStateOf(false) }
+    val site = r.site
+    Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Relevé sélectionné : ${r.event.kind}" + (site?.let { " · E %.2f, N %.2f m".format(it.e, it.n) } ?: ""), style = MaterialTheme.typography.labelLarge)
+        if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            listOf(0.1, 0.5).forEach { d ->
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }) { Text("N +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d)) }) { Text("N −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d)) }) { Text("E +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d)) }) { Text("E −$d") }
+            }
+        }
+        OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }) {
+            Text("Déplacer au point touché sur la carte")
+        }
+        OutlinedTextField(note, { note = it }, label = { Text("Commentaire") })
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button({ c.editSurvey(r.event.id, note = note); onDone() }) { Text("Enregistrer") }
+            OutlinedButton({ changeFamily = !changeFamily }) { Text("Changer de famille") }
+            OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }) { Text("Supprimer", color = Color.Red) }
+        }
+        if (changeFamily) FamilyGrid(c, r.event.kind) { c.editSurvey(r.event.id, familyId = it); onDone() }
+    }
 }
 
 @Composable

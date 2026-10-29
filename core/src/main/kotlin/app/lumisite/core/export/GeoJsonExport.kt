@@ -13,6 +13,7 @@ import app.lumisite.core.model.CalibrationEvent
 import app.lumisite.core.model.RelocalizationEvent
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.SessionStopped
+import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.model.Site
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
@@ -94,11 +95,51 @@ object GeoJsonFeatures {
     fun lines(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String): List<JsonObject> {
         val timeline = TrajectoryCorrector.timeline(events)
         val root = HashMap<String, String>(); val rev = HashMap<String, Int>()
-        return events.filterIsInstance<SurveyEvent>().map { s ->
-            val id = s.supersedes?.let { root[it] ?: it } ?: s.id
-            root[s.id] = id
+        return events.mapNotNull { e ->
+            val (eid, sup) = when (e) { is SurveyEvent -> e.id to e.supersedes; is ShapeEvent -> e.id to e.supersedes; else -> return@mapNotNull null }
+            val id = sup?.let { root[it] ?: it } ?: eid
+            root[eid] = id
             val n = (rev[id] ?: 0) + 1; rev[id] = n
-            feature(s, SurveyPositions.resolve(s, timeline).site, ltp, id, n, deviceId, sessionId)
+            when (e) {
+                is SurveyEvent -> feature(e, SurveyPositions.resolve(e, timeline).site, ltp, id, n, deviceId, sessionId)
+                is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId)
+                else -> null
+            }
+        }
+    }
+
+    /** Shape / annotation / zone Feature: WGS84 geometry plus the same geometry in site metres (properties.local). */
+    fun shape(s: ShapeEvent, ltp: LocalTangentPlane, featureId: String, rev: Int, deviceId: String, sessionId: String): JsonObject {
+        val op = when { s.deleted == true -> "delete"; s.supersedes != null -> "update"; else -> "create" }
+        fun ll(p: Enu) = ltp.toLatLon(p.copy(u = 0.0)).let { buildJsonArray { add(JsonPrimitive(r(it.lon, 8))); add(JsonPrimitive(r(it.lat, 8))) } }
+        val ring = when (s.geometryType) {
+            "rectangle" -> if (s.points.size >= 2) s.points[0].let { a -> s.points[1].let { b -> listOf(a, Enu(b.e, a.n, 0.0), b, Enu(a.e, b.n, 0.0), a) } } else s.points
+            "circle" -> s.points.firstOrNull()?.let { c -> (0..32).map { i -> val t = 2 * Math.PI * i / 32; Enu(c.e + (s.radiusM ?: 1.0) * Math.cos(t), c.n + (s.radiusM ?: 1.0) * Math.sin(t), 0.0) } } ?: emptyList()
+            "polygon" -> if (s.points.isNotEmpty()) s.points + s.points.first() else s.points
+            else -> s.points
+        }
+        val geom = when {
+            op == "delete" || ring.isEmpty() -> JsonNull
+            s.geometryType == "point" || ring.size == 1 -> buildJsonObject { put("type", "Point"); put("coordinates", ll(ring[0])) }
+            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(ring.map(::ll))) }) }
+            else -> buildJsonObject { put("type", "LineString"); put("coordinates", JsonArray(ring.map(::ll))) }
+        }
+        return buildJsonObject {
+            put("type", "Feature"); put("id", featureId); put("geometry", geom)
+            put("properties", buildJsonObject {
+                put("rev", rev); put("op", op); put("kind", s.kind); put("shape", s.geometryType)
+                put("local", buildJsonObject {
+                    put("frame_id", FRAME_ID)
+                    put("points", JsonArray(s.points.map { p -> buildJsonArray { add(JsonPrimitive(r(p.e, 3))); add(JsonPrimitive(r(p.n, 3))); add(JsonPrimitive(r(p.u, 3))) } }))
+                    s.radiusM?.let { put("radius_m", r(it, 3)) }
+                })
+                s.label?.let { put("label", it) }; s.comment?.let { put("note", it) }; s.annotationType?.let { put("annotation_type", it) }
+                put("style", buildJsonObject { put("stroke", s.style.stroke); put("fill", s.style.fill); put("width_dp", s.style.widthDp); put("opacity", s.style.opacity) })
+                s.attachedTo?.let { put("attached_to", it) }
+                put("time", buildJsonObject { put("captured_utc", Instant.ofEpochMilli(s.t.utcEpochMs).toString()); put("device_monotonic_ns", s.t.monotonicNs) })
+                put("device_id", deviceId); put("session_id", sessionId); put("event_id", s.id)
+                s.supersedes?.let { put("supersedes", it) }
+            })
         }
     }
 }
@@ -123,6 +164,14 @@ class GeoJsonSeqWriter(val file: File, private val ltp: LocalTangentPlane, priva
             }
         }
         out = FileOutputStream(file, true)
+    }
+
+    @Synchronized fun appendShape(s: ShapeEvent) {
+        val id = s.supersedes?.let { root[it] ?: it } ?: s.id
+        root[s.id] = id
+        val n = (rev[id] ?: 0) + 1; rev[id] = n
+        out.write((GeoJsonFeatures.shape(s, ltp, id, n, deviceId, sessionId).toString() + "\n").toByteArray(Charsets.UTF_8))
+        out.flush(); out.fd.sync()
     }
 
     @Synchronized fun append(s: SurveyEvent, site: Enu?) {

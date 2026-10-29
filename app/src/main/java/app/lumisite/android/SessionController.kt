@@ -5,6 +5,13 @@ import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.GpsRecorder
 import app.lumisite.android.capture.SensorRecorder
 import app.lumisite.android.data.AndroidClock
+import app.lumisite.android.data.CatalogStore
+import app.lumisite.core.catalog.CatalogEntry
+import app.lumisite.core.catalog.EquipmentCatalog
+import app.lumisite.core.compute.SurveyPositions
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import app.lumisite.android.data.DeviceInfo
 import app.lumisite.android.data.Ids
 import app.lumisite.android.data.Repository
@@ -71,6 +78,8 @@ data class LiveState(
  * Orchestrates capture for one field session: journal (append-only, local), AR poses, IMU, GPS, and the
  * user events (calibration, relocalization, survey, sync). Business rules live in :core.
  */
+const val NO_POSITION = "Suivi ou calibration manquant : touchez la carte ou cochez la position manuelle."
+
 class SessionController(private val ctx: Context, private val repo: Repository, val site: Site, val sessionId: String, resume: Boolean) {
     val ltp = LocalTangentPlane(site.origin)
     private val _state = MutableStateFlow(LiveState())
@@ -277,18 +286,62 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         record(e, "Recalage : écart estimé/recalé = %.2f m.".format(e.deltaM))
     }
 
-    fun survey(kind: String, note: String?, manual: ReferencePoint?) {
+    val catalog: EquipmentCatalog = CatalogStore.get(ctx)
+
+    private fun equipmentPayload(fam: CatalogEntry, details: JsonObject?) = buildJsonObject {
+        put("catalog_version", catalog.version)
+        put("block_name", fam.blockName)
+        if (details != null) put("details", details)
+    }
+
+    /** Records an equipment of the catalog. Returns false (and explains why) when no position can be computed. */
+    fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null): Boolean {
+        val fam = try { catalog.resolve(familyId) } catch (e: IllegalArgumentException) { fail(e.message ?: "Famille inconnue"); return false }
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
         val est = if (pose != null && seg != null) seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
-        val source = when { manual != null -> "MANUAL_MAP"; pose != null -> "AR_POSE"; else -> "NONE" }
+        if (manual == null && est == null) { fail(NO_POSITION); return false }
+        val source = if (manual != null) "MANUAL_MAP" else "AR_POSE"
         val e = SurveyEvent(
-            id = Ids.new("srv"), t = stamps.now(), kind = kind, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
+            id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
-            dxf = DxfHint(layer = "LUMI_${kind}", blockName = "LUMI_${kind}_GENERIC"),
+            payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
+            dxf = DxfHint(layer = fam.defaultLayer, blockName = fam.blockName),
         )
-        record(e, "Relevé $kind enregistré (${source}).")
+        record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        return true
+    }
+
+    /**
+     * Edits a record by appending a new survey event that supersedes it (journal stays append-only).
+     * [moveTo] sets a manual position; [familyId]/[note] change the family/comment; [delete] removes it.
+     */
+    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false) {
+        val events = _state.value.events
+        val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return fail("Relevé introuvable.")
+        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return fail(e.message ?: "Famille inconnue") } }
+        val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
+        val moved = moveTo != null
+        val e = old.copy(
+            id = Ids.new("srv"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null,
+            note = note?.let { it.ifBlank { null } } ?: old.note,
+            positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
+            manualSite = if (moved) pos else old.manualSite,
+            kind = fam?.blockName ?: old.kind,
+            payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
+            payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
+            dxf = if (fam != null) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else old.dxf,
+        )
+        record(e, when { delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
+    }
+
+    /** Current heading of the camera in the site frame (degrees from north, clockwise), when tracked and calibrated. */
+    fun currentHeadingDeg(): Double? {
+        val pose = trackedPose() ?: return null
+        val seg = activeSegment() ?: return null
+        val enuRad = PoseGeometry.forwardPlaneAngle(pose) + seg.transform.rotationRad
+        return ((90.0 - Math.toDegrees(enuRad)) % 360.0 + 360.0) % 360.0
     }
 
     fun syncManual(code: String) {

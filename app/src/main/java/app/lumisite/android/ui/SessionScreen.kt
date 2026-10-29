@@ -1,5 +1,8 @@
 package app.lumisite.android.ui
 
+import app.lumisite.core.survey.Details
+import app.lumisite.core.survey.Shapes
+import androidx.compose.runtime.mutableStateMapOf
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -78,7 +81,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private enum class Mode { NONE, SYNC, CALIBRATE, SURVEY, RELOCALIZE, EXPORT }
+private enum class Mode { NONE, SYNC, CALIBRATE, SURVEY, DRAW, RELOCALIZE, EXPORT }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -94,6 +97,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var showUncorrected by remember { mutableStateOf(true) }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
     var selectedSurvey by remember { mutableStateOf<String?>(null) }
+    val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms = true }
@@ -160,6 +164,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val surveyPts = surveys.mapNotNull { r ->
         r.site?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
     }
+    val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
     val heading = c.currentHeadingDeg()
     val sector = if (st.currentSite != null && heading != null) {
@@ -175,11 +180,11 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
                     trajectory = st.trajectory, uncorrected = if (showUncorrected) st.uncorrected else emptyList(),
-                    lines = relocLines, points = surveyPts, current = currentLl, picked = picked,
+                    lines = relocLines + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), current = currentLl, picked = picked,
                     headingSector = sector, follow = if (follow) currentLl else null,
                 ),
-                onTap = { picked = it },
-                onPointTap = { id -> selectedSurvey = if (selectedSurvey == id) null else id },
+                onTap = { if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) else picked = it },
+                onPointTap = { id -> if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
             )
@@ -220,7 +225,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Mode.entries.filter { it != Mode.NONE }.forEach { m ->
                     FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
-                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
+                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
                     })
                 }
             }
@@ -253,6 +258,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Mode.CALIBRATE -> CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
                 Mode.RELOCALIZE -> RelocPanel(c, pickedTxt, ::refPoint)
                 Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint)
+                Mode.DRAW -> DrawPanel(c, draw, mapCenter?.let { c.ltp.toEnu(it).copy(u = 0.0) }, selectedSurvey) { selectedSurvey = it }
                 Mode.SYNC -> SyncPanel(activity, c)
                 Mode.EXPORT -> ExportPanel(activity, repo, c)
                 Mode.NONE -> {}
@@ -350,12 +356,15 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var note by remember { mutableStateOf("") }
     var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING) }
     Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
-    FamilyGrid(c, family) { family = it }
+    FamilyQuickGrid(c, family) { family = it }
+    val details = remember { mutableStateMapOf<String, String>() }
+    DetailsForm(family, details)
     OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") })
     Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { useMap = it }); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null
-        if (!useMap || manual != null) { if (c.survey(family!!, note, manual)) note = "" }
+        val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
+        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap() } }
     }) { Text("Enregistrer le relevé") }
 }
 
@@ -365,7 +374,9 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
     var changeFamily by remember(r.event.id) { mutableStateOf(false) }
     val site = r.site
     Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Relevé sélectionné : ${r.event.kind}" + (site?.let { " · E %.2f, N %.2f m".format(it.e, it.n) } ?: ""), style = MaterialTheme.typography.labelLarge)
+        Text("Relevé sélectionné : ${r.event.kind}" + (site?.let { " · E %.2f, N %.2f m".format(it.e, it.n) } ?: "") +
+            (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        AttachmentButtons(c, r.event.id)
         if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(0.1, 0.5).forEach { d ->
                 OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }) { Text("N +$d") }

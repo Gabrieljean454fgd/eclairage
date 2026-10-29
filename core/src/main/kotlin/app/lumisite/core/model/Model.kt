@@ -275,6 +275,17 @@ data class SyncEvent(
     val eventMonotonicNs: Long,
     val detection: AudioDetection? = null,
     val notes: String? = null,
+    /** Lot 9, all optional (0.1 files stay valid): "lumisite-chirp-id/1" when an id frame follows the chirp. */
+    val protocol: String? = null,
+    /** Emitter ids (hex) recognised in this round, own id included. */
+    val heardIds: List<String>? = null,
+    /** Index (0-based, recording order) of this device's own chirp in the round, and of the peers' chirps. */
+    val localChirpIndex: Int? = null,
+    val peerChirpIndices: List<Int>? = null,
+    /** Emission counter of this device for the round. */
+    val emitCounter: Int? = null,
+    /** Human-readable round code (generated, editable, not used for matching). */
+    val label: String? = null,
 ) : SessionEvent
 
 @Serializable
@@ -293,6 +304,10 @@ data class AudioDetection(
     /** Emitter only: monotonic ns when write() of the chirp returned (not the acoustic instant). */
     val emitWriteNs: Long? = null,
     val recordingFile: String? = null,
+    /** Lot 9: decoded identification frame of the heard chirp. */
+    val emitterId: String? = null,
+    val frameCounter: Int? = null,
+    val frameChecksumOk: Boolean? = null,
 )
 
 /** Generic field survey record; [payload] is the extension point for photometry, equipment, forms. */

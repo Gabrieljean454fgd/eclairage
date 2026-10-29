@@ -9,6 +9,7 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.3")
+    testImplementation("com.networknt:json-schema-validator:1.5.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

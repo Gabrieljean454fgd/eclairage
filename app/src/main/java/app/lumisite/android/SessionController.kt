@@ -424,9 +424,29 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             "Top synchro '$code' enregistré.")
     }
 
-    fun syncAudio(code: String, role: SyncRole, eventNs: Long, det: AudioDetection, trusted: Boolean, msg: String) {
-        record(SyncEvent(Ids.new("syn"), stamps.now(), code, SyncMethod.AUDIO_CHIRP, role, eventNs, det,
-            notes = if (trusted) "experimental" else "experimental; low-confidence detection"), "Synchro audio '$code' : $msg")
+    fun ownSyncId() = app.lumisite.core.sync.IdFrame.idOf(header.device.id)
+
+    /**
+     * Records one SyncEvent per identified chirp of the round. syncCode = "AC-<emitter hex>-<counter>" is the same on
+     * every device that heard that chirp, so SyncEstimator pairs devices without any typed code (BeepBeep principle).
+     * Returns N = number of distinct emitters recognised (own included); N counts only if the own chirp was heard.
+     */
+    fun syncRound(label: String, round: app.lumisite.android.capture.AudioSync.Round, counter: Int): Int {
+        val own = "%04X".format(ownSyncId())
+        val ok = round.heard.filter { it.frameOk && it.emitterHex != null }
+        val ids = ok.map { it.emitterHex!! }.distinct()
+        val localIdx = ok.indexOfFirst { it.emitterHex == own }.takeIf { it >= 0 }
+        val peers = ok.indices.filter { it != localIdx }
+        val now = stamps.now()
+        ok.forEach { h ->
+            (SyncEvent(Ids.new("syn"), now, "AC-${h.emitterHex}-${h.counter}", SyncMethod.AUDIO_CHIRP,
+                if (h.emitterHex == own) SyncRole.EMITTER else SyncRole.RECEIVER, h.eventMonotonicNs, h.detection,
+                notes = "experimental; propagation and input latency not compensated",
+                protocol = app.lumisite.core.sync.IdFrame.PROTOCOL, heardIds = ids, localChirpIndex = localIdx,
+                peerChirpIndices = peers, emitCounter = counter, label = label.ifBlank { null }).let { record(it, "Synchro acoustique : ${ids.size} identifiant(s)") })
+        }
+        journal.flushAll()
+        return if (localIdx != null) ids.size else 0
     }
 
     fun syncEvents() = _state.value.events.filterIsInstance<SyncEvent>()

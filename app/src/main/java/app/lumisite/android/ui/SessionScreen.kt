@@ -71,6 +71,7 @@ import app.lumisite.core.model.ReferencePoint
 import app.lumisite.core.model.RelocalizationEvent
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncRole
+import androidx.compose.material3.TextButton
 import app.lumisite.core.model.TrackingState
 import app.lumisite.core.sync.DeviceSyncLog
 import app.lumisite.core.sync.SyncEstimator
@@ -426,28 +427,35 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             }
         }
     }
-    Text("Synchronisation multi-appareils : saisissez le même code sur tous les appareils pour le même événement physique.", style = MaterialTheme.typography.labelLarge)
-    OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code de synchro (ex. S1)") })
-    Button(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }) { Text("TOP manuel (appuyer au signal)") }
-    Text("Expérimental : chirp audio 2–6 kHz, 60 ms. Tous les appareils écoutent 4 s ; l'émetteur joue le chirp après 1,5 s. Délai de propagation (~2,9 ms/m) et latence audio non compensés. Un enregistrement WAV du micro est conservé dans la session.", style = MaterialTheme.typography.bodySmall)
-    Row {
-        listOf(SyncRole.EMITTER to "Émettre + écouter", SyncRole.RECEIVER to "Écouter").forEach { (role, label) ->
-            OutlinedButton(enabled = code.isNotBlank() && !busy, onClick = {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@OutlinedButton }
-                busy = true; result = "Écoute en cours…"
-                scope.launch {
-                    result = withContext(Dispatchers.IO) {
-                        try {
-                            val wav = File(c.sessionDir(), "sync_${code}_${System.currentTimeMillis()}.wav")
-                            val r = AudioSync.listen(4000, if (role == SyncRole.EMITTER) 1500 else null, wav)
-                            c.syncAudio(code, role, r.eventMonotonicNs, r.detection, r.trusted, r.message); r.message
-                        } catch (e: Exception) { "Échec audio : ${e.message}" }
-                    }
-                    busy = false
-                }
-            }) { Text(label) }
-            Spacer(Modifier.width(6.dp))
+    var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
+    var secours by remember { mutableStateOf(false) }
+    var cale by remember { mutableStateOf<Int?>(null) }
+    Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute 6 s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
+    OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true)
+    Button(enabled = !busy, onClick = {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
+        busy = true; cale = null; result = "Écoute et émission en cours…"
+        scope.launch {
+            result = withContext(Dispatchers.IO) {
+                try {
+                    val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
+                    val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
+                    prefs.edit().putInt("counter", counter).apply()
+                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
+                    val r = AudioSync.round(6000, kotlin.random.Random.nextInt(800, 4200), c.ownSyncId(), counter, wav)
+                    val n = c.syncRound(label, r, counter); cale = n
+                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Pas calé : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else ""
+                } catch (e: Exception) { "Échec audio : ${e.message}. Utilisez le top manuel (Secours)." }
+            }
+            busy = false
+            if ((cale ?: 0) < 2) secours = true
         }
+    }) { Text("Synchroniser") }
+    cale?.let { n -> Text(if (n >= 2) "Calé ($n)" else "Non calé", color = if (n >= 2) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
+    TextButton({ secours = !secours }) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (secours) {
+        OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true)
+        OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }) { Text("TOP manuel (appuyer au signal)") }
     }
     OutlinedButton(onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Estimer l'écart avec l'export d'un autre appareil…") }
     val st by c.state.collectAsState()

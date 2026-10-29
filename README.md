@@ -83,3 +83,4 @@ Voir [`docs/SESSION_FORMAT.md`](docs/SESSION_FORMAT.md), le schéma [`docs/sessi
 - Services OSM publics : peuvent être lents ou indisponibles (HTTP 502 Overpass observé) ; l'app reste utilisable sans.
 - Pas d'application de bureau ni de DXF dans cette tranche.
 - Synchro multi-appareils expérimentale : non mesurée sur matériel.
+- [docs/PROPOSITIONS.md](docs/PROPOSITIONS.md) : document unique de propositions (référence pour le développement)

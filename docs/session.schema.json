@@ -129,7 +129,8 @@
           "properties": { "tracking": { "$ref": "#/$defs/TrackingState" }, "payload": { "type": ["object", "null"] },
             "dxf": { "oneOf": [{ "type": "null" }, { "type": "object", "required": ["layer", "blockName"] }] } } } },
         { "if": { "properties": { "type": { "const": "tracking_state" } } }, "then": { "required": ["state"] } },
-        { "if": { "properties": { "type": { "const": "time_base_added" } } }, "then": { "required": ["timeBase", "reason"] } }
+        { "if": { "properties": { "type": { "const": "time_base_added" } } }, "then": { "required": ["timeBase", "reason"] } },
+        { "if": { "properties": { "type": { "const": "session_stopped" } } }, "then": { "required": ["reason"], "properties": { "reason": { "type": "string" } } } }
       ]
     }
   }

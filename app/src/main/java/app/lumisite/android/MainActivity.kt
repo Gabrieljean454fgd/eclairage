@@ -50,8 +50,8 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Home },
                             )
                         }
-                        is Screen.Live -> SessionScreen(this, repo, s.controller, onClose = {
-                            s.controller.close(); screen = Screen.SiteDetail(s.controller.site.id)
+                        is Screen.Live -> SessionScreen(this, repo, s.controller, onClosed = {
+                            screen = Screen.SiteDetail(s.controller.site.id)
                         })
                     }
                 }

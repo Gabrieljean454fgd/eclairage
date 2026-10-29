@@ -85,6 +85,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private var imuCount = 0L
 
     val sensors = SensorRecorder(ctx, { stamps }) { s ->
+        if (closed) return@SensorRecorder
         journal.imu(s); imuCount++
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
@@ -127,16 +128,27 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (hasLocation) gps.start() else onGpsStatus(GpsStatusSample(stamps.now(), "gps", "NO_PERMISSION"))
     }
 
+    @Volatile var closed = false; private set
+
     fun pauseCapture() {
-        sensors.stop(); gps.stop(); ar.pause()
+        if (closed) return
+        runCatching { sensors.stop() }; runCatching { gps.stop() }; ar.pause()
         logTracking(TrackingState.STOPPED, "APP_PAUSED")
         journal.flushAll()
     }
 
-    fun close() {
-        pauseCapture()
-        journal.event(SessionStopped(Ids.new("ev"), stamps.now(), "user"))
-        journal.close(); ar.close()
+    /**
+     * End of session. The caller must have paused the GLSurfaceView first ([ArTracker.rendering] is cleared here
+     * too), so ARCore is closed while no frame is being drawn. Idempotent and never throws.
+     */
+    fun close(reason: String = "user") {
+        if (closed) return
+        ar.rendering = false
+        runCatching { pauseCapture() }
+        closed = true
+        ar.close()
+        runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
+        runCatching { journal.close() }
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }
@@ -146,6 +158,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun markArUnavailable(reason: String) = logTracking(TrackingState.UNAVAILABLE, reason)
 
     private fun onArFrame(pose: PoseSample?, state: TrackingState, reason: String?) {
+        if (closed) return
         logTracking(state, reason)
         if (pose != null) {
             // 10 Hz pose recording is enough for walking trajectories; every frame is still used by ARCore.
@@ -174,8 +187,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
     }
 
-    private fun onGps(f: GpsFix) { journal.gps(f); _state.update { it.copy(lastGps = f) } }
-    private fun onGpsStatus(s: GpsStatusSample) { journal.gpsStatus(s); _state.update { it.copy(gpsStatus = it.gpsStatus + (s.provider to s.status)) } }
+    private fun onGps(f: GpsFix) { if (closed) return; journal.gps(f); _state.update { it.copy(lastGps = f) } }
+    private fun onGpsStatus(s: GpsStatusSample) { if (closed) return; journal.gpsStatus(s); _state.update { it.copy(gpsStatus = it.gpsStatus + (s.provider to s.status)) } }
 
     // ------------------------------------------------------------------ derived display
 
@@ -223,6 +236,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     private fun record(e: SessionEvent, msg: String? = null) {
+        if (closed) return
         journal.event(e)
         _state.update { it.copy(events = it.events + e, message = msg) }
         if (e is CalibrationEvent || e is RelocalizationEvent) recompute()

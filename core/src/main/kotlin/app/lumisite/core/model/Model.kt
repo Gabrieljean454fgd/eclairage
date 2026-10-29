@@ -322,7 +322,15 @@ data class SurveyEvent(
 ) : SessionEvent
 
 @Serializable
-data class Attachment(val file: String, val mediaType: String, val sha256: String? = null)
+data class Attachment(
+    val file: String,
+    val mediaType: String,
+    val sha256: String? = null,
+    /** Photo role: "etiquette" | "vue"; "voix" for voice notes (lot 7). */
+    val role: String? = null,
+    val startUtcMs: Long? = null,
+    val monotonicNs: Long? = null,
+)
 
 /** Hints for a future DXF conversion: no DXF is produced in this slice. */
 @Serializable

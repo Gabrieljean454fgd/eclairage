@@ -8,6 +8,7 @@ import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.survey.Details
+import app.lumisite.core.survey.Shapes
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -53,5 +54,19 @@ class ShapesDetailsTest {
         assertEquals(7.5, d["puissance_W"]!!.jsonPrimitive.double)
         assertNull(d["culot"]) // empty stays absent, never 0
         assertNull(Details.build(mapOf("puissance_W" to "")))
+    }
+
+    @Test fun editChainUndoAndGeometryHelpers() {
+        val a = ShapeEvent("a", Fixtures.stamp(1), "shape", "rectangle", listOf(Enu(0.0, 0.0, 0.0), Enu(4.0, 2.0, 0.0)), label = "local TGBT")
+        val moved = Shapes.translate(a, 1.0, 0.0).copy(id = "a2", supersedes = "a")
+        val big = Shapes.scale(moved, 2.0).copy(id = "a3", supersedes = "a2")
+        assertEquals(8.0, big.points[1].e - big.points[0].e, 1e-9)
+        val undo = moved.copy(id = "a4", supersedes = "a3") // undo = previous state appended
+        val ev = listOf(a, moved, big, undo)
+        assertEquals("a4", Shapes.head(ev, "a"))
+        assertEquals(listOf("a4"), Shapes.current(ev).map { it.id })
+        assertEquals(emptyList(), Shapes.current(ev + undo.copy(id = "a5", supersedes = "a4", deleted = true)))
+        assertEquals("a4", Shapes.nearest(Shapes.current(ev), Enu(1.1, 1.0, 0.0))?.id)
+        assertNull(Shapes.nearest(Shapes.current(ev), Enu(50.0, 50.0, 0.0)))
     }
 }

@@ -17,6 +17,7 @@ import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.model.Site
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
+import app.lumisite.core.survey.Shapes
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -66,7 +67,7 @@ object GeoJsonFeatures {
                 put("block_name", s.dxf?.blockName ?: s.kind)
                 put("catalog_version", catalogVersion)
                 put("layer", s.dxf?.layer ?: "RES - Elec")
-                put("status", payload?.get("status")?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)
+                put("status", (payload?.get("status") ?: (payload?.get("details") as? JsonObject)?.get("status"))?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)
                 put("local", if (site == null) JsonNull else buildJsonObject {
                     put("frame_id", FRAME_ID); put("x", r(site.e, 3)); put("y", r(site.n, 3)); put("z", r(site.u, 3))
                 })
@@ -81,12 +82,18 @@ object GeoJsonFeatures {
                 s.note?.let { put("note", it) }
                 payload?.get("details")?.let { put("details", it) }
                 s.supersedes?.let { put("supersedes", it) }
-                if (s.attachments.isNotEmpty()) put("photos", buildJsonArray {
-                    s.attachments.filter { it.mediaType.startsWith("image/") }.forEach { a -> add(buildJsonObject {
-                        put("photo_id", a.file.substringAfterLast('/').substringBeforeLast('.'))
-                        put("path", "photos/$deviceId/$sessionId/${a.file.substringAfterLast('/')}"); put("sha256", a.sha256)
-                    }) }
-                })
+                val photos = s.attachments.filter { it.mediaType.startsWith("image/") }
+                if (photos.isNotEmpty()) put("photos", buildJsonArray { photos.forEach { a -> add(buildJsonObject {
+                    val name = a.file.substringAfterLast('/')
+                    put("photo_id", name.substringBeforeLast('.')); put("path", "photos/$deviceId/$sessionId/$name")
+                    put("sha256", a.sha256); put("role", a.role)
+                }) } })
+                val voice = s.attachments.filter { it.mediaType.startsWith("audio/") }
+                if (voice.isNotEmpty()) put("voice_notes", buildJsonArray { voice.forEach { a -> add(buildJsonObject {
+                    val name = a.file.substringAfterLast('/')
+                    put("path", "audio/$deviceId/$sessionId/$name"); put("sha256", a.sha256)
+                    put("start_utc", a.startUtcMs?.let { Instant.ofEpochMilli(it).toString() }); put("device_monotonic_ns", a.monotonicNs)
+                }) } })
             })
         }
     }
@@ -112,12 +119,7 @@ object GeoJsonFeatures {
     fun shape(s: ShapeEvent, ltp: LocalTangentPlane, featureId: String, rev: Int, deviceId: String, sessionId: String): JsonObject {
         val op = when { s.deleted == true -> "delete"; s.supersedes != null -> "update"; else -> "create" }
         fun ll(p: Enu) = ltp.toLatLon(p.copy(u = 0.0)).let { buildJsonArray { add(JsonPrimitive(r(it.lon, 8))); add(JsonPrimitive(r(it.lat, 8))) } }
-        val ring = when (s.geometryType) {
-            "rectangle" -> if (s.points.size >= 2) s.points[0].let { a -> s.points[1].let { b -> listOf(a, Enu(b.e, a.n, 0.0), b, Enu(a.e, b.n, 0.0), a) } } else s.points
-            "circle" -> s.points.firstOrNull()?.let { c -> (0..32).map { i -> val t = 2 * Math.PI * i / 32; Enu(c.e + (s.radiusM ?: 1.0) * Math.cos(t), c.n + (s.radiusM ?: 1.0) * Math.sin(t), 0.0) } } ?: emptyList()
-            "polygon" -> if (s.points.isNotEmpty()) s.points + s.points.first() else s.points
-            else -> s.points
-        }
+        val ring = Shapes.outline(s)
         val geom = when {
             op == "delete" || ring.isEmpty() -> JsonNull
             s.geometryType == "point" || ring.size == 1 -> buildJsonObject { put("type", "Point"); put("coordinates", ll(ring[0])) }
@@ -279,7 +281,7 @@ object ExportPackage {
             File(root, "sessions/$dev/$sid.frames.json").writeText(Frames.of(site, data.events).toString())
             data.events.filterIsInstance<SurveyEvent>().flatMap { it.attachments }.forEach { a ->
                 val src = File(si.dir, a.file)
-                if (src.exists()) src.copyTo(File(root, "photos/$dev/$sid/${src.name}"), overwrite = true)
+                if (src.exists()) src.copyTo(File(root, (if (a.mediaType.startsWith("audio/")) "audio" else "photos") + "/$dev/$sid/${src.name}"), overwrite = true)
             }
             val rawDir = File(parent, "raw_$sid").apply { deleteRecursively() }
             SessionExporter.exportToDir(site, si.dir, rawDir, nowUtcMs, generator)

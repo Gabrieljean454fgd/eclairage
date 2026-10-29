@@ -33,7 +33,7 @@ object Details {
     fun build(values: Map<String, String>): JsonObject? {
         values.forEach { (k, v) -> validate(k, v)?.let { throw IllegalArgumentException(it) } }
         val o = buildJsonObject {
-            values.filterValues { it.isNotBlank() }.filterKeys { it in FIELDS && it != "status" }.forEach { (k, v) ->
+            values.filterValues { it.isNotBlank() }.filterKeys { it in FIELDS }.forEach { (k, v) ->
                 put(k, if (k == "puissance_W" || k == "temp_couleur_K") JsonPrimitive(v.trim().replace(',', '.').toDouble()) else JsonPrimitive(v.trim()))
             }
         }

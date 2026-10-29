@@ -20,6 +20,7 @@ import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
 import app.lumisite.core.model.TrackingState
 import app.lumisite.core.compute.PoseGeometry
+import app.lumisite.core.compute.SurveyPositions
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -155,21 +156,11 @@ object SessionExporter {
         return manifest
     }
 
-    fun derivedSurveyPoints(data: SessionData): List<DerivedSurveyPoint> {
-        val tl = TrajectoryCorrector.timeline(data.events)
-        return data.events.filterIsInstance<SurveyEvent>().map { s ->
-            val seg = TrajectoryCorrector.activeAt(tl, s.t.monotonicNs)
-            val pos = when {
-                s.positionSource == "MANUAL_MAP" -> s.manualSite
-                s.pose != null && seg != null -> seg.transform.apply(PoseGeometry.plane(s.pose)).let { Enu(it.x, it.y, PoseGeometry.height(s.pose)) }
-                else -> null
-            }
-            DerivedSurveyPoint(
-                s.id, s.kind, s.t.monotonicNs, s.t.utcEpochMs, pos, s.positionSource,
-                if (s.positionSource == "MANUAL_MAP") null else seg?.eventId, s.tracking, s.dxf?.layer, s.dxf?.blockName,
-            )
+    fun derivedSurveyPoints(data: SessionData): List<DerivedSurveyPoint> =
+        SurveyPositions.resolveAll(data.events).map { r ->
+            val s = r.event
+            DerivedSurveyPoint(s.id, s.kind, s.t.monotonicNs, s.t.utcEpochMs, r.site, s.positionSource, r.transformEventId, s.tracking, s.dxf?.layer, s.dxf?.blockName)
         }
-    }
 
     fun zipDir(dir: File, zip: File) {
         ZipOutputStream(FileOutputStream(zip)).use { zos ->

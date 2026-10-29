@@ -379,4 +379,11 @@ data class ShapeEvent(
     val attachedTo: String? = null,
     val supersedes: String? = null,
     val deleted: Boolean? = null,
+    /** Zones (lot 13, kind = "zone"): ARCHITECTURAL | TECHNIQUE | CIRCULATION | EXTERIEUR. zone_id = id. */
+    val zoneKind: String? = null,
+    val parentZoneId: String? = null,
+    /** Inner rings (courtyard). Outer ring and holes: any orientation, closed implicitly (last ≠ first). */
+    val holes: List<List<Enu>>? = null,
+    /** MANUAL_MAP (PLAN_IMPORT later). */
+    val source: String? = null,
 ) : SessionEvent

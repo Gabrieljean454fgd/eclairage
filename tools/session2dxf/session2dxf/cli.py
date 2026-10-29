@@ -88,8 +88,23 @@ def _read_pairs(path: str) -> tuple[list, list]:
     return src, dst
 
 
+def apply_validated(pkgs: list[Package], path: str) -> None:
+    """Validated voice revisions (rev+1, source "voice") replace the matching Feature when their rev is higher."""
+    upd = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            f = json.loads(line); upd[f["id"]] = f
+    for pkg in pkgs:
+        for i, f in enumerate(pkg.features):
+            u = upd.get(f["id"])
+            if u and u["properties"].get("rev", 0) > f["properties"].get("rev", 0):
+                pkg.features[i] = u
+
+
 def run(args) -> dict:
     pkgs = [load_package(p, args.apply_pending_renames) for p in args.packages]
+    for path in getattr(args, "validated", None) or []:
+        apply_validated(pkgs, path)
     objs, shapes, skipped = collect(pkgs, args.default_sigma)
     res = merge(objs)
     for o in res.objects:
@@ -144,6 +159,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-osm", action="store_true")
     ap.add_argument("--apply-pending-renames", action="store_true", help="les 4 renommages en attente de validation")
     ap.add_argument("--default-sigma", type=float, default=DEFAULT_SIGMA_M)
+    ap.add_argument("--validated", action="append", help="révisions vocales validées (session2dxf.voice apply)")
     ap.add_argument("--oda", help="chemin d'ODAFileConverter pour produire le DWG")
     rep = run(ap.parse_args(argv))
     print(json.dumps({k: rep[k] for k in ("inserts", "comptages", "conflits", "audit_erreurs", "erreurs")}, ensure_ascii=False, indent=2))

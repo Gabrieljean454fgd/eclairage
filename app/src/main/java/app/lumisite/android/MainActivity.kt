@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.SiteDetail -> {
                             val site = repo.site(s.siteId)
                             if (site == null) screen = Screen.Home else SiteScreen(
-                                site, repo.sessions(site.id),
+                                site, repo.sessions(site.id), repo.siteSurveys(site),
                                 onNewSession = { screen = Screen.Live(SessionController(applicationContext, repo, site, Ids.new("ses"), resume = false)) },
                                 onResume = { h -> screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true)) },
                                 onBack = { screen = Screen.Home },

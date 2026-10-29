@@ -1,6 +1,11 @@
 package app.lumisite.android.data
 
+import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import app.lumisite.android.BuildConfig
 import app.lumisite.core.export.LoadedExport
 import app.lumisite.core.export.SessionExporter
@@ -54,5 +59,31 @@ class Repository(private val ctx: Context) {
         SessionExporter.zipDir(dir, zip)
         dir.deleteRecursively()
         return ExportResult(zip, manifest, SessionImporter.load(zip))
+    }
+
+    /** Android 10+ (API 29): copies the zip into the public Downloads collection via MediaStore. */
+    fun publishToDownloads(zip: File): Uri {
+        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { "MediaStore Downloads requires Android 10+" }
+        val resolver = ctx.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, zip.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("MediaStore a refusé la création de ${zip.name}")
+        try {
+            resolver.openOutputStream(uri)!!.use { out -> zip.inputStream().use { it.copyTo(out) } }
+            resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+        } catch (e: Exception) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+        return uri
+    }
+
+    /** Below Android 10: copies the zip to a document chosen by the user (ACTION_CREATE_DOCUMENT). */
+    fun copyTo(zip: File, target: Uri) {
+        ctx.contentResolver.openOutputStream(target)!!.use { out -> zip.inputStream().use { it.copyTo(out) } }
     }
 }

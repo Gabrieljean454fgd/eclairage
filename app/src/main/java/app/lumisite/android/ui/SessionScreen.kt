@@ -5,12 +5,16 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.opengl.GLSurfaceView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -76,7 +81,7 @@ private enum class Mode { NONE, CALIBRATE, RELOCALIZE, SURVEY, SYNC, EXPORT }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, onClose: () -> Unit) {
+fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, onClosed: () -> Unit) {
     val st by c.state.collectAsState()
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(Mode.NONE) }
@@ -114,6 +119,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
                 Lifecycle.Event.ON_RESUME -> {
+                    if (c.closed) return@LifecycleEventObserver
                     if (arReady) c.ar.resume() else if (arAvail != null) c.markArUnavailable("AR_NOT_RUNNING")
                     glView?.onResume(); if (perms) c.startCapture(granted(Manifest.permission.ACCESS_FINE_LOCATION))
                 }
@@ -123,6 +129,19 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
         owner.lifecycle.addObserver(obs); onDispose { owner.lifecycle.removeObserver(obs) }
     }
+
+    var closing by remember { mutableStateOf(false) }
+    // Same sequence for "Terminer", the top back button and the system back gesture:
+    // stop GL drawing, pause the GLSurfaceView (blocks until the GL thread is idle), close ARCore, write session_stopped, then navigate.
+    fun finish() {
+        if (closing) return
+        closing = true
+        c.ar.rendering = false
+        runCatching { glView?.onPause() }
+        runCatching { c.close("user") }
+        onClosed()
+    }
+    BackHandler { finish() }
 
     fun refPoint(label: String): ReferencePoint? {
         val p = picked ?: run { c.notify("Touchez d'abord la carte pour choisir le point."); return null }
@@ -137,8 +156,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         (s.manualSite ?: s.estimatedSite)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${s.kind} ${s.note ?: ""}", android.graphics.Color.MAGENTA) }
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(0.58f).fillMaxSize()) {
+    val map: @Composable (Modifier) -> Unit = { m ->
+        Box(m) {
             OsmMap(
                 Modifier.fillMaxSize(), c.site.origin, 19.0,
                 MapContent(
@@ -153,21 +172,42 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Modifier.align(Alignment.TopStart).background(Color(0xCCFFFFFF)).padding(6.dp), style = MaterialTheme.typography.labelSmall,
             )
         }
-        Column(Modifier.weight(0.42f).padding(10.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            TrackingBanner(st.tracking, st.trackingReason)
-            Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
-            if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
-                Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }) { Text("Installer / mettre à jour ARCore") }
+    }
+    // Fixed header: status on the left, camera preview top-right with a fixed maximum size. Nothing is drawn over the camera.
+    val header: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TrackingBanner(st.tracking, st.trackingReason)
+                Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
+                if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
             }
             if (arReady) {
-                Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelMedium)
                 AndroidView(factory = { ctx ->
                     GLSurfaceView(ctx).apply {
                         preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
                         setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
                         glView = this
                     }
-                }, modifier = Modifier.fillMaxWidth().height(180.dp))
+                }, modifier = Modifier.width(200.dp).height(150.dp))
+            }
+        }
+    }
+    val actionBar: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(enabled = !closing, onClick = { finish() }) { Text("← Terminer la session") }
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Mode.entries.filter { it != Mode.NONE }.forEach { m ->
+                    FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
+                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
+                    })
+                }
+            }
+        }
+    }
+    val panel: @Composable (Modifier) -> Unit = { m ->
+        Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
+                Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }) { Text("Installer / mettre à jour ARCore") }
             }
             val gps = st.lastGps
             Text(
@@ -182,14 +222,6 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             )
             st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
             st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-            HorizontalDivider()
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Mode.entries.filter { it != Mode.NONE }.forEach { m ->
-                    FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
-                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
-                    })
-                }
-            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(showUncorrected, { showUncorrected = it }); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
             }
@@ -203,8 +235,24 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Mode.NONE -> {}
             }
             HorizontalDivider()
-            OutlinedButton(onClick = onClose) { Text("Terminer la session") }
             Text("Journal : ${events.size} événements (calibrations ${events.count { it is app.lumisite.core.model.CalibrationEvent }}, recalages ${events.count { it is RelocalizationEvent }}, relevés ${events.count { it is SurveyEvent }})", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            Row(Modifier.fillMaxSize()) {
+                map(Modifier.weight(0.55f).fillMaxHeight())
+                Column(Modifier.weight(0.45f).fillMaxHeight().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    header(); actionBar(); HorizontalDivider(); panel(Modifier.weight(1f))
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
+                map(Modifier.fillMaxWidth().weight(0.45f))
+                panel(Modifier.weight(0.55f).padding(8.dp))
+            }
         }
     }
 }
@@ -338,23 +386,48 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var out by remember { mutableStateOf<Repository.ExportResult?>(null) }
+    var saved by remember { mutableStateOf<String?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
-    Text("Export JSON versionné (session.json + NDJSON raw/ et derived/), puis relecture automatique.", style = MaterialTheme.typography.labelLarge)
-    Button(enabled = !busy, onClick = {
-        busy = true; err = null
+
+    fun share(zip: File) {
+        val uri = FileProvider.getUriForFile(activity, activity.packageName + ".files", zip)
+        activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager l'export"))
+    }
+
+    // Android < 10: no MediaStore Downloads collection, the user picks the destination.
+    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        val r = out ?: return@rememberLauncherForActivityResult
+        if (uri == null) { err = "Enregistrement annulé : le fichier reste dans l'appli (${r.zip.name}). Utilisez « Partager… »."; share(r.zip); return@rememberLauncherForActivityResult }
         scope.launch {
-            try { c.flush(); out = withContext(Dispatchers.IO) { repo.export(c.site, c.sessionId) } } catch (e: Exception) { err = e.toString() }
-            busy = false
+            try { withContext(Dispatchers.IO) { repo.copyTo(r.zip, uri) }; saved = "Enregistré : ${r.zip.name}"; share(r.zip) }
+            catch (e: Exception) { err = "Copie impossible : ${e.message}" }
+        }
+    }
+
+    Text("Export JSON versionné (session.json + NDJSON raw/ et derived/), puis relecture automatique. Le ZIP est copié dans Téléchargements.", style = MaterialTheme.typography.labelLarge)
+    Button(enabled = !busy, onClick = {
+        busy = true; err = null; saved = null
+        scope.launch {
+            try {
+                c.flush()
+                val r = withContext(Dispatchers.IO) { repo.export(c.site, c.sessionId) }
+                out = r
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    withContext(Dispatchers.IO) { repo.publishToDownloads(r.zip) }
+                    saved = "Enregistré dans Téléchargements : ${r.zip.name}"
+                    share(r.zip)
+                } else createDoc.launch(r.zip.name)
+            } catch (e: Exception) {
+                err = "Échec de l'export : ${e.message ?: e.toString()}"
+            } finally { busy = false }
         }
     }) { Text(if (busy) "Export…" else "Exporter la session") }
+    saved?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
     err?.let { Text(it, color = Color.Red) }
     out?.let { r ->
         Text("Fichier : ${r.zip.name} (${r.zip.length() / 1024} Ko)\n" + r.manifest.files.joinToString("\n") { "${it.category} · ${it.path} · ${it.records} enr." } +
             "\nRelecture : ${r.verification.problems.ifEmpty { listOf("OK, hashes et nombres d'enregistrements vérifiés") }}" +
             r.verification.warnings.joinToString("") { "\nAvertissement : $it" }, style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = {
-            val uri = FileProvider.getUriForFile(activity, activity.packageName + ".files", r.zip)
-            activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager l'export"))
-        }) { Text("Partager…") }
+        OutlinedButton(onClick = { share(r.zip) }) { Text("Partager…") }
     }
 }

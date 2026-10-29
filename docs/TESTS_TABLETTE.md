@@ -110,4 +110,4 @@ Chaque ligne renvoie à son lot. Une case n'est cochée qu'après vérification 
 
 | Lot | Vérifié sans téléphone | Reste à vérifier sur le 13T Pro |
 |---|---|---|
-| 1 | `./gradlew :core:test` vert, `assembleDebug` OK ; schéma JSON valide ; émulateur Android 15 (x86_64, sans ARCore) : accueil « Nouveau », Retour bouton/geste, création sans nom, export vers Téléchargements. | Fermeture ARCore réelle (10× « Terminer » + geste retour), caméra en paysage, partage Drive/courriel, ouverture du ZIP sur PC. |
+| 1 | `./gradlew :core:test` vert, `assembleDebug` OK ; schéma JSON valide. | Toute la checklist Lot 1 ci-dessus (rien n'a été vérifié sur appareil). |

@@ -8,6 +8,14 @@ import android.os.Environment
 import android.provider.MediaStore
 import app.lumisite.android.BuildConfig
 import app.lumisite.core.compute.SurveyPositions
+import app.lumisite.core.model.BBox
+import app.lumisite.core.osm.Bboxes
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import app.lumisite.core.export.LoadedExport
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
@@ -93,4 +101,34 @@ class Repository(private val ctx: Context) {
     fun siteSurveys(site: Site): List<SurveyPositions.Resolved> = sessions(site.id).flatMap { h ->
         runCatching { SurveyPositions.resolveAll(SessionReader.read(sessionDir(h.id), includeImu = false).events) }.getOrDefault(emptyList())
     }
+
+    /** Raw dated OSM responses of a site (offline use and traceability), sites/<id>/osm_source.json. */
+    fun saveOsmSource(siteId: String, retrievedUtcMs: Long, endpoint: String, raw: List<Pair<BBox, String>>) {
+        val dir = File(sitesDir, siteId).apply { mkdirs() }
+        val doc = buildJsonObject {
+            put("retrievedUtcMs", retrievedUtcMs); put("endpoint", endpoint)
+            put("license", "ODbL 1.0"); put("attribution", "© OpenStreetMap contributors")
+            put("responses", buildJsonArray {
+                raw.forEach { (b, body) -> add(buildJsonObject {
+                    put("bbox", Bboxes.apiParam(b))
+                    put("body", runCatching { LumiJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) })
+                }) }
+            })
+        }
+        File(dir, "osm_source.json").writeText(doc.toString())
+    }
+
+    private val recentFile = File(root, "recent_zones.json")
+
+    fun recentZones(): List<RecentZone> = runCatching {
+        LumiJson.decodeFromString(ListSerializer(RecentZone.serializer()), recentFile.readText())
+    }.getOrDefault(emptyList())
+
+    fun addRecentZone(z: RecentZone) {
+        val l = (listOf(z) + recentZones().filter { it.bbox != z.bbox }).take(10)
+        recentFile.writeText(LumiJson.encodeToString(ListSerializer(RecentZone.serializer()), l))
+    }
 }
+
+@kotlinx.serialization.Serializable
+data class RecentZone(val name: String, val bbox: BBox)

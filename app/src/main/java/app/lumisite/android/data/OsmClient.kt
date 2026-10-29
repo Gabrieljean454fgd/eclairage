@@ -11,6 +11,8 @@ import app.lumisite.core.osm.OsmElements
 import app.lumisite.core.osm.OsmHttpException
 import app.lumisite.core.osm.OsmMapParser
 import app.lumisite.core.osm.SplitFetcher
+import app.lumisite.core.osm.MirrorFetcher
+import app.lumisite.core.osm.Overpass
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -33,7 +35,6 @@ object OsmClient {
     @Volatile var osmApiBase = "https://api.openstreetmap.org/api/0.6"
     @Volatile var ignGeocodeUrl = "https://data.geopf.fr/geocodage/search"
     @Volatile var nominatimUrl = "https://nominatim.openstreetmap.org/search"
-    const val OVERPASS = "https://overpass-api.de/api/interpreter"
     private val userAgent = "LumiSite/${BuildConfig.VERSION_NAME} (field lighting survey; Android; github.com/Gabrieljean454fgd/eclairage)"
     private val json = Json { ignoreUnknownKeys = true }
     private const val RAW_MAX = 500_000
@@ -64,7 +65,7 @@ object OsmClient {
     fun mapUrl(b: BBox) = "$osmApiBase/map.json?bbox=${Bboxes.apiParam(b)}"
 
     /** Result of a fetch: the snapshot plus the raw dated responses for osm_source.json. */
-    data class Fetched(val snapshot: OsmSnapshot, val raw: List<Pair<BBox, String>>, val calls: Int)
+    data class Fetched(val snapshot: OsmSnapshot, val raw: List<Pair<BBox, String>>, val calls: Int, val capped: Boolean = false)
 
     /** One call to /map.json. Throws [OsmHttpException] (too many nodes, bbox size, 429/509…) without retrying. */
     fun fetchMap(b: BBox, nowUtcMs: Long): Fetched {
@@ -85,31 +86,17 @@ object OsmClient {
         raw, calls,
     )
 
-    fun overpassQuery(b: BBox): String {
-        val bb = "${b.south},${b.west},${b.north},${b.east}"
-        return """[out:json][timeout:25];
-(
-  way["building"]($bb);
-  relation["building"]($bb);
-  way["building:part"]($bb);
-  node["highway"="street_lamp"]($bb);
-  node["man_made"="street_lamp"]($bb);
-  node["entrance"]($bb);
-  way["indoor"]($bb);
-);
-out geom tags;"""
-    }
-
-    /** Fallback when the OSM API answers 429/509 (Overpass, fiche C). */
+    /** Fallback when the OSM API fails (network, 429, 509, 5xx): mirrors in order, retries with 1/2/4 s backoff. */
     fun fetchOverpass(bbox: BBox, nowUtcMs: Long): Fetched {
-        val q = overpassQuery(bbox)
-        val body = post(OVERPASS, "data=" + URLEncoder.encode(q, "UTF-8"))
-        val root = json.parseToJsonElement(body).jsonObject
-        val features = root["elements"]!!.jsonArray.map { it.jsonObject }.mapNotNull(::toFeature)
+        val q = Overpass.query(bbox)
+        val mf = MirrorFetcher({ url, form -> post(url, form, readTimeoutMs = 30_000) })
+        val (mirror, body) = mf.fetch("data=" + URLEncoder.encode(q, "UTF-8"))
+        val elements = json.parseToJsonElement(body).jsonObject["elements"]!!.jsonArray.map { it.jsonObject }
+        val features = elements.mapNotNull(::toFeature)
         return Fetched(OsmSnapshot(
-            source = "Overpass API (OpenStreetMap)", endpoint = OVERPASS, query = q, retrievedUtcMs = nowUtcMs,
+            source = "Overpass API (OpenStreetMap)", endpoint = mirror, query = q, retrievedUtcMs = nowUtcMs,
             bbox = bbox, features = features, rawResponse = body.take(RAW_MAX),
-        ), listOf(bbox to body), 1)
+        ), listOf(bbox to body), mf.tried.size, capped = elements.size >= Overpass.MAX_ELEMENTS)
     }
 
     /** Overpass `out geom` element → feature (relations: first outer ring only, flagged). */
@@ -132,8 +119,8 @@ out geom tags;"""
 
     private fun get(url: String): String = open(url).run { requestMethod = "GET"; read() }
 
-    private fun post(url: String, form: String): String = open(url).run {
-        requestMethod = "POST"; doOutput = true
+    private fun post(url: String, form: String, readTimeoutMs: Int = 40_000): String = open(url).run {
+        requestMethod = "POST"; doOutput = true; readTimeout = readTimeoutMs
         setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
         outputStream.use { it.write(form.toByteArray()) }
         read()

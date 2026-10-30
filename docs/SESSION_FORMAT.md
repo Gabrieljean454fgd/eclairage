@@ -1,4 +1,6 @@
-# Format d'export `lumisite.session` v0.1.0
+# Format d'export `lumisite.session` v0.2.0
+
+Versions : 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone.
 
 Un export est un dossier (ou le ZIP de ce dossier) :
 

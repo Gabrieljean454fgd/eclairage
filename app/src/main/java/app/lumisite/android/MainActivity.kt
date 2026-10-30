@@ -18,6 +18,16 @@ import app.lumisite.android.ui.SiteEditorScreen
 import app.lumisite.android.data.RecentZone
 import app.lumisite.android.ui.SiteScreen
 import app.lumisite.android.ui.MapPrefs
+import app.lumisite.android.ui.LumiTheme
+import app.lumisite.android.ui.ThemePrefs
+import app.lumisite.android.ui.ThemeToggle
+import app.lumisite.android.ui.themeBackground
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import org.osmdroid.config.Configuration
 import java.io.File
 import kotlinx.coroutines.launch
@@ -41,12 +51,21 @@ class MainActivity : ComponentActivity() {
             osmdroidTileCache = File(cacheDir, "osmdroid-tiles")
         }
         MapPrefs.load(applicationContext)
+        ThemePrefs.load(applicationContext)
+        val systemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeBackground(systemDark)))
         val repo = Repository(applicationContext)
         setContent {
-            MaterialTheme {
+            LumiTheme {
                 Surface {
                     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
                     val scope = rememberCoroutineScope()
+                    // The theme button has its own row: it never covers a screen title.
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+                    if (screen !is Screen.Live) androidx.compose.foundation.layout.Row(
+                        Modifier.fillMaxWidth().statusBarsPadding(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                    ) { ThemeToggle(this@MainActivity) }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (val s = screen) {
                         Screen.Home -> HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite })
                         Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
@@ -68,9 +87,12 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Home },
                             )
                         }
-                        is Screen.Live -> SessionScreen(this, repo, s.controller, onClosed = {
+                        is Screen.Live -> SessionScreen(this@MainActivity, repo, s.controller, onClosed = {
                             screen = Screen.SiteDetail(s.controller.site.id)
                         })
+                    }
+                    }
+                    // On the live screen the toggle sits in the header, next to the camera preview (never drawn over it).
                     }
                 }
             }

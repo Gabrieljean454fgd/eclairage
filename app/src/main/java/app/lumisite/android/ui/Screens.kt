@@ -49,13 +49,18 @@ import java.util.Locale
 fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
 
 @Composable
-fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
+fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, storageWarning: Boolean = false, onSettings: () -> Unit = {}) {
     val sites = remember { repo.sites() }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onNew) { Text("Nouveau") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onNew) { Text("Nouveau") }
+            OutlinedButton(onClick = onSettings) { Text("Réglages") }
+        }
+        if (storageWarning) Text("Choisissez un dossier dans Réglages > Stockage : sans lui, désinstaller l'appli efface les sessions.",
+            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sites) { s ->

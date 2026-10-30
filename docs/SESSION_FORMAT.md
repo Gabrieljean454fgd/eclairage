@@ -1,4 +1,6 @@
-# Format d'export `lumisite.session` v0.1.0
+# Format d'export `lumisite.session` v0.2.0
+
+Versions : 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone.
 
 Un export est un dossier (ou le ZIP de ce dossier) :
 
@@ -85,3 +87,10 @@ Un consommateur doit ignorer les champs et types qu'il ne connaît pas (versions
 de la trajectoire. Chaque relevé peut porter `dxf.layer`, `dxf.blockName`, `dxf.rotationDeg`, `dxf.attributes` (futurs attributs de bloc).
 Si un plan architectural est importé plus tard, `site.plans[].planToSite` donnera la transformation plan → `SITE_ENU` à inverser pour exporter dans le
 repère du plan AutoCAD.
+
+
+## Lot 7 : formes, annotations, pièces jointes (champs optionnels, format 0.1 toujours lisible)
+
+- Événement `shape` (`ShapeEvent`) : `kind` (`shape` | `annotation` | `zone`), `geometryType` (`rectangle` | `circle` | `line` | `polyline` | `arrow` | `polygon` | `point`), `points` en mètres dans le repère du site (Enu), `radiusM`, `label`, `comment`, `annotationType`, `style {stroke, fill, widthDp, opacity}`, `attachedTo`, `supersedes`, `deleted`. Une modification ou une annulation ajoute un nouvel événement : rien n'est réécrit.
+- `Attachment` reçoit `role` (`etiquette` | `vue` | `voix`), `startUtcMs` et `monotonicNs`. Les fichiers sont dans `<session>/attachments/` (`ph_<n>.jpg`, `vn_<n>.m4a`), avec leur sha256.
+- `payload.details` : `sous_type, technologie, culot, puissance_W, temp_couleur_K, ref_etiquette, etat, status`. Un champ vide est absent, jamais 0. Puissance de 1 à 5 000 W, température de couleur de 1 000 à 10 000 K. Pas de taille ni de miroir.

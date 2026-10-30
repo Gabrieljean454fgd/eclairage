@@ -34,6 +34,13 @@ Les sessions au format 0.1, sans fichier vivant, sont reconstituées à partir d
 
 Schéma : [`lumisite-feature.schema.json`](lumisite-feature.schema.json) (JSON Schema draft-07).
 
+## Formes, annotations et zones (lot 7)
+
+`kind` = `shape` | `annotation` | `zone`. `geometry` : `Polygon` (rectangle, cercle à 32 côtés, polygone), `LineString` (ligne, polyligne, flèche) ou `Point` (annotation), en WGS84.
+`properties.local = {frame_id, points: [[x, y, z]…], radius_m?}` en mètres. Autres propriétés : `shape, label, note, annotation_type, style, attached_to`.
+Les photos sont dans `photos/` avec `role` ; les notes vocales sont dans `audio/` et listées dans `voice_notes[] {path, sha256, start_utc, device_monotonic_ns}`.
+Le schéma JSON publié ne couvre que les Features `equipment`.
+
 ## État actuel (lot 6)
 
 - `status` vaut `existant` tant que l'appli ne propose pas de choix (lot 7).

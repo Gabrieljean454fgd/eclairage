@@ -24,6 +24,11 @@ import app.lumisite.core.geo.CrsInfo
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.journal.SessionJournal
+import app.lumisite.core.export.sha256
+import app.lumisite.core.survey.Shapes
+import app.lumisite.core.model.Attachment
+import app.lumisite.core.model.ShapeStyle
+import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.export.GeoJsonSeqWriter
 import java.io.File
 import app.lumisite.core.journal.SessionReader
@@ -256,8 +261,9 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (closed) return
         journal.event(e)
         // GeoJSONSeq written live (fsync per object) so the exchange file survives an abrupt stop.
-        if (e is SurveyEvent) runCatching {
-            features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site)
+        if (e is SurveyEvent || e is ShapeEvent) runCatching {
+            if (e is SurveyEvent) features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site)
+            if (e is ShapeEvent) features.appendShape(e)
         }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
         _state.update { it.copy(events = it.events + e, message = msg) }
         if (e is CalibrationEvent || e is RelocalizationEvent) recompute()
@@ -321,6 +327,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
             dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
         )
+        undoStack.addLast(e.id)
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
         return true
     }
@@ -329,7 +336,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * Edits a record by appending a new survey event that supersedes it (journal stays append-only).
      * [moveTo] sets a manual position; [familyId]/[note] change the family/comment; [delete] removes it.
      */
-    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false) {
+    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null) {
         val events = _state.value.events
         val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return fail("Relevé introuvable.")
         val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return fail(e.message ?: "Famille inconnue") } }
@@ -344,8 +351,66 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
             dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
+            attachments = if (attach != null) old.attachments + attach else old.attachments,
         )
-        record(e, when { delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
+        record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
+        undoStack.addLast(e.id)
+    }
+
+    private val undoStack = ArrayDeque<String>()
+
+    fun currentShapes(): List<ShapeEvent> = Shapes.current(_state.value.events)
+
+    fun addShape(kind: String, geometryType: String, points: List<Enu>, radiusM: Double? = null, label: String? = null,
+                 comment: String? = null, annotationType: String? = null, style: ShapeStyle = ShapeStyle()): String {
+        val e = ShapeEvent(Ids.new("shp"), stamps.now(), kind, geometryType, points, radiusM, label, comment, annotationType, style)
+        record(e, "${if (kind == "annotation") annotationType ?: "Annotation" else "Forme"} enregistrée."); undoStack.addLast(e.id)
+        return e.id
+    }
+
+    /** Appends a new version of a shape (append-only). Returns the id of the new version. */
+    fun editShape(id: String, delete: Boolean = false, change: (ShapeEvent) -> ShapeEvent = { it }): String? {
+        val old = currentShapes().firstOrNull { it.id == id } ?: run { fail("Forme introuvable."); return null }
+        val e = change(old).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null)
+        record(e, if (delete) "Forme supprimée." else "Forme modifiée."); undoStack.addLast(e.id)
+        return e.id
+    }
+
+    fun duplicateShape(id: String): String? {
+        val old = currentShapes().firstOrNull { it.id == id } ?: return null
+        val e = Shapes.translate(old, 0.5, -0.5).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = null, deleted = null)
+        record(e, "Forme dupliquée."); undoStack.addLast(e.id)
+        return e.id
+    }
+
+    /** Undoes the last creation or edit of this session by appending the previous state (nothing is erased). */
+    fun undo() {
+        val id = undoStack.removeLastOrNull() ?: return fail("Rien à annuler.")
+        val ev = _state.value.events
+        val head = Shapes.head(ev, id)
+        when (val done = ev.firstOrNull { it.id == id }) {
+            is ShapeEvent -> {
+                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? ShapeEvent }
+                record((prev ?: done).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
+            }
+            is SurveyEvent -> {
+                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? SurveyEvent }
+                record((prev ?: done).copy(id = Ids.new("srv"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
+            }
+            else -> fail("Rien à annuler.")
+        }
+    }
+
+    fun attachmentFile(prefix: String, ext: String): File {
+        val d = File(repo.sessionDir(sessionId), "attachments").apply { mkdirs() }
+        return File(d, "${prefix}_${(d.list()?.count { it.startsWith(prefix + "_") } ?: 0) + 1}.$ext")
+    }
+
+    fun stampNow() = stamps.now()
+
+    fun attach(surveyId: String, file: File, mediaType: String, role: String?, startUtcMs: Long? = null, monotonicNs: Long? = null) {
+        val rel = file.relativeTo(repo.sessionDir(sessionId)).invariantSeparatorsPath
+        editSurvey(surveyId, attach = Attachment(rel, mediaType, sha256(file), role, startUtcMs, monotonicNs))
     }
 
     /** Current heading of the camera in the site frame (degrees from north, clockwise), when tracked and calibrated. */

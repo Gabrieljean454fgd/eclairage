@@ -324,8 +324,46 @@ data class SurveyEvent(
 ) : SessionEvent
 
 @Serializable
-data class Attachment(val file: String, val mediaType: String, val sha256: String? = null)
+data class Attachment(
+    val file: String,
+    val mediaType: String,
+    val sha256: String? = null,
+    /** Photo role: "etiquette" | "vue"; "voix" for voice notes (lot 7). */
+    val role: String? = null,
+    val startUtcMs: Long? = null,
+    val monotonicNs: Long? = null,
+)
 
 /** Hints for a future DXF conversion: no DXF is produced in this slice. */
 @Serializable
 data class DxfHint(val layer: String, val blockName: String, val rotationDeg: Double? = null, val attributes: Map<String, String> = emptyMap())
+
+/** Drawing style of a shape (fiche F): named colours, optional fill, width in dp. */
+@Serializable
+data class ShapeStyle(val stroke: String = "rouge", val fill: String? = null, val widthDp: Float = 3f, val opacity: Float = 1f)
+
+/**
+ * Shape, annotation or zone drawn on the map (lot 7). Geometry in metres in the site frame, never in pixels.
+ * Edits are append-only like surveys: [supersedes] + optional [deleted].
+ */
+@Serializable
+@SerialName("shape")
+data class ShapeEvent(
+    override val id: String,
+    override val t: Stamp,
+    /** "shape" | "annotation" | "zone" */
+    val kind: String,
+    /** "circle" | "rectangle" | "line" | "polyline" | "arrow" | "polygon" | "point" */
+    val geometryType: String,
+    val points: List<Enu>,
+    val radiusM: Double? = null,
+    val label: String? = null,
+    val comment: String? = null,
+    /** Diagnostic annotation type (Passage de câble, Câble à nu, …). */
+    val annotationType: String? = null,
+    val style: ShapeStyle = ShapeStyle(),
+    /** Survey this shape/comment is attached to. */
+    val attachedTo: String? = null,
+    val supersedes: String? = null,
+    val deleted: Boolean? = null,
+) : SessionEvent

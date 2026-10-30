@@ -129,5 +129,10 @@ class GeoJsonExportTest {
         }
         val bad = mapper.readTree("""{"type":"Feature","id":"x","geometry":null,"properties":{"rev":0}}""")
         assertTrue(schema.validate(bad).isNotEmpty())
+        for ((kind, g) in listOf("shape" to "rectangle", "annotation" to "point", "zone" to "polygon", "shape" to "polyline")) {
+            val pts = if (g == "point") listOf(Enu(1.0, 1.0, 0.0)) else listOf(Enu(0.0, 0.0, 0.0), Enu(4.0, 0.0, 0.0), Enu(4.0, 3.0, 0.0))
+            val f = GeoJsonFeatures.shape(app.lumisite.core.model.ShapeEvent("s-$g", Fixtures.stamp(1), kind, g, pts), ltp, "s-$g", 1, "dev-1", "sess-1")
+            assertEquals(emptySet(), schema.validate(mapper.readTree(f.toString())), "$kind/$g")
+        }
     }
 }

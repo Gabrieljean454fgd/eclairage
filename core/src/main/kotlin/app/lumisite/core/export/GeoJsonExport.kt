@@ -13,9 +13,11 @@ import app.lumisite.core.model.CalibrationEvent
 import app.lumisite.core.model.RelocalizationEvent
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.SessionStopped
+import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.model.Site
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
+import app.lumisite.core.survey.Shapes
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -65,7 +67,7 @@ object GeoJsonFeatures {
                 put("block_name", s.dxf?.blockName ?: s.kind)
                 put("catalog_version", catalogVersion)
                 put("layer", s.dxf?.layer ?: "RES - Elec")
-                put("status", payload?.get("status")?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)
+                put("status", (payload?.get("status") ?: (payload?.get("details") as? JsonObject)?.get("status"))?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)
                 put("local", if (site == null) JsonNull else buildJsonObject {
                     put("frame_id", FRAME_ID); put("x", r(site.e, 3)); put("y", r(site.n, 3)); put("z", r(site.u, 3))
                 })
@@ -80,12 +82,18 @@ object GeoJsonFeatures {
                 s.note?.let { put("note", it) }
                 payload?.get("details")?.let { put("details", it) }
                 s.supersedes?.let { put("supersedes", it) }
-                if (s.attachments.isNotEmpty()) put("photos", buildJsonArray {
-                    s.attachments.filter { it.mediaType.startsWith("image/") }.forEach { a -> add(buildJsonObject {
-                        put("photo_id", a.file.substringAfterLast('/').substringBeforeLast('.'))
-                        put("path", "photos/$deviceId/$sessionId/${a.file.substringAfterLast('/')}"); put("sha256", a.sha256)
-                    }) }
-                })
+                val photos = s.attachments.filter { it.mediaType.startsWith("image/") }
+                if (photos.isNotEmpty()) put("photos", buildJsonArray { photos.forEach { a -> add(buildJsonObject {
+                    val name = a.file.substringAfterLast('/')
+                    put("photo_id", name.substringBeforeLast('.')); put("path", "photos/$deviceId/$sessionId/$name")
+                    put("sha256", a.sha256); put("role", a.role)
+                }) } })
+                val voice = s.attachments.filter { it.mediaType.startsWith("audio/") }
+                if (voice.isNotEmpty()) put("voice_notes", buildJsonArray { voice.forEach { a -> add(buildJsonObject {
+                    val name = a.file.substringAfterLast('/')
+                    put("path", "audio/$deviceId/$sessionId/$name"); put("sha256", a.sha256)
+                    put("start_utc", a.startUtcMs?.let { Instant.ofEpochMilli(it).toString() }); put("device_monotonic_ns", a.monotonicNs)
+                }) } })
             })
         }
     }
@@ -94,11 +102,46 @@ object GeoJsonFeatures {
     fun lines(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String): List<JsonObject> {
         val timeline = TrajectoryCorrector.timeline(events)
         val root = HashMap<String, String>(); val rev = HashMap<String, Int>()
-        return events.filterIsInstance<SurveyEvent>().map { s ->
-            val id = s.supersedes?.let { root[it] ?: it } ?: s.id
-            root[s.id] = id
+        return events.mapNotNull { e ->
+            val (eid, sup) = when (e) { is SurveyEvent -> e.id to e.supersedes; is ShapeEvent -> e.id to e.supersedes; else -> return@mapNotNull null }
+            val id = sup?.let { root[it] ?: it } ?: eid
+            root[eid] = id
             val n = (rev[id] ?: 0) + 1; rev[id] = n
-            feature(s, SurveyPositions.resolve(s, timeline).site, ltp, id, n, deviceId, sessionId)
+            when (e) {
+                is SurveyEvent -> feature(e, SurveyPositions.resolve(e, timeline).site, ltp, id, n, deviceId, sessionId)
+                is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId)
+                else -> null
+            }
+        }
+    }
+
+    /** Shape / annotation / zone Feature: WGS84 geometry plus the same geometry in site metres (properties.local). */
+    fun shape(s: ShapeEvent, ltp: LocalTangentPlane, featureId: String, rev: Int, deviceId: String, sessionId: String): JsonObject {
+        val op = when { s.deleted == true -> "delete"; s.supersedes != null -> "update"; else -> "create" }
+        fun ll(p: Enu) = ltp.toLatLon(p.copy(u = 0.0)).let { buildJsonArray { add(JsonPrimitive(r(it.lon, 8))); add(JsonPrimitive(r(it.lat, 8))) } }
+        val ring = Shapes.outline(s)
+        val geom = when {
+            op == "delete" || ring.isEmpty() -> JsonNull
+            s.geometryType == "point" || ring.size == 1 -> buildJsonObject { put("type", "Point"); put("coordinates", ll(ring[0])) }
+            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(ring.map(::ll))) }) }
+            else -> buildJsonObject { put("type", "LineString"); put("coordinates", JsonArray(ring.map(::ll))) }
+        }
+        return buildJsonObject {
+            put("type", "Feature"); put("id", featureId); put("geometry", geom)
+            put("properties", buildJsonObject {
+                put("rev", rev); put("op", op); put("kind", s.kind); put("shape", s.geometryType)
+                put("local", buildJsonObject {
+                    put("frame_id", FRAME_ID)
+                    put("points", JsonArray(s.points.map { p -> buildJsonArray { add(JsonPrimitive(r(p.e, 3))); add(JsonPrimitive(r(p.n, 3))); add(JsonPrimitive(r(p.u, 3))) } }))
+                    s.radiusM?.let { put("radius_m", r(it, 3)) }
+                })
+                s.label?.let { put("label", it) }; s.comment?.let { put("note", it) }; s.annotationType?.let { put("annotation_type", it) }
+                put("style", buildJsonObject { put("stroke", s.style.stroke); put("fill", s.style.fill); put("width_dp", s.style.widthDp); put("opacity", s.style.opacity) })
+                s.attachedTo?.let { put("attached_to", it) }
+                put("time", buildJsonObject { put("captured_utc", Instant.ofEpochMilli(s.t.utcEpochMs).toString()); put("device_monotonic_ns", s.t.monotonicNs) })
+                put("device_id", deviceId); put("session_id", sessionId); put("event_id", s.id)
+                s.supersedes?.let { put("supersedes", it) }
+            })
         }
     }
 }
@@ -123,6 +166,14 @@ class GeoJsonSeqWriter(val file: File, private val ltp: LocalTangentPlane, priva
             }
         }
         out = FileOutputStream(file, true)
+    }
+
+    @Synchronized fun appendShape(s: ShapeEvent) {
+        val id = s.supersedes?.let { root[it] ?: it } ?: s.id
+        root[s.id] = id
+        val n = (rev[id] ?: 0) + 1; rev[id] = n
+        out.write((GeoJsonFeatures.shape(s, ltp, id, n, deviceId, sessionId).toString() + "\n").toByteArray(Charsets.UTF_8))
+        out.flush(); out.fd.sync()
     }
 
     @Synchronized fun append(s: SurveyEvent, site: Enu?) {
@@ -226,7 +277,7 @@ object ExportPackage {
             File(root, "sessions/$dev/$sid.frames.json").writeText(Frames.of(site, data.events).toString())
             data.events.filterIsInstance<SurveyEvent>().flatMap { it.attachments }.forEach { a ->
                 val src = File(si.dir, a.file)
-                if (src.exists()) src.copyTo(File(root, "photos/$dev/$sid/${src.name}"), overwrite = true)
+                if (src.exists()) src.copyTo(File(root, (if (a.mediaType.startsWith("audio/")) "audio" else "photos") + "/$dev/$sid/${src.name}"), overwrite = true)
             }
             val rawDir = File(parent, "raw_$sid").apply { deleteRecursively() }
             SessionExporter.exportToDir(site, si.dir, rawDir, nowUtcMs, generator)

@@ -165,7 +165,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         ar.close()
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
         runCatching { journal.close() }
-        runCatching { features.close() }
+        runCatching { featuresWriter?.close() }
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }
@@ -252,7 +252,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         _state.update { it.copy(trajectory = splitTraj, uncorrected = split(uncorrected), currentSite = traj.lastOrNull()?.site, distanceSinceFixM = distanceSinceFix(splitTraj, seg?.fromNs)) }
     }
 
-    private val features by lazy { GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId) }
+    // Opened on the first record only: closing a session must never create an empty features.geojsonl.
+    private var featuresWriter: GeoJsonSeqWriter? = null
+    private val features: GeoJsonSeqWriter
+        get() = featuresWriter ?: GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId).also { featuresWriter = it }
 
     private fun record(e: SessionEvent, msg: String? = null) {
         if (closed) return
@@ -322,7 +325,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
-            dxf = DxfHint(layer = fam.defaultLayer, blockName = fam.blockName),
+            dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
         )
         undoStack.addLast(e.id)
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
@@ -340,14 +343,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
         val moved = moveTo != null
         val e = old.copy(
-            id = Ids.new("srv"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null,
+            id = Ids.new("srv"), t = stamps.now(), poseT = old.poseT ?: old.t, supersedes = old.id, deleted = if (delete) true else null,
             note = note?.let { it.ifBlank { null } } ?: old.note,
             positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
             manualSite = if (moved) pos else old.manualSite,
             kind = fam?.blockName ?: old.kind,
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
-            dxf = if (fam != null) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else old.dxf,
+            dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
             attachments = if (attach != null) old.attachments + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })

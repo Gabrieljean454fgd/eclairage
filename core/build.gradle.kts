@@ -14,6 +14,7 @@ dependencies {
 }
 
 tasks.test {
+    maxHeapSize = "1536m"
     useJUnitPlatform()
     testLogging { events("passed", "failed", "skipped"); showStandardStreams = false }
 }

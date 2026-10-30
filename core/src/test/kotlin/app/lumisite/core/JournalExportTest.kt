@@ -74,6 +74,19 @@ class JournalExportTest {
         assertEquals(7, data.events.size)
     }
 
+    @Test fun format01IsReadAndNewerIsRefused() {
+        val d = tmp(); recordSession(d)
+        val x = File(tmp(), "x"); SessionExporter.exportToDir(Fixtures.site, d, x, 1_700_000_100_000, "test")
+        val sj = File(x, "session.json"); val orig = sj.readText()
+        assertTrue(orig.contains("\"$FORMAT_VERSION\""))
+        sj.writeText(orig.replace("\"$FORMAT_VERSION\"", "\"0.1.0\""))
+        assertEquals(emptyList(), SessionImporter.load(x).problems)
+        sj.writeText(orig.replace("\"$FORMAT_VERSION\"", "\"0.3.0\""))
+        assertTrue(SessionImporter.load(x).problems.single().contains("plus récent"))
+        sj.writeText(orig.replace("\"$FORMAT_VERSION\"", "\"1.0.0\""))
+        assertTrue(SessionImporter.load(x).problems.single().contains("plus récent"))
+    }
+
     @Test fun exportZipRoundTrip() {
         val d = tmp(); recordSession(d)
         val out = tmp()

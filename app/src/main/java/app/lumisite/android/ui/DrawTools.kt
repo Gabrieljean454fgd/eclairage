@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -365,10 +366,18 @@ class VoiceRec(ctx: Context, val file: File, val startUtc: Long, val mono: Long)
 @Composable
 fun AttachmentButtons(c: SessionController, surveyId: String) {
     val ctx = LocalContext.current
-    var pending by remember { mutableStateOf<Pair<File, String>?>(null) }
+    // Survives the activity being recreated while the camera app is in front: "path|role".
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
     var rec by remember { mutableStateOf<VoiceRec?>(null) }
     val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        pending?.let { (f, role) -> if (ok && f.exists() && f.length() > 0) c.attach(surveyId, f, "image/jpeg", role) else f.delete() }
+        pending?.let { p ->
+            val f = File(p.substringBeforeLast('|')); val role = p.substringAfterLast('|')
+            if (ok && f.exists() && f.length() > 0) {
+                val dest = c.attachmentFile("ph", "jpg")
+                if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) c.attach(surveyId, dest, "image/jpeg", role)
+                else c.notify("Photo non enregistrée.")
+            } else f.delete()
+        }
         pending = null
     }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -377,7 +386,8 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         listOf("etiquette" to "Photo étiquette", "vue" to "Photo vue").forEach { (role, l) ->
             OutlinedButton({
-                val f = c.attachmentFile("ph", "jpg"); pending = f to role
+                // Only capture/ is exposed through the FileProvider; the photo is moved into the session afterwards.
+                val f = File(File(ctx.filesDir, "capture").apply { mkdirs() }, "ph_${System.currentTimeMillis()}.jpg"); pending = "${f.absolutePath}|$role"
                 runCatching { take.launch(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)) }.onFailure { c.notify("Appareil photo indisponible : ${it.message}") }
             }) { Text(l) }
         }
@@ -390,5 +400,11 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
             } else { r.stop(); rec = null; c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono) }
         }) { Text(if (rec == null) "Note vocale" else "Arrêter la note") }
     }
-    DisposableEffect(surveyId) { onDispose { rec?.stop(); rec = null } }
+    // Leaving the record while recording keeps the note instead of leaving an orphan file.
+    DisposableEffect(surveyId) {
+        onDispose {
+            rec?.let { r -> r.stop(); if (r.file.length() > 0) c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono) else r.file.delete() }
+            rec = null
+        }
+    }
 }

@@ -11,6 +11,7 @@ import app.lumisite.core.model.ShapeEvent
 object Zones {
     val KINDS = listOf("ARCHITECTURAL", "TECHNIQUE", "CIRCULATION", "EXTERIEUR")
 
+    /** Current zones: ZoneEvent (0.2) and ShapeEvent(kind = "zone") (0.1), as shapes. */
     fun current(events: List<SessionEvent>): List<ShapeEvent> = Shapes.current(events).filter { it.kind == "zone" }
 
     /** Even-odd ray casting; points exactly on an edge may fall either side. */
@@ -34,20 +35,47 @@ object Zones {
 
     private fun cross(o: Enu, a: Enu, b: Enu) = (a.e - o.e) * (b.n - o.n) - (a.n - o.n) * (b.e - o.e)
 
-    private fun segmentsCross(p1: Enu, p2: Enu, q1: Enu, q2: Enu): Boolean {
-        val d1 = cross(q1, q2, p1); val d2 = cross(q1, q2, p2); val d3 = cross(p1, p2, q1); val d4 = cross(p1, p2, q2)
-        return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0)) && d1 != 0.0 && d2 != 0.0 && d3 != 0.0 && d4 != 0.0
+    private const val EPS = 1e-9
+    private fun sgn(v: Double) = if (kotlin.math.abs(v) < EPS) 0 else if (v > 0) 1 else -1
+    private fun onSeg(a: Enu, b: Enu, p: Enu) =
+        p.e in minOf(a.e, b.e) - EPS..maxOf(a.e, b.e) + EPS && p.n in minOf(a.n, b.n) - EPS..maxOf(a.n, b.n) + EPS
+
+    /** Proper crossing, or any contact (a vertex on the other segment, collinear overlap). */
+    fun segmentsTouch(p1: Enu, p2: Enu, q1: Enu, q2: Enu): Boolean {
+        val d1 = sgn(cross(q1, q2, p1)); val d2 = sgn(cross(q1, q2, p2)); val d3 = sgn(cross(p1, p2, q1)); val d4 = sgn(cross(p1, p2, q2))
+        if (d1 * d2 < 0 && d3 * d4 < 0) return true
+        return (d1 == 0 && onSeg(q1, q2, p1)) || (d2 == 0 && onSeg(q1, q2, p2)) || (d3 == 0 && onSeg(p1, p2, q1)) || (d4 == 0 && onSeg(p1, p2, q2))
     }
 
-    /** True when two non-adjacent edges of the closed ring cross. */
+    /** True when two non-adjacent edges of the closed ring cross or touch, or two adjacent edges fold back on each other. */
     fun selfIntersects(ring: List<Enu>): Boolean {
         val n = ring.size
+        if (n < 3) return false
+        for (i in 0 until n) {
+            val a = ring[i]; val b = ring[(i + 1) % n]; val c = ring[(i + 2) % n]
+            if (sgn(cross(a, b, c)) == 0 && (b.e - a.e) * (c.e - b.e) + (b.n - a.n) * (c.n - b.n) < 0) return true
+        }
         if (n < 4) return false
         for (i in 0 until n) for (j in i + 2 until n) {
             if (i == 0 && j == n - 1) continue
-            if (segmentsCross(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) return true
+            if (segmentsTouch(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) return true
         }
         return false
+    }
+
+    private fun ringsTouch(a: List<Enu>, b: List<Enu>) =
+        a.indices.any { i -> b.indices.any { j -> segmentsTouch(a[i], a[(i + 1) % a.size], b[j], b[(j + 1) % b.size]) } }
+
+    /** Why the zone is refused, or null: self-intersecting outer ring or hole, hole outside the outer ring, rings touching. */
+    fun problem(outer: List<Enu>, holes: List<List<Enu>> = emptyList()): String? {
+        if (outer.size < 3) return "au moins 3 sommets"
+        if (selfIntersects(outer)) return "le polygone se recoupe"
+        holes.forEachIndexed { k, h ->
+            if (h.size < 3 || selfIntersects(h)) return "le trou ${k + 1} se recoupe"
+            if (!h.all { inRing(outer, it) } || ringsTouch(outer, h)) return "le trou ${k + 1} sort du contour"
+            for (m in 0 until k) if (ringsTouch(holes[m], h) || inRing(holes[m], h[0]) || inRing(h, holes[m][0])) return "les trous ${m + 1} et ${k + 1} se chevauchent"
+        }
+        return null
     }
 
     /** Depth: depth(parent) + 1 when parentZoneId is set, else number of other zones containing all its vertices. */

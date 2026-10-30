@@ -17,6 +17,7 @@ import app.lumisite.android.ui.SessionScreen
 import app.lumisite.android.ui.SiteEditorScreen
 import app.lumisite.android.data.RecentZone
 import app.lumisite.android.ui.SiteScreen
+import app.lumisite.android.ui.MapPrefs
 import org.osmdroid.config.Configuration
 import java.io.File
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
             osmdroidBasePath = File(filesDir, "osmdroid")
             osmdroidTileCache = File(cacheDir, "osmdroid-tiles")
         }
+        MapPrefs.load(applicationContext)
         val repo = Repository(applicationContext)
         setContent {
             MaterialTheme {

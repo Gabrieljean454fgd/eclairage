@@ -113,7 +113,9 @@ class DrawState {
     fun request(t: Tool) { if (pts.isNotEmpty() && t != tool) pendingSwitch = t else { tool = t; pts.clear() } }
 
     fun commit(c: SessionController, kind: String, type: String, points: List<Enu>, radius: Double? = null, annotation: String? = null) {
-        selected = c.addShape(kind, type, points, radius, label.ifBlank { null }, comment.ifBlank { null }, annotation, style())
+        val id = c.addShape(kind, type, points, radius, label.ifBlank { null }, comment.ifBlank { null }, annotation, style())
+        if (id.isEmpty()) return // refused (e.g. self-intersecting zone): keep the drawing so it can be fixed
+        selected = id
         recent = stroke; pts.clear(); label = ""; comment = ""
     }
 

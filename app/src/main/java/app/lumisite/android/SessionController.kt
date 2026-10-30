@@ -257,13 +257,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private val features: GeoJsonSeqWriter
         get() = featuresWriter ?: GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId).also { featuresWriter = it }
 
-    private fun record(e: SessionEvent, msg: String? = null) {
+    private fun record(e0: SessionEvent, msg: String? = null) {
+        // Format 0.2: zones are written as ZoneEvent, also when edited from the generic shape tools.
+        val e = if (e0 is ShapeEvent && e0.kind == "zone") app.lumisite.core.model.ZoneEvent.of(e0) else e0
         if (closed) return
         journal.event(e)
         // GeoJSONSeq written live (fsync per object) so the exchange file survives an abrupt stop.
-        if (e is SurveyEvent || e is ShapeEvent) runCatching {
+        if (e is SurveyEvent || e is ShapeEvent || e is app.lumisite.core.model.ZoneEvent) runCatching {
             if (e is SurveyEvent) features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site)
             if (e is ShapeEvent) features.appendShape(e)
+            if (e is app.lumisite.core.model.ZoneEvent) features.appendShape(e.asShape())
         }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
         _state.update { it.copy(events = it.events + e, message = msg) }
         if (e is CalibrationEvent || e is RelocalizationEvent) recompute()
@@ -369,8 +372,9 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     fun addShape(kind: String, geometryType: String, points: List<Enu>, radiusM: Double? = null, label: String? = null,
                  comment: String? = null, annotationType: String? = null, style: ShapeStyle = ShapeStyle()): String {
-        if (kind == "zone" && app.lumisite.core.survey.Zones.selfIntersects(points)) {
-            _state.update { it.copy(message = "Zone refusée : le polygone se recoupe. Retracez-le.") }
+        val bad = if (kind == "zone") app.lumisite.core.survey.Zones.problem(points) else null
+        if (bad != null) {
+            _state.update { it.copy(message = "Zone refusée : $bad. Le tracé est conservé : corrigez-le.") }
             return ""
         }
         val e = ShapeEvent(Ids.new("shp"), stamps.now(), kind, geometryType, points, radiusM, label, comment, annotationType, style,
@@ -403,6 +407,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             is ShapeEvent -> {
                 val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? ShapeEvent }
                 record((prev ?: done).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
+            }
+            is app.lumisite.core.model.ZoneEvent -> {
+                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } }
+                    ?.let { (it as? app.lumisite.core.model.ZoneEvent) ?: (it as? ShapeEvent)?.let(app.lumisite.core.model.ZoneEvent::of) }
+                record((prev ?: done).copy(id = Ids.new("zon"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
             }
             is SurveyEvent -> {
                 val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? SurveyEvent }

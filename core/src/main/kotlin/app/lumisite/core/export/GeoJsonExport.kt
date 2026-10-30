@@ -14,6 +14,8 @@ import app.lumisite.core.model.RelocalizationEvent
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.SessionStopped
 import app.lumisite.core.model.ShapeEvent
+import app.lumisite.core.survey.Zones
+import app.lumisite.core.model.ZoneEvent
 import app.lumisite.core.model.Site
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
@@ -98,18 +100,33 @@ object GeoJsonFeatures {
         }
     }
 
+    private fun withProperty(f: JsonObject, k: String, v: String) =
+        JsonObject(f + ("properties" to JsonObject((f["properties"] as JsonObject) + (k to JsonPrimitive(v)))))
+
+    /** RFC 7946 §3.1.6: closed linear ring, exterior counter-clockwise, holes clockwise. */
+    private fun closedRing(pts: List<Enu>, ccw: Boolean): List<Enu> {
+        val open = if (pts.size > 1 && pts.first() == pts.last()) pts.dropLast(1) else pts
+        val o = if ((Zones.signedArea(open) > 0) == ccw) open else open.reversed()
+        return o + o.first()
+    }
+
     /** All lines of a session in journal order: an edit keeps the same id with rev+1. */
     fun lines(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String): List<JsonObject> {
         val timeline = TrajectoryCorrector.timeline(events)
+        val zones = Zones.current(events)
         val root = HashMap<String, String>(); val rev = HashMap<String, Int>()
         return events.mapNotNull { e ->
-            val (eid, sup) = when (e) { is SurveyEvent -> e.id to e.supersedes; is ShapeEvent -> e.id to e.supersedes; else -> return@mapNotNull null }
+            val (eid, sup) = when (e) { is SurveyEvent -> e.id to e.supersedes; is ShapeEvent -> e.id to e.supersedes; is ZoneEvent -> e.id to e.supersedes; else -> return@mapNotNull null }
             val id = sup?.let { root[it] ?: it } ?: eid
             root[eid] = id
             val n = (rev[id] ?: 0) + 1; rev[id] = n
             when (e) {
-                is SurveyEvent -> feature(e, SurveyPositions.resolve(e, timeline).site, ltp, id, n, deviceId, sessionId)
+                is SurveyEvent -> SurveyPositions.resolve(e, timeline).site.let { site ->
+                    val f = feature(e, site, ltp, id, n, deviceId, sessionId)
+                    site?.let { Zones.zoneOf(it, zones) }?.let { z -> withProperty(f, "zone_id", z.id) } ?: f
+                }
                 is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId)
+                is ZoneEvent -> shape(e.asShape(), ltp, id, n, deviceId, sessionId)
                 else -> null
             }
         }
@@ -123,7 +140,7 @@ object GeoJsonFeatures {
         val geom = when {
             op == "delete" || ring.isEmpty() -> JsonNull
             s.geometryType == "point" || ring.size == 1 -> buildJsonObject { put("type", "Point"); put("coordinates", ll(ring[0])) }
-            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(ring.map(::ll))); s.holes.orEmpty().forEach { h -> add(JsonArray(h.map(::ll))) } }) }
+            s.geometryType in setOf("rectangle", "circle", "polygon") -> buildJsonObject { put("type", "Polygon"); put("coordinates", buildJsonArray { add(JsonArray(closedRing(ring, true).map(::ll))); s.holes.orEmpty().filter { it.size >= 3 }.forEach { h -> add(JsonArray(closedRing(h, false).map(::ll))) } }) }
             else -> buildJsonObject { put("type", "LineString"); put("coordinates", JsonArray(ring.map(::ll))) }
         }
         return buildJsonObject {

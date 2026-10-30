@@ -15,6 +15,7 @@ import app.lumisite.core.model.BBox
 import app.lumisite.core.model.OsmFeature
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.CopyrightOverlay
@@ -55,6 +56,8 @@ fun OsmMap(
     zoom: Double,
     content: MapContent,
     recenterKey: Any? = null,
+    /** When set, the first display (and each recenter) frames this rectangle instead of center/zoom. */
+    fitBox: app.lumisite.core.model.BBox? = null,
     onTap: (LatLon) -> Unit,
     onFeatureTap: ((OsmFeature) -> Unit)? = null,
     onPointTap: ((String) -> Unit)? = null,
@@ -75,7 +78,10 @@ fun OsmMap(
         holder[0] = recenterKey
         val c = gp(center)
         // Before the first layout osmdroid ignores setCenter/setZoom; apply after layout.
-        val apply = { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+        val apply = {
+            if (fitBox != null) map.zoomToBoundingBox(BoundingBox(fitBox.north, fitBox.east, fitBox.south, fitBox.west), false, 48)
+            else { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+        }
         if (map.isLayoutOccurred) map.post { apply() } else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
     }
     AndroidView(factory = { map }, modifier = modifier.clipToBounds(), update = { mv ->

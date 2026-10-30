@@ -91,7 +91,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
 private enum class TapMode { ORIGIN, CORNERS }
 
 @Composable
-fun SiteEditorScreen(recentZones: List<RecentZone>, onSave: (Site, OsmClient.Fetched?) -> Unit, onCancel: () -> Unit) {
+fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -108,7 +108,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, onSave: (Site, OsmClient.Fet
     var rect by remember { mutableStateOf<BBox?>(null) }
     var cornerA by remember { mutableStateOf<LatLon?>(null) }
     var tapMode by remember { mutableStateOf(TapMode.ORIGIN) }
+    // Snapshot only: the raw bodies are written to a pending file at once and never kept in UI state.
     var fetched by remember { mutableStateOf<OsmClient.Fetched?>(null) }
+    var staged by remember { mutableStateOf<java.io.File?>(null) }
     var failure by remember { mutableStateOf<OsmGuard.Failure?>(null) }
     var tooLarge by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<String?>(null) }
@@ -120,7 +122,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, onSave: (Site, OsmClient.Fet
     val osm = fetched?.snapshot
 
     fun setOrigin(p: LatLon, src: String) { origin = p; originSource = src; center = p; recenter++; latText = "%.7f".format(Locale.ROOT, p.lat); lonText = "%.7f".format(Locale.ROOT, p.lon) }
-    fun setRect(b: BBox) { rect = b; fetched = null; failure = null; tooLarge = !OsmGuard.areaOk(b); if (origin == null) setOrigin(Bboxes.center(b), "BBOX_CENTER") }
+    fun setRect(b: BBox) { rect = b; fetched = null; staged = null; failure = null; tooLarge = !OsmGuard.areaOk(b); if (origin == null) setOrigin(Bboxes.center(b), "BBOX_CENTER") }
 
     fun doSearch() {
         val q = query.trim()
@@ -139,24 +141,31 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, onSave: (Site, OsmClient.Fet
     fun fetch(split: Boolean) {
         val b = rect ?: return
         if (!OsmGuard.areaOk(b)) { tooLarge = true; status = "Rectangle trop grand (%.4f degré carré, maximum %.2f) : réduisez-le.".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2); return }
+        if (!OsmClient.isHttps(apiUrl)) { status = "L'URL de l'API OSM doit commencer par https://"; return }
         OsmClient.osmApiBase = apiUrl.trim().trimEnd('/')
         busy = true; failure = null
         status = if (split) "Découpage en sous-zones (au plus ${OsmGuard.MAX_CALLS} appels)…" else "Requête API OSM…"
         scope.launch {
             val now = System.currentTimeMillis()
+            val onCall = { n: Int -> scope.launch { status = "Découpage : appel $n / ${OsmGuard.MAX_CALLS}…" }; Unit }
+            suspend fun fetchStaged(get: () -> OsmClient.Fetched): OsmClient.Fetched {
+                val (r, file) = withContext(Dispatchers.IO) { val r = get(); r.copy(raw = emptyList()) to stageOsmSource(r) }
+                staged = file; return r
+            }
             fun show(f: OsmClient.Fetched, via: String) {
                 fetched = f
                 val counts = f.snapshot.features.groupingBy { it.category }.eachCount()
                 status = "$via : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s)." +
                     (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
+                    (if (f.missing.isEmpty()) "" else " Résultat PARTIEL : ${f.missing.size} sous-zone(s) encore trop dense(s) non récupérée(s).") +
                     " Touchez un bâtiment pour le sélectionner. Les contours OSM peuvent être absents ou imprécis."
             }
             try {
-                show(withContext(Dispatchers.IO) { if (split) OsmClient.fetchMapSplit(b, now) else OsmClient.fetchMap(b, now) }, "API OSM")
+                show(fetchStaged { if (split) OsmClient.fetchMapSplit(b, now, onCall) else OsmClient.fetchMap(b, now) }, "API OSM")
             } catch (e: Exception) {
                 if (Overpass.shouldFallback(e)) {
                     status = "API OSM indisponible (${(e as? OsmHttpException)?.let { "HTTP ${it.code}" } ?: e.javaClass.simpleName}) : bascule sur Overpass…"
-                    try { show(withContext(Dispatchers.IO) { OsmClient.fetchOverpass(b, now) }, "Overpass (secours)") }
+                    try { show(fetchStaged { OsmClient.fetchOverpass(b, now) { n -> scope.launch { status = "Overpass : essai $n…" } } }, "Overpass (secours)") }
                     catch (e2: Exception) { status = unavailable }
                 } else status = when (e) {
                     is OsmHttpException -> { failure = e.failure; when (e.failure) {
@@ -257,7 +266,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, onSave: (Site, OsmClient.Fet
                             LocalTangentPlane(o).crsInfo(),
                         ),
                         osm = osm, selectedBuildingOsmRef = selected, bbox = rect ?: osm?.bbox,
-                    ), fetched)
+                    ), staged)
                 }) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = onCancel) { Text("Annuler") }
@@ -271,7 +280,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
     BackHandler(onBack = onBack)
     val ltp = remember(site.id) { LocalTangentPlane(site.origin) }
     Row(Modifier.fillMaxSize()) {
-        OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, MapContent(
+        OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
             origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef,
             rect = site.bbox ?: site.osm?.bbox,
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },

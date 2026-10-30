@@ -48,7 +48,10 @@ class MirrorFetcher(
     private val attempts: Int = 2,
     private val backoffMs: List<Long> = Overpass.BACKOFF_MS,
     private val sleep: (Long) -> Unit = { Thread.sleep(it) },
+    private val onCall: (Int) -> Unit = {},
 ) {
+    init { require(mirrors.all { it.startsWith("https://") }) { "Miroirs Overpass : https:// obligatoire" } }
+
     val tried = ArrayList<String>()
 
     fun fetch(form: String): Pair<String, String> {
@@ -57,6 +60,7 @@ class MirrorFetcher(
         for (m in mirrors) repeat(attempts) {
             if (tried.isNotEmpty()) sleep(backoffMs[minOf(waitIdx++, backoffMs.lastIndex)])
             tried += m
+            onCall(tried.size)
             try { return m to poster.post(m, form) } catch (e: Exception) { last = e }
         }
         throw java.io.IOException("Overpass indisponible sur ${mirrors.size} miroirs (${tried.size} essais)", last)

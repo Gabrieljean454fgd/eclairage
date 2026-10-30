@@ -120,20 +120,32 @@ class Repository(private val ctx: Context) {
         runCatching { SurveyPositions.resolveAll(SessionReader.read(sessionDir(h.id), includeImu = false).events) }.getOrDefault(emptyList())
     }
 
-    /** Raw dated OSM responses of a site (offline use and traceability), sites/<id>/osm_source.json. */
-    fun saveOsmSource(siteId: String, retrievedUtcMs: Long, endpoint: String, raw: List<Pair<BBox, String>>) {
-        val dir = File(sitesDir, siteId).apply { mkdirs() }
+    /**
+     * Writes the raw dated OSM responses to a pending file right after the fetch (worker thread), so the bodies never
+     * live in UI state. Each body is capped at [OsmClient.RAW_MAX] and flagged when truncated.
+     */
+    fun stageOsmSource(retrievedUtcMs: Long, endpoint: String, raw: List<Pair<BBox, String>>): File {
         val doc = buildJsonObject {
             put("retrievedUtcMs", retrievedUtcMs); put("endpoint", endpoint)
             put("license", "ODbL 1.0"); put("attribution", "© OpenStreetMap contributors")
             put("responses", buildJsonArray {
                 raw.forEach { (b, body) -> add(buildJsonObject {
                     put("bbox", Bboxes.apiParam(b))
-                    put("body", runCatching { LumiJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) })
+                    if (body.length > OsmClient.RAW_MAX) {
+                        put("truncated", true); put("length", body.length); put("body", JsonPrimitive(body.take(OsmClient.RAW_MAX)))
+                    } else put("body", runCatching { LumiJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) })
                 }) }
             })
         }
-        File(dir, "osm_source.json").writeText(doc.toString())
+        val dir = File(root, "pending").apply { mkdirs() }
+        return File(dir, "osm_source_${System.nanoTime()}.json").apply { writeText(doc.toString()) }
+    }
+
+    /** Moves a staged osm_source file to sites/<id>/osm_source.json (call off the main thread). */
+    fun saveOsmSource(siteId: String, staged: File) {
+        val dir = File(sitesDir, siteId).apply { mkdirs() }
+        val dst = File(dir, "osm_source.json")
+        if (!staged.renameTo(dst)) { staged.copyTo(dst, overwrite = true); staged.delete() }
     }
 
     private val recentFile = File(root, "recent_zones.json")

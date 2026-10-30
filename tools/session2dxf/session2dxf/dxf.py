@@ -38,6 +38,7 @@ class Shape:
     geometry_type: str  # Point | LineString | Polygon
     points: list[tuple[float, float]]
     text: str | None = None
+    holes: list[list[tuple[float, float]]] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +47,9 @@ class DxfOptions:
     apply_pending_renames: bool = False
     xref_name: str | None = None
     xref_fit: Similarity | None = None
+    # "dessin": homologous plan points read in the template as opened (fit composed with the existing INSERT);
+    # "bloc": points in the xref block's own coordinates (fit replaces the INSERT transform).
+    xref_frame: str = "dessin"
     mleader_style: str = "Standard"
     mleader_height: float = 0.36
     osm_rings: list[list[tuple[float, float]]] = field(default_factory=list)
@@ -164,9 +168,15 @@ def generate(template: str | Path, objects: list[Obj], shapes: list[Shape], out:
         for ref in refs:
             base = doc.blocks.get(opts.xref_name).base_point if opts.xref_name in doc.blocks else (0, 0, 0)
             f = opts.xref_fit
-            ref.dxf.insert = (*f.apply(base[0], base[1]), 0)
-            ref.dxf.rotation = f.rotation_deg
-            ref.dxf.xscale = ref.dxf.yscale = f.scale
+            if opts.xref_frame == "bloc":
+                ref.dxf.insert = (*f.apply(base[0], base[1]), 0)
+                ref.dxf.rotation = f.rotation_deg
+                ref.dxf.xscale = ref.dxf.yscale = f.scale
+            else:
+                p = ref.dxf.insert
+                ref.dxf.insert = (*f.apply(p.x, p.y), 0)
+                ref.dxf.rotation = (ref.dxf.rotation + f.rotation_deg) % 360.0
+                ref.dxf.xscale, ref.dxf.yscale = ref.dxf.xscale * f.scale, ref.dxf.yscale * f.scale
 
     for o in objects:
         if o.block not in doc.blocks:
@@ -189,6 +199,8 @@ def generate(template: str | Path, objects: list[Obj], shapes: list[Shape], out:
             _add_annotation(msp, s, opts, stats)
         else:
             msp.add_lwpolyline(s.points, close=s.geometry_type == "Polygon", dxfattribs={"layer": LAYER_EQUIP})
+            for h in s.holes:
+                msp.add_lwpolyline(h, close=True, dxfattribs={"layer": LAYER_EQUIP})
     for ring in opts.osm_rings:
         msp.add_lwpolyline(ring, close=True, dxfattribs={"layer": LAYER_OSM})
 

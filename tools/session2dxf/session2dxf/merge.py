@@ -37,7 +37,9 @@ def _az_diff(a: float, b: float) -> float:
 
 def merge(objs: list[Obj], az_tol: float = AZIMUTH_TOL_DEG) -> MergeResult:
     """Two objects from DIFFERENT devices are duplicates when same block, distance < 2·√(σ1²+σ2²) and compatible
-    azimuths. Objects of one device are never merged together (they were placed deliberately)."""
+    azimuths. Objects of one device are never merged together (they were placed deliberately).
+    Without a measured σ on either side nothing is merged automatically (spot grids are ~1 m apart): the pair is
+    listed as « doublon probable ». The result depends on the input order (first object kept as target)."""
     out: list[Obj] = []
     fusions: list[dict] = []
     conflicts: list[dict] = []
@@ -49,6 +51,9 @@ def merge(objs: list[Obj], az_tol: float = AZIMUTH_TOL_DEG) -> MergeResult:
                 continue
             d = math.hypot(o.x - m.x, o.y - m.y)
             if d >= 2 * math.sqrt(o.sigma ** 2 + m.sigma ** 2):
+                continue
+            if o.sigma_assumed or m.sigma_assumed:
+                conflicts.append({"type": "doublon probable (σ absent, non fusionné)", "ids": [m.id, o.id], "distance_m": round(d, 3)})
                 continue
             if o.block != m.block:
                 conflicts.append({"type": "familles différentes", "ids": [m.id, o.id], "blocks": [m.block, o.block], "distance_m": round(d, 3)})

@@ -15,9 +15,12 @@ import app.lumisite.android.data.Repository
 import app.lumisite.android.ui.HomeScreen
 import app.lumisite.android.ui.SessionScreen
 import app.lumisite.android.ui.SiteEditorScreen
+import app.lumisite.android.data.RecentZone
 import app.lumisite.android.ui.SiteScreen
 import org.osmdroid.config.Configuration
 import java.io.File
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -41,9 +44,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+                    val scope = rememberCoroutineScope()
                     when (val s = screen) {
                         Screen.Home -> HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite })
-                        Screen.NewSite -> SiteEditorScreen(onSave = { repo.saveSite(it); screen = Screen.SiteDetail(it.id) }, onCancel = { screen = Screen.Home })
+                        Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
+                            repo.stageOsmSource(f.snapshot.retrievedUtcMs, f.snapshot.endpoint, f.raw)
+                        }, onSave = { site, staged ->
+                            repo.saveSite(site)
+                            staged?.let { scope.launch(Dispatchers.IO) { runCatching { repo.saveOsmSource(site.id, it) } } }
+                            site.bbox?.let { repo.addRecentZone(RecentZone(site.name, it)) }
+                            screen = Screen.SiteDetail(site.id)
+                        }, onCancel = { screen = Screen.Home })
                         is Screen.SiteDetail -> {
                             val site = repo.site(s.siteId)
                             var surveys by remember(s.siteId) { mutableStateOf(emptyList<app.lumisite.core.compute.SurveyPositions.Resolved>()) }

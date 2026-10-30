@@ -43,6 +43,9 @@ Une ligne NDJSON tronquée ou illisible (arrêt brutal pendant l'écriture) n'es
 ## Repères et coordonnées
 
 - Géographique : WGS84, EPSG:4326 (`lat`, `lon` en degrés). Données OSM dans ce système.
+- Site (depuis le lot 3) : `bbox` = rectangle choisi (`south`, `west`, `north`, `east`), conservé même sans OSM.
+  `osm.features[]` peut porter `holes` (anneaux intérieurs, cours) et `outers` (anneaux extérieurs supplémentaires).
+  Réponses brutes datées de l'API OSM dans `sites/<id>/osm_source.json` (`retrievedUtcMs`, `endpoint`, `responses[{bbox, body}]`).
 - `SITE_ENU` : plan tangent local à l'origine du site (est, nord, haut ; mètres). Définition PROJ dans `site.crs[].definition`.
 - `AR_SESSION` : repère monde ARCore de la session (droit, +Y vers le haut, mètres, origine et cap arbitraires à chaque démarrage).
   Le plan horizontal AR est projeté par `(x, −z)` puis converti en `SITE_ENU` par une similarité 2D (`scale`, `rotationRad`, `tx`, `ty`) :

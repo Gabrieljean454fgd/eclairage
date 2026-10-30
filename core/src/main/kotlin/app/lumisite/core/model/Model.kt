@@ -25,6 +25,8 @@ data class Site(
     val osm: OsmSnapshot? = null,
     /** Optional building chosen among OSM features (may be absent: OSM is often incomplete). */
     val selectedBuildingOsmRef: String? = null,
+    /** Site rectangle chosen by the user, kept even when the site was created without OSM data. */
+    val bbox: BBox? = null,
     /** Reserved for imported architectural plans (none in this slice). */
     val plans: List<PlanReference> = emptyList(),
     val notes: String? = null,
@@ -57,6 +59,10 @@ data class OsmFeature(
     /** Outline (closed ring for buildings) or single point, WGS84. Empty if geometry unavailable. */
     val geometry: List<LatLon>,
     val category: String,
+    /** Inner rings of a multipolygon (courtyards). */
+    val holes: List<List<LatLon>> = emptyList(),
+    /** Additional outer rings of a multipolygon ([geometry] is the largest). */
+    val outers: List<List<LatLon>> = emptyList(),
 ) {
     val ref: String get() = "$osmType/$osmId"
 }

@@ -8,6 +8,14 @@ import android.os.Environment
 import android.provider.MediaStore
 import app.lumisite.android.BuildConfig
 import app.lumisite.core.compute.SurveyPositions
+import app.lumisite.core.model.BBox
+import app.lumisite.core.osm.Bboxes
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import app.lumisite.core.export.LoadedExport
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
@@ -93,4 +101,46 @@ class Repository(private val ctx: Context) {
     fun siteSurveys(site: Site): List<SurveyPositions.Resolved> = sessions(site.id).flatMap { h ->
         runCatching { SurveyPositions.resolveAll(SessionReader.read(sessionDir(h.id), includeImu = false).events) }.getOrDefault(emptyList())
     }
+
+    /**
+     * Writes the raw dated OSM responses to a pending file right after the fetch (worker thread), so the bodies never
+     * live in UI state. Each body is capped at [OsmClient.RAW_MAX] and flagged when truncated.
+     */
+    fun stageOsmSource(retrievedUtcMs: Long, endpoint: String, raw: List<Pair<BBox, String>>): File {
+        val doc = buildJsonObject {
+            put("retrievedUtcMs", retrievedUtcMs); put("endpoint", endpoint)
+            put("license", "ODbL 1.0"); put("attribution", "© OpenStreetMap contributors")
+            put("responses", buildJsonArray {
+                raw.forEach { (b, body) -> add(buildJsonObject {
+                    put("bbox", Bboxes.apiParam(b))
+                    if (body.length > OsmClient.RAW_MAX) {
+                        put("truncated", true); put("length", body.length); put("body", JsonPrimitive(body.take(OsmClient.RAW_MAX)))
+                    } else put("body", runCatching { LumiJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) })
+                }) }
+            })
+        }
+        val dir = File(root, "pending").apply { mkdirs() }
+        return File(dir, "osm_source_${System.nanoTime()}.json").apply { writeText(doc.toString()) }
+    }
+
+    /** Moves a staged osm_source file to sites/<id>/osm_source.json (call off the main thread). */
+    fun saveOsmSource(siteId: String, staged: File) {
+        val dir = File(sitesDir, siteId).apply { mkdirs() }
+        val dst = File(dir, "osm_source.json")
+        if (!staged.renameTo(dst)) { staged.copyTo(dst, overwrite = true); staged.delete() }
+    }
+
+    private val recentFile = File(root, "recent_zones.json")
+
+    fun recentZones(): List<RecentZone> = runCatching {
+        LumiJson.decodeFromString(ListSerializer(RecentZone.serializer()), recentFile.readText())
+    }.getOrDefault(emptyList())
+
+    fun addRecentZone(z: RecentZone) {
+        val l = (listOf(z) + recentZones().filter { it.bbox != z.bbox }).take(10)
+        recentFile.writeText(LumiJson.encodeToString(ListSerializer(RecentZone.serializer()), l))
+    }
 }
+
+@kotlinx.serialization.Serializable
+data class RecentZone(val name: String, val bbox: BBox)

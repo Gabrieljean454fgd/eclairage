@@ -216,15 +216,11 @@ object ExportPackage {
             val dev = data.header.device.id; val sid = data.header.id
             devices += dev
             val feat = File(root, "sessions/$dev/$sid.geojsonl").apply { parentFile.mkdirs() }
+            // The journal is the source of truth: the live file may miss objects recorded before lot 6 (session resumed)
+            // or after a write failure, so the exported Features are always regenerated from it.
             val live = File(si.dir, GeoJsonSeqWriter.FILE)
-            val truncated: List<Int>
-            if (live.exists()) {
-                Ndjson.snapshotCompleteLines(live, feat)
-                truncated = GeoJsonSeq.read(live).skippedLines
-            } else {
-                feat.writeText(GeoJsonFeatures.lines(data.events, ltp, dev, sid).joinToString("") { "$it\n" })
-                truncated = emptyList()
-            }
+            val truncated = if (live.exists()) GeoJsonSeq.read(live).skippedLines else emptyList()
+            feat.bufferedWriter().use { w -> GeoJsonFeatures.lines(data.events, ltp, dev, sid).forEach { w.write(it.toString()); w.write("\n") } }
             val lines = GeoJsonSeq.read(feat).items
             catalogVersion = catalogVersion ?: lines.firstNotNullOfOrNull { it["properties"]?.jsonObject?.get("catalog_version")?.jsonPrimitive?.contentOrNull }
             File(root, "sessions/$dev/$sid.frames.json").writeText(Frames.of(site, data.events).toString())
@@ -276,12 +272,14 @@ object ExportPackage {
         ZipOutputStream(FileOutputStream(zip)).use { zos ->
             zos.setMethod(ZipOutputStream.STORED)
             dir.walkTopDown().filter { it.isFile }.sortedBy { it.relativeTo(dir).invariantSeparatorsPath }.forEach { f ->
-                val bytes = f.readBytes()
+                // Two streamed passes (CRC, then copy): photos and raw zips are never loaded whole in memory.
+                val crc = CRC32()
+                val buf = ByteArray(64 * 1024)
+                f.inputStream().use { s -> while (true) { val n = s.read(buf); if (n < 0) break; crc.update(buf, 0, n) } }
                 val e = ZipEntry("${dir.name}/${f.relativeTo(dir).invariantSeparatorsPath}").apply {
-                    method = ZipEntry.STORED; size = bytes.size.toLong(); compressedSize = size
-                    crc = CRC32().apply { update(bytes) }.value
+                    method = ZipEntry.STORED; size = f.length(); compressedSize = size; this.crc = crc.value
                 }
-                zos.putNextEntry(e); zos.write(bytes); zos.closeEntry()
+                zos.putNextEntry(e); f.inputStream().use { it.copyTo(zos, buf.size) }; zos.closeEntry()
             }
         }
     }

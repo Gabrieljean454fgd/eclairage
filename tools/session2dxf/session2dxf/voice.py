@@ -38,6 +38,45 @@ FAMILY_KEYWORDS = {
 DEICTIC = ["devant moi", " là", "au-dessus", "ici", "celui-ci", "celui-là"]
 
 
+POWER_W = (1, 5000)
+CCT_K = (1000, 10000)
+CHIRP_MATCH_S = 5.0
+
+
+def clock_offset_from_chirps(detected_s: list[float], emitted_utc_s: list[float], tol_s: float = CHIRP_MATCH_S) -> dict | None:
+    """Dictaphone clock offset (s to add to the dictaphone time) = median of (emitted − detected) over the chirps
+    detected in the recording that match a chirp emitted by a LumiSite device within ±tol_s. None if no match."""
+    diffs = []
+    for t in detected_s:
+        near = min(emitted_utc_s, key=lambda e: abs(e - t), default=None)
+        if near is not None and abs(near - t) <= tol_s:
+            diffs.append(near - t)
+    if not diffs:
+        return None
+    diffs.sort()
+    n = len(diffs)
+    med = diffs[n // 2] if n % 2 else (diffs[n // 2 - 1] + diffs[n // 2]) / 2
+    return {"offset_s": med, "chirps_apparies": n, "dispersion_s": diffs[-1] - diffs[0]}
+
+
+def emitted_chirps_utc(root: Path) -> list[float]:
+    """Chirps emitted by the LumiSite devices (journal SyncEvent AUDIO_CHIRP / EMITTER) as UTC seconds."""
+    out = []
+    for f in Path(root).rglob("*.ndjson"):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if '"EMITTER"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("method") == "AUDIO_CHIRP" and e.get("role") == "EMITTER":
+                u = (e.get("t") or {}).get("utc")
+                if isinstance(u, str):
+                    out.append(iso_to_s(u))
+    return sorted(out)
+
+
 def _norm(t: str) -> str:
     return " " + t.lower().replace("’", "'") + " "
 
@@ -47,9 +86,17 @@ def extract(text: str) -> dict:
     t = _norm(text)
     d: dict = {}
     if m := re.search(r"(\d+(?:[.,]\d+)?)\s*(?:w\b|watts?)", t):
-        d["puissance_W"] = float(m.group(1).replace(",", "."))
-    if m := re.search(r"(\d{4})\s*(?:k\b|kelvins?)", t):
-        d["temp_couleur_K"] = int(m.group(1))
+        v = float(m.group(1).replace(",", "."))
+        if POWER_W[0] <= v <= POWER_W[1]:
+            d["puissance_W"] = v
+        else:
+            d.setdefault("hors_bornes", []).append(f"{m.group(0)} (puissance attendue {POWER_W[0]}–{POWER_W[1]} W)")
+    if m := re.search(r"(\d{3,5})\s*(?:k\b|kelvins?)", t):
+        v = int(m.group(1))
+        if CCT_K[0] <= v <= CCT_K[1]:
+            d["temp_couleur_K"] = v
+        else:
+            d.setdefault("hors_bornes", []).append(f"{m.group(0)} (température attendue {CCT_K[0]}–{CCT_K[1]} K)")
     if m := re.search(r"\b(gu ?10|gu ?5[.,]3|e ?27|e ?14|g ?13|g ?9|g ?4|r7s|b ?22)\b", t):
         d["culot"] = m.group(1).upper().replace(" ", "").replace(",", ".")
     if m := re.search(r"\b(mr ?16|mr ?11|par ?(?:16|20|30|38)|ar ?111)\b", t):
@@ -167,8 +214,11 @@ def apply_decisions(proposals: list[dict], decisions: list[dict], features: dict
         if p is None or d["action"] == "reject":
             continue
         oid = d.get("object_id") if d["action"] == "reassign" else d.get("object_id") or p.get("object_id")
-        if not oid or oid not in features:
-            continue
+        if not oid:
+            raise ValueError(f"segment {p['segment_id']} : « {d['action']} » sans objet (statut « {p.get('status')} ») : "
+                             "choisissez l'objet avec « réattribuer »")
+        if oid not in features:
+            raise ValueError(f"segment {p['segment_id']} : objet {oid} absent du paquet")
         base = out.get(oid) or features[oid]
         f = copy.deepcopy(base)
         pr = f["properties"]
@@ -232,7 +282,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("transcribe"); a.add_argument("audio"); a.add_argument("--model", default="small"); a.add_argument("--out", required=True)
     b = sub.add_parser("propose"); b.add_argument("package"); b.add_argument("--dictaphone", required=True); b.add_argument("--transcript", required=True)
-    b.add_argument("--speaker"); b.add_argument("--clock-offset-s", type=float, default=0.0); b.add_argument("--out", required=True)
+    b.add_argument("--speaker"); b.add_argument("--clock-offset-s", type=float, default=None); b.add_argument("--out", required=True)
+    b.add_argument("--audio", help="enregistrement du dictaphone : décalage d'horloge calculé sur les chirps détectés")
     c = sub.add_parser("validate"); c.add_argument("proposals"); c.add_argument("--out", required=True)
     d = sub.add_parser("apply"); d.add_argument("package"); d.add_argument("proposals"); d.add_argument("decisions"); d.add_argument("--out", required=True)
     args = ap.parse_args(argv)
@@ -241,7 +292,19 @@ def main(argv=None) -> int:
     elif args.cmd == "propose":
         pkg = load_package(args.package)
         objs, tracks = _targets_and_tracks(pkg, args.speaker)
-        segs = segments_from(json.loads(Path(args.transcript).read_text()), json.loads(Path(args.dictaphone).read_text()), args.clock_offset_s)
+        dicta = json.loads(Path(args.dictaphone).read_text())
+        offset = args.clock_offset_s
+        if offset is None and args.audio:
+            from . import audio
+            x = audio.read_audio(args.audio)
+            t0 = iso_to_s(dicta["start_utc"])
+            off = clock_offset_from_chirps([t0 + c["sample_index"] / audio.SR for c in audio.detect_chirps(x)], emitted_chirps_utc(pkg.root))
+            print(f"décalage d'horloge : {off}" if off else "décalage d'horloge : aucun chirp apparié, 0 s utilisé", file=sys.stderr)
+            offset = off["offset_s"] if off else 0.0
+        if not tracks:
+            print("aucune Feature « track » dans le paquet : critères distance (8 m) et cône (±35°) inactifs, "
+                  "seuls le temps et la famille citée servent au rattachement", file=sys.stderr)
+        segs = segments_from(json.loads(Path(args.transcript).read_text()), dicta, offset or 0.0)
         Path(args.out).write_text(json.dumps(propose(segs, objs, tracks), ensure_ascii=False, indent=1), encoding="utf-8")
     elif args.cmd == "validate":
         decisions = []

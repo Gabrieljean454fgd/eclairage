@@ -1,6 +1,6 @@
 # Dictaphone continu et voix (lot 12) — format figé
 
-Décision de Sébastien : dictaphone continu sur l'iPad synchronisé, transcription au bureau avec Whisper, rattachement aux objets par time-code et proximité, **avec validation humaine**. L'appli iOS n'existe pas encore : ce document fixe le format qu'elle devra écrire. L'outil de bureau le lit déjà (`tools/session2dxf`, module `voice`).
+Format proposé (à confirmer, aucune décision écrite de Sébastien n'est citée) : dictaphone continu sur l'iPad synchronisé, transcription au bureau avec Whisper, rattachement aux objets par time-code et proximité, **avec validation humaine**. L'appli iOS n'existe pas encore : ce document fixe le format qu'elle devra écrire. L'outil de bureau le lit déjà (`tools/session2dxf`, module `voice`).
 
 ## Dans le paquet (lot 6)
 ```
@@ -33,3 +33,10 @@ Informer les personnes présentes et obtenir leur accord ; traitement local uniq
 - Pas d'écran graphique de validation (réécoute, carte, photo) : écran texte seulement.
 - La trame d'identification (lot 9) n'est pas décodée par l'outil Python : appariement des chirps par ordre.
 - Critère « ≥ 8 fois sur 10 » vérifié sur des visites synthétiques seulement ; la visite test de 30 min téléphone + iPad reste à faire.
+
+## Limites actuelles (revue du 30/10)
+
+- **Features `track`** : l'appli Android ne les exporte pas encore. Sans elles, `voice propose` le signale et les critères distance (8 m) et cône (±35°) sont **inactifs** : le rattachement ne repose que sur le temps et la famille citée.
+- **Décalage d'horloge** : `voice propose --audio <enregistrement>` détecte les chirps dans l'enregistrement, les apparie (±5 s) aux chirps émis par les appareils LumiSite (journal, `SyncEvent` AUDIO_CHIRP/EMITTER) et applique la médiane des écarts. `--clock-offset-s` force une valeur.
+- **Bornes** : puissance 1–5000 W, température 1000–10000 K ; une valeur hors bornes n'est pas appliquée, elle est listée dans `hors_bornes`.
+- **`accept` sans objet** (statut « à choisir » ou « aucun ») : erreur explicite, utiliser « réattribuer ».

@@ -69,7 +69,7 @@ def dxf_to_features(dxf: Path, sous_type_by_scale: dict) -> list:
         x, y = ins.dxf.insert.x, ins.dxf.insert.y
         lon, lat = geo.l93_to_lonlat(x, y)
         conv = geo.convergence_deg(lon, lat)
-        az = (90.0 - ins.dxf.rotation) - conv
+        az = (90.0 - ins.dxf.rotation) + conv
         props = {"aim": {"azimuth_deg": az}}
         st = sous_type_by_scale.get((ins.dxf.name, round(ins.dxf.xscale, 3)))
         if st:

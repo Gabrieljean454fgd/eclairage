@@ -75,6 +75,8 @@ def test_two_devices_ten_duplicates_merge_and_conflicts(tmp_path):
     b.append(feature("bc", "spot", lon, lat, device="devB", session="s2"))
     pa = make_package(tmp_path / "A", {("devA", "s1"): a}); pb = make_package(tmp_path / "B", {("devB", "s2"): b})
     objs, _, _ = collect([load_package(pa), load_package(pb)])
+    for o in objs:  # measured σ = 0.5 m (without σ nothing is merged: see test_no_automatic_merge_without_sigma)
+        o.sigma_assumed = False
     res = merge(objs)
     assert len(res.fusions) == 10
     assert len(res.conflicts) == 1 and res.conflicts[0]["type"] == "familles différentes"
@@ -162,3 +164,24 @@ def test_convergence_and_rotation():
     c = geo.convergence_deg(*SBC)
     assert 0.5 < abs(c) < 3
     assert geo.azimuth_to_rotation(0.0, 0.0) == 90.0 and geo.azimuth_to_rotation(90.0, 0.0) == 0.0
+
+
+def test_azimuth_reference_on_a_meridian():
+    """Independent reference: B due north of A (same longitude, east of 3°E) → grid azimuth from L93 coordinates."""
+    import math
+    from session2dxf import geo
+    lon = 6.5
+    ax, ay = geo.lonlat_to_l93(lon, 45.0); bx, by = geo.lonlat_to_l93(lon, 45.01)
+    grid_az = math.degrees(math.atan2(bx - ax, by - ay))
+    assert grid_az < 0  # true north is west of grid north east of the central meridian
+    rot = geo.azimuth_to_rotation(0.0, geo.convergence_deg(lon, 45.005))
+    assert abs(((90.0 - grid_az) % 360.0) - rot) < 0.01
+
+
+def test_no_automatic_merge_without_sigma():
+    from session2dxf.merge import Obj, merge
+    a = Obj("a", "spot", 0.0, 0.0, None, 0.5, None, "d1", {}, sigma_assumed=True)
+    b = Obj("b", "spot", 0.8, 0.0, None, 0.5, None, "d2", {}, sigma_assumed=True)
+    r = merge([a, b])
+    assert len(r.objects) == 2 and not r.fusions
+    assert r.conflicts[0]["type"].startswith("doublon probable")

@@ -27,3 +27,7 @@ Sorties : `releve.dxf`, `releve.counts.csv` (comptages de la légende), `releve.
 - La correspondance taille de spot ↔ PAR20/MR16/LED reste à fournir par Sébastien (§ 15) : 1,208 par défaut.
 - Pas d'écran de validation des conflits : ils sont listés dans le rapport.
 - Ouverture dans AutoCAD et conversion DWG non testées ici.
+
+## Dépendances
+
+`pip install -r requirements.txt` (pyproj >= 3.7 : la 3.6.1 ne s'installe pas sous Python 3.13 ; numpy). La transcription des notes vocales (Whisper) demande aussi `ffmpeg` dans le PATH (`apt install ffmpeg`, `brew install ffmpeg`).

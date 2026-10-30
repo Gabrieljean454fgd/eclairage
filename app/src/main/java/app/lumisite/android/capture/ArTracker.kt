@@ -60,11 +60,18 @@ class ArTracker(
     /** Height (session frame) of the last object placed by aiming: second level of the aim fallback chain. */
     @Volatile var lastObjectY: Double? = null
     @Volatile var configNote: String = ""; private set
-    @Volatile private var pendingTorch: Boolean? = null
     private var autoTorchChecked = false
 
-    /** Torch on/off; applied on the GL thread. Turned off when the session pauses (never permanent). */
-    fun setTorch(on: Boolean) { pendingTorch = on }
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val planeRenderer = PlaneRenderer()
+    private var planes: List<Plane> = emptyList()
+    private var frameNo = 0L
+
+    /** Torch on/off, applied from the caller thread (never session.configure() inside onDrawFrame). Off on pause. */
+    fun setTorch(on: Boolean) {
+        val s = session ?: return
+        runCatching { applyTorchInternal(s, on); torchOn.value = on }.onFailure { lastError = "torche : ${it.message}" }
+    }
 
     companion object {
         fun availability(ctx: Context): ArCoreApk.Availability = ArCoreApk.getInstance().checkAvailability(ctx)
@@ -109,7 +116,12 @@ class ArTracker(
         try { session?.resume() } catch (e: Exception) { lastError = "resume: ${e.message}" }
     }
 
-    fun pause() { torchOn.value = false; try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" } }
+    fun pause() {
+        // Flash back to OFF in the config too, otherwise ARCore relights it on resume while the UI says "off".
+        session?.let { s -> runCatching { applyTorchInternal(s, false) } }
+        torchOn.value = false
+        try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" }
+    }
 
     /** Call only once the GLSurfaceView is paused (no concurrent onDrawFrame). Never throws. */
     fun close() {
@@ -123,6 +135,7 @@ class ArTracker(
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1f)
         bg.create()
+        planeRenderer.create()
         session?.setCameraTextureName(bg.textureId)
     }
 
@@ -131,20 +144,17 @@ class ArTracker(
         viewportW = width; viewportH = height; viewportChanged = true
     }
 
-    private fun applyTorch(s: Session) {
-        val want = pendingTorch ?: return
-        pendingTorch = null
-        applyTorchInternal(s, want); torchOn.value = want
-    }
 
     private fun updateAim(s: Session, frame: Frame, state: TrackingState) {
         val cam = frame.camera
-        if (!autoTorchChecked && state == TrackingState.TRACKING) { autoTorchChecked = true; if (lowLight(frame)) pendingTorch = true }
+        if (!autoTorchChecked && state == TrackingState.TRACKING) { autoTorchChecked = true; if (lowLight(frame)) main.post { setTorch(true) } }
         if (state != TrackingState.TRACKING) { aim.value = AimResult.NoTarget; return }
-        val planes = s.getAllTrackables(Plane::class.java).filter {
-            it.trackingState == com.google.ar.core.TrackingState.TRACKING && it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && it.subsumedBy == null
+        // Plane list sampled every 10 frames (getAllTrackables is costly); tracking state re-checked every frame.
+        if (frameNo++ % 10 == 0L) {
+            planes = s.getAllTrackables(Plane::class.java).filter { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && it.subsumedBy == null }
         }
-        planeCount.value = planes.size
+        val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
+        if (planeCount.value != planes.size) planeCount.value = planes.size
         val ap = planes.map { pl ->
             val c = pl.centerPose
             Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), Aim.UP, "AR_PLANE") { p ->
@@ -191,8 +201,8 @@ class ArTracker(
                 state, null,
             )
         } else null
-        runCatching { applyTorch(s) }
         runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
+        if (state == TrackingState.TRACKING) runCatching { planeRenderer.draw(cam, planes) }
         onFrame(pose, state, reason)
     }
 }
@@ -264,4 +274,44 @@ private class BackgroundRenderer {
 
     private fun floatBuffer(a: FloatArray): FloatBuffer =
         ByteBuffer.allocateDirect(a.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(a); position(0) }
+}
+
+/** Detected horizontal planes drawn as translucent cyan polygons (as in the ARCore samples), so the user sees what is aimed at. */
+private class PlaneRenderer {
+    private var program = 0; private var aPos = 0; private var uMvp = 0; private var uColor = 0
+    private val proj = FloatArray(16); private val view = FloatArray(16); private val model = FloatArray(16)
+    private val vp = FloatArray(16); private val mvp = FloatArray(16)
+
+    fun create() {
+        fun shader(type: Int, src: String) = GLES20.glCreateShader(type).also { GLES20.glShaderSource(it, src); GLES20.glCompileShader(it) }
+        program = GLES20.glCreateProgram().also {
+            GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, "uniform mat4 u_Mvp; attribute vec2 a_Pos; void main() { gl_Position = u_Mvp * vec4(a_Pos.x, 0.0, a_Pos.y, 1.0); }"))
+            GLES20.glAttachShader(it, shader(GLES20.GL_FRAGMENT_SHADER, "precision mediump float; uniform vec4 u_Color; void main() { gl_FragColor = u_Color; }"))
+            GLES20.glLinkProgram(it)
+        }
+        aPos = GLES20.glGetAttribLocation(program, "a_Pos"); uMvp = GLES20.glGetUniformLocation(program, "u_Mvp"); uColor = GLES20.glGetUniformLocation(program, "u_Color")
+    }
+
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>) {
+        if (program == 0 || planes.isEmpty()) return
+        cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
+        android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
+        GLES20.glUseProgram(program)
+        GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        GLES20.glUniform4f(uColor, 0f, 0.9f, 1f, 0.25f)
+        for (pl in planes) {
+            val poly = pl.polygon ?: continue
+            val n = poly.limit() / 2
+            if (n < 3) continue
+            pl.centerPose.toMatrix(model, 0)
+            android.opengl.Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+            poly.rewind()
+            GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, poly)
+            GLES20.glEnableVertexAttribArray(aPos)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, n)
+            GLES20.glDisableVertexAttribArray(aPos)
+        }
+        GLES20.glDisable(GLES20.GL_BLEND)
+    }
 }

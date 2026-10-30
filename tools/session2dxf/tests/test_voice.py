@@ -89,3 +89,25 @@ def test_chirps_found_in_long_recording(tmp_path):
     import subprocess
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), str(flac)], check=True)
     assert [f["sample_index"] for f in audio.detect_chirps(audio.read_audio(flac))] == at
+
+
+def test_values_outside_bounds_are_not_applied():
+    from session2dxf import voice
+    d = voice.extract("spot led 9000 watts 20000 kelvins")
+    assert "puissance_W" not in d and "temp_couleur_K" not in d and len(d["hors_bornes"]) == 2
+    assert voice.extract("spot 12 W 3000 K")["puissance_W"] == 12.0
+
+
+def test_accept_without_object_is_an_error():
+    import pytest
+    from session2dxf import voice
+    props = [{"segment_id": "s1", "text": "spot", "status": "à choisir", "object_id": None, "extracted": {}}]
+    with pytest.raises(ValueError, match="réattribuer"):
+        voice.apply_decisions(props, [{"segment_id": "s1", "action": "accept", "object_id": None}], {})
+
+
+def test_clock_offset_from_chirps():
+    from session2dxf import voice
+    r = voice.clock_offset_from_chirps([100.0, 160.2, 400.0], [102.5, 162.6, 1000.0])
+    assert r["chirps_apparies"] == 2 and abs(r["offset_s"] - 2.45) < 1e-9
+    assert voice.clock_offset_from_chirps([1.0], [50.0]) is None

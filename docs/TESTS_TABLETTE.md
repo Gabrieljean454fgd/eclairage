@@ -2,6 +2,19 @@
 
 Rien de ce qui suit n'a été vérifié sur un appareil réel. L'émulateur ne valide ni ARCore réel, ni GPS réel, ni micro/haut-parleur réels.
 
+## Niveaux de vérification (état au lot 13, revue du 30/10)
+
+| Niveau | État |
+|---|---|
+| Tests JVM (`:core:test`) | 96 tests verts, 3 exécutions de suite avec `:app:assembleDebug` |
+| Tests Python (`tools/session2dxf`) | 21 tests verts, sur données et gabarit synthétiques (pas le vrai `eclairage03.dwg`) |
+| Compilation APK debug | OK |
+| Émulateur x86_64 | Écrans des lots 1 à 3 seulement, avant la revue du 30/10 |
+| Tests UI pilotés (parcours complets) | Non faits |
+| ARCore réel (suivi, plans, torche, visée) | Non testé : l'émulateur ne fait pas tourner ARCore |
+| Xiaomi 13T Pro | Rien n'a été testé : tout le § 8 ci-dessous reste à faire |
+| AutoCAD (ouverture DXF, conversion DWG) | Non testé |
+
 ## 0. Pré-requis
 - [ ] Vérifier que le modèle figure sur https://developers.google.com/ar/devices (sinon : l'app fonctionne en positions manuelles uniquement).
 - [ ] Installer `app-debug.apk` (`adb install -r app-debug.apk`), accepter caméra et localisation.

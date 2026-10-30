@@ -426,6 +426,8 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                         DeviceSyncLog(other.manifest.session.device.id, other.manifest.session.timeBases.first().id, other.syncEvents),
                     )
                     "Export relu : ${other.manifest.session.device.model}, ${other.poses.size} poses, problèmes : ${other.problems.ifEmpty { listOf("aucun") }}\n" +
+                        (if (app.lumisite.core.sync.SyncReciprocity.mutual(c.syncEvents(), other.syncEvents)) "Calé avec cet appareil : chacun a entendu le chirp de l'autre.\n"
+                         else "Non calé avec cet appareil : l'échange n'est pas réciproque (un des deux n'a pas entendu l'autre).\n") +
                         (est?.let { "Écart d'horloge monotone (cet appareil − autre) : moyenne %.1f ms, dispersion %.1f ms sur %d événement(s)%s.\n%s".format(
                             it.meanOffsetNs / 1e6, it.spreadNs / 1e6, it.sharedCodes, it.driftPpm?.let { d -> ", dérive %.1f ppm".format(d) } ?: "", it.caveats.joinToString("\n")) }
                             ?: "Aucun code de synchro commun.")
@@ -436,7 +438,11 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
     var secours by remember { mutableStateOf(false) }
     var cale by remember { mutableStateOf<Int?>(null) }
-    Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute 6 s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
+    var keepWav by remember { mutableStateOf(false) }
+    Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(keepWav, { keepWav = it }); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
+    }
     OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true)
     Button(enabled = !busy, onClick = {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
@@ -447,17 +453,20 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                     val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
                     val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
                     prefs.edit().putInt("counter", counter).apply()
-                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
-                    val r = AudioSync.round(6000, kotlin.random.Random.nextInt(800, 4200), c.ownSyncId(), counter, wav)
+                    // Without the explicit option no WAV is written: detection works on the in-memory buffer.
+                    val wav = if (keepWav) File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav") else null
+                    val r = AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
+                        c.ownSyncId(), counter, wav, AudioSync.unprocessedSupported(activity))
                     val n = c.syncRound(label, r, counter); cale = n
-                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Pas calé : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else ""
+                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export."
                 } catch (e: Exception) { "Échec audio : ${e.message}. Utilisez le top manuel (Secours)." }
             }
             busy = false
             if ((cale ?: 0) < 2) secours = true
         }
     }) { Text("Synchroniser") }
-    cale?.let { n -> Text(if (n >= 2) "Calé ($n)" else "Non calé", color = if (n >= 2) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
+    // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
+    cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
     TextButton({ secours = !secours }) { Text(if (secours) "Masquer le secours" else "Secours…") }
     if (secours) {
         OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true)

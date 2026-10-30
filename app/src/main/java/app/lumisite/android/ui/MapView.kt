@@ -41,7 +41,6 @@ import app.lumisite.core.map.ZoneDownload
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
-import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.cachemanager.CacheManager
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -84,6 +83,8 @@ fun OsmMap(
     zoom: Double,
     content: MapContent,
     recenterKey: Any? = null,
+    /** When set, the first display (and each recenter) frames this rectangle instead of center/zoom. */
+    fitBox: app.lumisite.core.model.BBox? = null,
     onTap: (LatLon) -> Unit,
     onFeatureTap: ((OsmFeature) -> Unit)? = null,
     onPointTap: ((String) -> Unit)? = null,
@@ -111,7 +112,7 @@ fun OsmMap(
     if (holder[1] != basemap) {
         holder[1] = basemap
         val src = tileSourceFor(basemap)
-        map.setTileProvider(MapTileProviderBasic(ctx.applicationContext, src, SiteTileCache(basemap, siteBbox)))
+        map.setTileProvider(SiteTileProvider(ctx.applicationContext, src, SiteTileCache(basemap, siteBbox)))
         map.setTileSource(src)
     }
     (map.tileProvider.tileWriter as? SiteTileCache)?.bbox = siteBbox
@@ -144,7 +145,10 @@ fun OsmMap(
         holder[0] = recenterKey
         val c = gp(center)
         // Before the first layout osmdroid ignores setCenter/setZoom; apply after layout.
-        val apply = { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+        val apply = {
+            if (fitBox != null) map.zoomToBoundingBox(BoundingBox(fitBox.north, fitBox.east, fitBox.south, fitBox.west), false, 48)
+            else { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+        }
         if (map.isLayoutOccurred) map.post { apply() } else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
     }
     val tone = LocalMapTone.current

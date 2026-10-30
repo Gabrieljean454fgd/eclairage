@@ -25,15 +25,23 @@ import java.nio.ByteOrder
  */
 object AudioSync {
     private const val RATE = Chirp.DEFAULT_SAMPLE_RATE
+    const val WINDOW_MS = 12_000
+    const val EMIT_MIN_MS = 1_000
+    const val EMIT_MAX_MS = 10_000
+
+    /** UNPROCESSED is only used when the device declares it (otherwise MIC, with its processing). */
+    fun unprocessedSupported(ctx: android.content.Context): Boolean = Build.VERSION.SDK_INT >= 24 &&
+        (ctx.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager)
+            .getProperty(android.media.AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
 
     data class Heard(val eventMonotonicNs: Long, val detection: AudioDetection, val emitterHex: String?, val counter: Int?, val frameOk: Boolean)
     data class Round(val heard: List<Heard>, val emitWriteNs: Long?)
 
     @SuppressLint("MissingPermission")
-    fun round(windowMs: Int, emitAfterMs: Int, ownId: Int, counter: Int, recordingFile: File?): Round {
+    fun round(windowMs: Int, emitAfterMs: Int, ownId: Int, counter: Int, recordingFile: File?, unprocessed: Boolean): Round {
         val n = RATE * windowMs / 1000
         val minBuf = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val rec = AudioRecord(MediaRecorder.AudioSource.UNPROCESSED.takeIf { Build.VERSION.SDK_INT >= 24 } ?: MediaRecorder.AudioSource.MIC,
+        val rec = AudioRecord(MediaRecorder.AudioSource.UNPROCESSED.takeIf { unprocessed && Build.VERSION.SDK_INT >= 24 } ?: MediaRecorder.AudioSource.MIC,
             RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, RATE))
         check(rec.state == AudioRecord.STATE_INITIALIZED) { "micro indisponible" }
         val pcm = ShortArray(n)

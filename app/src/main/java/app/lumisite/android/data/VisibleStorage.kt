@@ -25,12 +25,14 @@ class VisibleStorage(private val ctx: Context) {
 
     /** Incremented after each restore that brought files back, so screens reload their lists. */
     val restored = kotlinx.coroutines.flow.MutableStateFlow(0)
-    @Volatile private var needRestore = true
+    /** Each folder selection bumps [selection]; [restoredSelection] records the one whose restore succeeded. */
+    @Volatile private var selection = 1
+    private var restoredSelection = 0
 
     fun setTree(uri: Uri) {
         ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         prefs.edit().putString("tree", uri.toString()).apply()
-        needRestore = true // e.g. after a reinstall, the old folder is chosen again: bring its sessions back before copying out
+        selection++ // e.g. after a reinstall, the old folder is chosen again: bring its sessions back before copying out
     }
 
     /** Readable path, e.g. "Documents/LumiSite" (primary storage) or the raw document id. */
@@ -55,8 +57,15 @@ class VisibleStorage(private val ctx: Context) {
 
     /** Private dir -> visible folder. Never deletes anything. Returns the number of files written. */
     @Synchronized fun sync(privateRoot: File): Int {
+        val gen = selection
         val r = root() ?: return 0
-        if (needRestore) { if (restore(privateRoot) > 0) restored.value++; needRestore = false }
+        if (restoredSelection != gen) {
+            // Nothing is copied out to a folder until its restore succeeded; a failure is retried at the next sync.
+            val n = restoreFrom(r, privateRoot) ?: return 0
+            if (selection != gen) return 0 // another folder was chosen meanwhile: restore that one first
+            restoredSelection = gen
+            if (n > 0) restored.value++
+        }
         return runCatching {
             val src = dirs.flatMap { d -> File(privateRoot, d).takeIf { it.exists() }?.let { Mirror.list(it).map { e -> e.copy(rel = "$d/${e.rel}") } } ?: emptyList() }
             val dst = mutableListOf<Pair<Mirror.Entry, DocumentFile>>(); list(r, "", dst)
@@ -75,8 +84,10 @@ class VisibleStorage(private val ctx: Context) {
     }
 
     /** Visible folder -> private dir, for files missing or shorter in the private dir (reinstall, migration). */
-    @Synchronized fun restore(privateRoot: File): Int {
-        val r = root() ?: return 0
+    @Synchronized fun restore(privateRoot: File): Int = root()?.let { restoreFrom(it, privateRoot) } ?: 0
+
+    /** Number of files restored, or null on failure ([lastError] set). */
+    private fun restoreFrom(r: DocumentFile, privateRoot: File): Int? {
         return runCatching {
             val src = mutableListOf<Pair<Mirror.Entry, DocumentFile>>(); list(r, "", src)
             val wanted = src.filter { (e, _) -> dirs.any { e.rel.startsWith("$it/") } }
@@ -91,6 +102,6 @@ class VisibleStorage(private val ctx: Context) {
                 if (!tmp.renameTo(to)) error("Restauration impossible : ${e.rel}")
             }
             actions.size
-        }.getOrElse { lastError = it.message ?: it.toString(); 0 }
+        }.getOrElse { lastError = "Restauration : " + (it.message ?: it.toString()); null }
     }
 }

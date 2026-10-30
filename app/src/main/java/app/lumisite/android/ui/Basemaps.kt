@@ -1,15 +1,18 @@
 package app.lumisite.android.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.lumisite.core.map.Basemap
-import app.lumisite.core.map.TileMath
-import app.lumisite.core.map.ZoneDownload
+import app.lumisite.core.map.TileCachePolicy
 import app.lumisite.core.model.BBox
+import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.modules.IFilesystemCache
+import org.osmdroid.tileprovider.modules.MapTileApproximater
+import org.osmdroid.tileprovider.modules.MapTileFileStorageProviderBase
 import org.osmdroid.tileprovider.modules.SqlTileWriter
 import org.osmdroid.tileprovider.tilesource.ITileSource
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
@@ -55,26 +58,30 @@ fun tileSourceFor(b: Basemap): ITileSource = when (b) {
     }
 }
 
-/**
- * Stores downloaded tiles only inside the site rectangle and zooms [ZoneDownload.Z_MIN]..native (fiche D); nothing at all
- * when the base map forbids caching (Esri) or when no site rectangle is known.
- */
+/** Tile cache following [TileCachePolicy] (satellite limited to the site, plan layers cached normally). */
 class SiteTileCache(private val basemap: Basemap, @Volatile var bbox: BBox?) : IFilesystemCache {
     private val sql = if (basemap.cacheAllowed) SqlTileWriter() else null
 
-    private fun inSite(idx: Long): Boolean {
-        val b = bbox ?: return false
-        val z = MapTileIndex.getZoom(idx)
-        if (z < ZoneDownload.Z_MIN || z > basemap.nativeMaxZoom) return false
-        val x = MapTileIndex.getX(idx); val y = MapTileIndex.getY(idx)
-        return x in TileMath.x(b.west, z)..TileMath.x(b.east, z) && y in TileMath.y(b.north, z)..TileMath.y(b.south, z)
-    }
-
     override fun saveFile(src: ITileSource, idx: Long, stream: InputStream, expiration: Long?): Boolean =
-        sql != null && inSite(idx) && sql.saveFile(src, idx, stream, expiration)
+        sql != null && TileCachePolicy.shouldStore(basemap, bbox, MapTileIndex.getZoom(idx), MapTileIndex.getX(idx), MapTileIndex.getY(idx)) &&
+            sql.saveFile(src, idx, stream, expiration)
     override fun exists(src: ITileSource, idx: Long) = sql?.exists(src, idx) ?: false
     override fun onDetach() { sql?.onDetach() }
     override fun remove(src: ITileSource, idx: Long) = sql?.remove(src, idx) ?: false
     override fun getExpirationTimestamp(src: ITileSource, idx: Long): Long? = sql?.getExpirationTimestamp(src, idx)
     override fun loadTile(src: ITileSource, idx: Long): Drawable? = sql?.loadTile(src, idx)
+}
+
+/** Searches at most [TileCachePolicy.MAX_APPROX_LEVELS] lower zooms for a missing tile (osmdroid #1106). */
+private class BoundedApproximater : MapTileApproximater() {
+    override fun approximateTileFromLowerZoom(idx: Long): Bitmap? {
+        for (d in TileCachePolicy.approximationLevels(MapTileIndex.getZoom(idx))) approximateTileFromLowerZoom(idx, d)?.let { return it }
+        return null
+    }
+}
+
+class SiteTileProvider(ctx: Context, src: ITileSource, cache: IFilesystemCache) : MapTileProviderBasic(ctx, src, cache) {
+    override fun createApproximater(
+        a: MapTileFileStorageProviderBase?, b: MapTileFileStorageProviderBase?, c: MapTileFileStorageProviderBase?,
+    ): MapTileApproximater = BoundedApproximater().apply { a?.let(::addProvider); b?.let(::addProvider); c?.let(::addProvider) }
 }

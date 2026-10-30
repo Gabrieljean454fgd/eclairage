@@ -170,11 +170,18 @@ object OsmMapParser {
 
 /**
  * Fetch with the density guard: on HTTP 400 too many nodes, split into quadrants (bounded recursion and call cap),
- * then merge de-duplicated by type + id. [fetch] performs exactly one HTTP request.
+ * then merge de-duplicated by type + id. [fetch] performs exactly one HTTP request. A sub-zone still too dense at
+ * [maxDepth] is listed in [missing] and the other results are kept (partial result).
  */
-class SplitFetcher(private val fetch: (BBox) -> String, val maxCalls: Int = OsmGuard.MAX_CALLS, val maxDepth: Int = OsmGuard.MAX_DEPTH) {
+class SplitFetcher(
+    private val fetch: (BBox) -> String,
+    val maxCalls: Int = OsmGuard.MAX_CALLS,
+    val maxDepth: Int = OsmGuard.MAX_DEPTH,
+    private val onCall: (Int) -> Unit = {},
+) {
     var calls = 0; private set
     val responses = ArrayList<Pair<BBox, String>>()
+    val missing = ArrayList<BBox>()
 
     fun fetchSplit(b: BBox): OsmElements {
         val parts = Bboxes.quadrants(b)
@@ -184,10 +191,12 @@ class SplitFetcher(private val fetch: (BBox) -> String, val maxCalls: Int = OsmG
     private fun one(b: BBox, depth: Int): OsmElements {
         if (calls >= maxCalls) throw CallCapReached(calls)
         calls++
+        onCall(calls)
         return try {
             val body = fetch(b); responses += b to body; OsmMapParser.parse(body)
         } catch (e: OsmHttpException) {
-            if (e.failure != OsmGuard.Failure.TOO_MANY_NODES || depth >= maxDepth) throw e
+            if (e.failure != OsmGuard.Failure.TOO_MANY_NODES) throw e
+            if (depth >= maxDepth) { missing += b; return OsmElements.EMPTY }
             Bboxes.quadrants(b).fold(OsmElements.EMPTY) { acc, q -> acc + one(q, depth + 1) }
         }
     }

@@ -71,6 +71,7 @@ import app.lumisite.core.model.ReferencePoint
 import app.lumisite.core.model.RelocalizationEvent
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncRole
+import androidx.compose.material3.TextButton
 import app.lumisite.core.model.TrackingState
 import app.lumisite.core.sync.DeviceSyncLog
 import app.lumisite.core.sync.SyncEstimator
@@ -210,6 +211,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
             }
             if (arReady) {
+                Column(Modifier.width(200.dp)) {
+                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp)) {
                 AndroidView(factory = { ctx ->
                     GLSurfaceView(ctx).apply {
                         preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
@@ -217,6 +220,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                         glView = this
                     }
                 }, modifier = Modifier.width(200.dp).height(150.dp))
+                ArReticle(c)
+                }
+                ArControls(c)
+                }
             }
         }
     }
@@ -419,6 +426,8 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                         DeviceSyncLog(other.manifest.session.device.id, other.manifest.session.timeBases.first().id, other.syncEvents),
                     )
                     "Export relu : ${other.manifest.session.device.model}, ${other.poses.size} poses, problèmes : ${other.problems.ifEmpty { listOf("aucun") }}\n" +
+                        (if (app.lumisite.core.sync.SyncReciprocity.mutual(c.syncEvents(), other.syncEvents)) "Calé avec cet appareil : chacun a entendu le chirp de l'autre.\n"
+                         else "Non calé avec cet appareil : l'échange n'est pas réciproque (un des deux n'a pas entendu l'autre).\n") +
                         (est?.let { "Écart d'horloge monotone (cet appareil − autre) : moyenne %.1f ms, dispersion %.1f ms sur %d événement(s)%s.\n%s".format(
                             it.meanOffsetNs / 1e6, it.spreadNs / 1e6, it.sharedCodes, it.driftPpm?.let { d -> ", dérive %.1f ppm".format(d) } ?: "", it.caveats.joinToString("\n")) }
                             ?: "Aucun code de synchro commun.")
@@ -426,28 +435,42 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             }
         }
     }
-    Text("Synchronisation multi-appareils : saisissez le même code sur tous les appareils pour le même événement physique.", style = MaterialTheme.typography.labelLarge)
-    OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code de synchro (ex. S1)") })
-    Button(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }) { Text("TOP manuel (appuyer au signal)") }
-    Text("Expérimental : chirp audio 2–6 kHz, 60 ms. Tous les appareils écoutent 4 s ; l'émetteur joue le chirp après 1,5 s. Délai de propagation (~2,9 ms/m) et latence audio non compensés. Un enregistrement WAV du micro est conservé dans la session.", style = MaterialTheme.typography.bodySmall)
-    Row {
-        listOf(SyncRole.EMITTER to "Émettre + écouter", SyncRole.RECEIVER to "Écouter").forEach { (role, label) ->
-            OutlinedButton(enabled = code.isNotBlank() && !busy, onClick = {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@OutlinedButton }
-                busy = true; result = "Écoute en cours…"
-                scope.launch {
-                    result = withContext(Dispatchers.IO) {
-                        try {
-                            val wav = File(c.sessionDir(), "sync_${code}_${System.currentTimeMillis()}.wav")
-                            val r = AudioSync.listen(4000, if (role == SyncRole.EMITTER) 1500 else null, wav)
-                            c.syncAudio(code, role, r.eventMonotonicNs, r.detection, r.trusted, r.message); r.message
-                        } catch (e: Exception) { "Échec audio : ${e.message}" }
-                    }
-                    busy = false
-                }
-            }) { Text(label) }
-            Spacer(Modifier.width(6.dp))
+    var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
+    var secours by remember { mutableStateOf(false) }
+    var cale by remember { mutableStateOf<Int?>(null) }
+    var keepWav by remember { mutableStateOf(false) }
+    Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(keepWav, { keepWav = it }); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
+    }
+    OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true)
+    Button(enabled = !busy, onClick = {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
+        busy = true; cale = null; result = "Écoute et émission en cours…"
+        scope.launch {
+            result = withContext(Dispatchers.IO) {
+                try {
+                    val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
+                    val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
+                    prefs.edit().putInt("counter", counter).apply()
+                    // Without the explicit option no WAV is written: detection works on the in-memory buffer.
+                    val wav = if (keepWav) File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav") else null
+                    val r = AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
+                        c.ownSyncId(), counter, wav, AudioSync.unprocessedSupported(activity))
+                    val n = c.syncRound(label, r, counter); cale = n
+                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export."
+                } catch (e: Exception) { "Échec audio : ${e.message}. Utilisez le top manuel (Secours)." }
+            }
+            busy = false
+            if ((cale ?: 0) < 2) secours = true
         }
+    }) { Text("Synchroniser") }
+    // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
+    cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
+    TextButton({ secours = !secours }) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (secours) {
+        OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true)
+        OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }) { Text("TOP manuel (appuyer au signal)") }
     }
     OutlinedButton(onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Estimer l'écart avec l'export d'un autre appareil…") }
     val st by c.state.collectAsState()

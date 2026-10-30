@@ -1,6 +1,8 @@
 package app.lumisite.core.sync
 
 import app.lumisite.core.model.SyncEvent
+import app.lumisite.core.model.SyncMethod
+import app.lumisite.core.model.SyncRole
 import kotlinx.serialization.Serializable
 import kotlin.math.PI
 import kotlin.math.abs
@@ -109,5 +111,113 @@ object ChirpDetector {
         if (best < 0) return null
         val median = scores.sorted()[count / 2]
         return ChirpDetection(best, bestScore, median)
+    }
+}
+
+/**
+ * Identification frame sent right after the chirp (protocol "lumisite-chirp-id/1"): 32 bits, BFSK, Hann-windowed
+ * 10 ms per bit at 7 kHz (0) / 8.5 kHz (1), starting 20 ms after the chirp end. Bits: emitter id (16), emission
+ * counter (8), checksum (8) = id_hi xor id_lo xor counter xor 0xA5. Own implementation (no ggwave dependency).
+ */
+object IdFrame {
+    const val PROTOCOL = "lumisite-chirp-id/1"
+    const val F_ZERO = 7_000.0
+    const val F_ONE = 8_500.0
+    const val BIT_MS = 10.0
+    const val GAP_MS = 20.0
+    const val BITS = 32
+
+    data class Decoded(val emitterId: Int, val counter: Int, val ok: Boolean) {
+        val hex: String get() = "%04X".format(emitterId)
+    }
+
+    fun idOf(deviceId: String): Int = deviceId.hashCode() and 0xFFFF
+    private fun checksum(id: Int, counter: Int) = ((id shr 8) xor (id and 0xFF) xor (counter and 0xFF) xor 0xA5) and 0xFF
+    private fun bitsOf(id: Int, counter: Int): Long = (id.toLong() shl 16) or ((counter and 0xFF).toLong() shl 8) or checksum(id, counter).toLong()
+
+    fun bitSamples(rate: Int) = (rate * BIT_MS / 1000).toInt()
+    fun offsetAfterChirpStart(rate: Int, chirpMs: Double = Chirp.DEFAULT_DURATION_MS) = (rate * (chirpMs + GAP_MS) / 1000).toInt()
+
+    fun encode(id: Int, counter: Int, rate: Int = Chirp.DEFAULT_SAMPLE_RATE): FloatArray {
+        val b = bitSamples(rate); val bits = bitsOf(id, counter)
+        return FloatArray(BITS * b) { i ->
+            val bit = (bits shr (BITS - 1 - i / b)) and 1L
+            val k = i % b
+            val win = 0.5 - 0.5 * kotlin.math.cos(2 * PI * k / (b - 1))
+            (win * sin(2 * PI * (if (bit == 1L) F_ONE else F_ZERO) * i / rate)).toFloat()
+        }
+    }
+
+    /** Chirp + gap + frame, ready to play. */
+    fun signal(id: Int, counter: Int, rate: Int = Chirp.DEFAULT_SAMPLE_RATE): FloatArray {
+        val chirp = Chirp.generate(rate); val frame = encode(id, counter, rate); val off = offsetAfterChirpStart(rate)
+        return FloatArray(off + frame.size).also { out -> chirp.copyInto(out); frame.copyInto(out, off) }
+    }
+
+    private fun goertzel(x: FloatArray, from: Int, n: Int, f: Double, rate: Int): Double {
+        val w = 2 * kotlin.math.cos(2 * PI * f / rate); var s1 = 0.0; var s2 = 0.0
+        for (i in from until from + n) { val s0 = x[i] + w * s1 - s2; s2 = s1; s1 = s0 }
+        return s1 * s1 + s2 * s2 - w * s1 * s2
+    }
+
+    /** Decodes the frame following a chirp detected at [chirpStart]; null if the recording is too short. */
+    fun decode(x: FloatArray, chirpStart: Int, rate: Int = Chirp.DEFAULT_SAMPLE_RATE): Decoded? {
+        val b = bitSamples(rate); val start = chirpStart + offsetAfterChirpStart(rate)
+        if (start < 0 || start + BITS * b > x.size) return null
+        var bits = 0L
+        for (i in 0 until BITS) bits = (bits shl 1) or (if (goertzel(x, start + i * b, b, F_ONE, rate) > goertzel(x, start + i * b, b, F_ZERO, rate)) 1L else 0L)
+        val id = ((bits shr 16) and 0xFFFF).toInt(); val ctr = ((bits shr 8) and 0xFF).toInt()
+        return Decoded(id, ctr, (bits and 0xFF).toInt() == checksum(id, ctr))
+    }
+}
+
+/** Several chirps in one recording (all devices of a "Synchroniser" round, or a long dictaphone recording). */
+object MultiChirp {
+    const val MIN_SCORE = 0.3
+    const val MIN_SNR = 8.0
+
+    data class Heard(val detection: ChirpDetection, val frame: IdFrame.Decoded?)
+
+    /** Coarse scan (step [coarse]) then refinement at sample resolution around every peak. */
+    fun detectAll(signal: FloatArray, template: FloatArray, rate: Int = Chirp.DEFAULT_SAMPLE_RATE, minGapMs: Double = 400.0, coarse: Int = 4): List<Heard> {
+        val m = template.size
+        if (signal.size < m) return emptyList()
+        val tNorm = sqrt(template.sumOf { (it * it).toDouble() })
+        val e = DoubleArray(signal.size + 1)
+        for (i in signal.indices) e[i + 1] = e[i] + signal[i] * signal[i]
+        fun score(s: Int): Double {
+            var acc = 0.0
+            for (k in 0 until m) acc += signal[s + k] * template[k]
+            val wn = sqrt(e[s + m] - e[s])
+            return if (wn > 1e-9) abs(acc) / (wn * tNorm) else 0.0
+        }
+        val count = (signal.size - m) / coarse + 1
+        val sc = DoubleArray(count) { score(it * coarse) }
+        val median = sc.sorted()[count / 2].coerceAtLeast(1e-9)
+        val gap = (rate * minGapMs / 1000 / coarse).toInt()
+        val peaks = sc.indices.filter { j -> sc[j] >= MIN_SCORE && sc[j] / median >= MIN_SNR }.sortedByDescending { sc[it] }
+        val kept = mutableListOf<Int>()
+        peaks.forEach { j -> if (kept.none { kotlin.math.abs(it - j) < gap }) kept += j }
+        return kept.map { j ->
+            val c = j * coarse
+            val best = (maxOf(0, c - coarse)..minOf(signal.size - m, c + coarse)).maxBy { score(it) }
+            Heard(ChirpDetection(best, score(best), median), IdFrame.decode(signal, best, rate))
+        }.sortedBy { it.detection.index }
+    }
+}
+
+/**
+ * A device pair is "calé" only when the exchange is mutual: B heard one of A's chirps AND A heard one of B's.
+ * One device alone cannot know whether its chirp was heard (muted mic on B → A still hears B), so this is checked
+ * once both journals are available (import of the other export).
+ */
+object SyncReciprocity {
+    private fun ownChirps(ev: List<SyncEvent>) =
+        ev.filter { it.method == SyncMethod.AUDIO_CHIRP && it.role == SyncRole.EMITTER }.map { it.syncCode }.toSet()
+
+    fun mutual(a: List<SyncEvent>, b: List<SyncEvent>): Boolean {
+        val heardA = a.filter { it.method == SyncMethod.AUDIO_CHIRP }.map { it.syncCode }.toSet()
+        val heardB = b.filter { it.method == SyncMethod.AUDIO_CHIRP }.map { it.syncCode }.toSet()
+        return ownChirps(a).any { it in heardB } && ownChirps(b).any { it in heardA }
     }
 }

@@ -11,7 +11,7 @@ import kotlin.math.tan
 enum class Basemap(
     val label: String,
     val nativeMaxZoom: Int,
-    /** Tiles may be stored on the device (site bbox only). */
+    /** Tiles may be stored on the device (satellite: site bbox only, see [TileCachePolicy]). */
     val cacheAllowed: Boolean,
     /** Explicit "download the zone" allowed by the provider's policy. */
     val bulkAllowed: Boolean,
@@ -23,6 +23,9 @@ enum class Basemap(
     ESRI("Esri World Imagery", 19, cacheAllowed = false, bulkAllowed = false,
         attribution = "Source : Esri, Maxar, Earthstar Geographics, and the GIS User Community"),
     ;
+
+    /** Imagery layers: heavy tiles, stored only inside the site rectangle (D9). */
+    val satellite: Boolean get() = this == IGN_ORTHO || this == ESRI
 
     companion object {
         const val MAX_ZOOM = 26.0
@@ -44,6 +47,26 @@ enum class Basemap(
 
         fun esriTileUrl(z: Int, x: Int, y: Int) = "$ESRI_URL$z/$y/$x"
     }
+}
+
+/**
+ * Which downloaded tiles are kept on the device (D9, review 30/10): plan layers (OSM, Plan IGN) are cached normally,
+ * with or without a site rectangle; satellite layers only inside the site rectangle from [ZoneDownload.Z_MIN]; nothing
+ * above the native zoom (over-zoom is scaled, never downloaded) nor for layers that forbid caching (Esri).
+ */
+object TileCachePolicy {
+    /** Lower zooms searched to approximate a missing tile (osmdroid #1106: unbounded search at 26 with an empty cache). */
+    const val MAX_APPROX_LEVELS = 8
+
+    fun shouldStore(b: Basemap, bbox: BBox?, z: Int, x: Int, y: Int): Boolean {
+        if (!b.cacheAllowed || z > b.nativeMaxZoom) return false
+        if (!b.satellite) return true
+        val r = bbox ?: return false
+        if (z < ZoneDownload.Z_MIN) return false
+        return x in TileMath.x(r.west, z)..TileMath.x(r.east, z) && y in TileMath.y(r.north, z)..TileMath.y(r.south, z)
+    }
+
+    fun approximationLevels(z: Int): IntRange = 1..minOf(z, MAX_APPROX_LEVELS)
 }
 
 /** Web Mercator tile arithmetic for the "download the zone" cap. */

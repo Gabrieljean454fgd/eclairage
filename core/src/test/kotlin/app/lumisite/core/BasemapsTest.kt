@@ -42,4 +42,24 @@ class BasemapsTest {
         assertEquals(111_320.0, TileMath.widthM(0.0, 1.0), 1e-6)
         assertEquals(4.0, TileMath.widthM(48.86, 4.0 / (111_320.0 * kotlin.math.cos(Math.toRadians(48.86)))), 1e-9)
     }
+
+    @Test fun onlySatelliteIsLimitedToTheSite() {
+        val site = app.lumisite.core.model.BBox(48.85, 2.35, 48.851, 2.351)
+        val z = 18
+        val inX = app.lumisite.core.map.TileMath.x(2.3505, z); val inY = app.lumisite.core.map.TileMath.y(48.8505, z)
+        val far = app.lumisite.core.map.TileMath.x(5.0, z)
+        val p = app.lumisite.core.map.TileCachePolicy
+        for (b in listOf(Basemap.OSM, Basemap.IGN_PLAN)) {
+            kotlin.test.assertTrue(p.shouldStore(b, null, z, far, inY), "$b sans emprise")
+            kotlin.test.assertTrue(p.shouldStore(b, site, z, far, inY), "$b hors emprise")
+            kotlin.test.assertTrue(p.shouldStore(b, null, 5, 1, 1), "$b petit zoom")
+        }
+        kotlin.test.assertTrue(p.shouldStore(Basemap.IGN_ORTHO, site, z, inX, inY))
+        kotlin.test.assertFalse(p.shouldStore(Basemap.IGN_ORTHO, site, z, far, inY))
+        kotlin.test.assertFalse(p.shouldStore(Basemap.IGN_ORTHO, null, z, inX, inY))
+        kotlin.test.assertFalse(p.shouldStore(Basemap.ESRI, site, z, inX, inY))
+        kotlin.test.assertFalse(p.shouldStore(Basemap.OSM, null, 20, 1, 1)) // above native zoom: never downloaded
+        kotlin.test.assertEquals(1..8, p.approximationLevels(26))
+        kotlin.test.assertEquals(1..3, p.approximationLevels(3))
+    }
 }

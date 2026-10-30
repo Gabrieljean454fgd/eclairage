@@ -40,6 +40,19 @@ class SurveyPositionsTest {
         assertEquals(10.0, p.e, 1e-6); assertEquals(25.0, p.n, 1e-6)
     }
 
+    @Test fun editAfterRelocalizationKeepsThePosition() {
+        val ev = calibrated()
+        val before = survey("before", 2 * s, 0.0, 5.0)
+        ev += before
+        val seg = TrajectoryCorrector.activeAt(TrajectoryCorrector.timeline(ev), 3 * s)!!
+        ev += Relocalizer.relocalize("rel", Fixtures.stamp(3 * s), Fixtures.pose(3 * s, 0.0, 10.0), ReferencePoint("R", Enu(12.0, 30.0, 0.0), null, "MAP_TAP"), seg.transform, null, null)
+        ev += before.copy(id = "edit", t = Fixtures.stamp(5 * s), poseT = before.t, supersedes = "before", note = "commentaire")
+        val p = SurveyPositions.resolveAll(ev).single()
+        assertEquals("edit", p.event.id)
+        assertEquals(10.0, p.site!!.e, 1e-6); assertEquals(25.0, p.site!!.n, 1e-6)
+        assertEquals("cal", p.transformEventId)
+    }
+
     @Test fun relocalizationOnlyMovesLaterRecords() {
         val ev = calibrated()
         ev += survey("before", 2 * s, 0.0, 5.0)

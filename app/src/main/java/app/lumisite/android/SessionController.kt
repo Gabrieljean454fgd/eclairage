@@ -307,7 +307,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
-            dxf = DxfHint(layer = fam.defaultLayer, blockName = fam.blockName),
+            dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
         )
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
         return true
@@ -324,14 +324,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
         val moved = moveTo != null
         val e = old.copy(
-            id = Ids.new("srv"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null,
+            id = Ids.new("srv"), t = stamps.now(), poseT = old.poseT ?: old.t, supersedes = old.id, deleted = if (delete) true else null,
             note = note?.let { it.ifBlank { null } } ?: old.note,
             positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
             manualSite = if (moved) pos else old.manualSite,
             kind = fam?.blockName ?: old.kind,
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
-            dxf = if (fam != null) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else old.dxf,
+            dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
         )
         record(e, when { delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
     }

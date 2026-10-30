@@ -33,8 +33,11 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     tracking == TrackingState.INITIALIZING -> Color(0xFFFFC107) to "Initialisation : bougez lentement"
     tracking != TrackingState.TRACKING -> Color(0xFFD50000) to "Suivi perdu"
     aim == AimResult.Grazing -> Color(0xFFD50000) to "Orientez l'appareil vers le sol"
+    // Each source has its own colour; only a detected plane is shown as a real target (green).
     aim is AimResult.Hit && aim.source == "ESTIMATED" -> Color(0xFFFF9800) to "Pas de cible : point estimé à 50 cm"
-    aim is AimResult.Hit -> Color(0xFF00C853) to when (aim.source) { "AR_PLANE" -> "Plan détecté"; "AR_LAST_PLANE" -> "Plan du dernier objet"; else -> "Sol estimé" }
+    aim is AimResult.Hit && aim.source == "AR_PLANE" -> Color(0xFF00C853) to "Plan détecté"
+    aim is AimResult.Hit && aim.source == "AR_LAST_PLANE" -> Color(0xFF00B0FF) to "Pas de plan : hauteur du dernier objet"
+    aim is AimResult.Hit -> Color(0xFFFFEB3B) to "Pas de plan : sol estimé 1,4 m sous l'appareil"
     else -> Color(0xFFD50000) to "Pas de cible"
 }
 
@@ -45,7 +48,8 @@ fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) 
     val aim by c.ar.aim.collectAsState()
     val (color, _) = aimState(st.tracking, aim)
     Text("+", Modifier.align(Alignment.Center), fontSize = 36.sp, color = color, style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)))
-    Text(c.calibrationLabel(), Modifier.align(Alignment.TopStart).background(Color(0x88000000)).padding(2.dp), color = Color.White, fontSize = 10.sp)
+    val calLabel = remember(st.events.size) { c.calibrationLabel() }
+    Text(calLabel, Modifier.align(Alignment.TopStart).background(Color(0x88000000)).padding(2.dp), color = Color.White, fontSize = 10.sp)
 }
 
 /** Below the camera view: aim hint, plane count, torch and two-aim measurement (P2, not journaled). */

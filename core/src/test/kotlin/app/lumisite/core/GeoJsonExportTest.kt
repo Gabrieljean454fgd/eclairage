@@ -79,6 +79,22 @@ class GeoJsonExportTest {
         assertEquals(listOf(1, 2, 3), lines.map { it["properties"]!!.jsonObject["rev"]!!.jsonPrimitive.int })
     }
 
+    @Test fun sessionFromBeforeLot6ResumedKeepsAllObjectsInExport() {
+        val sessDir = tmp()
+        SessionJournal(sessDir, Fixtures.header).use { j ->
+            j.event(SessionStarted("st", Fixtures.stamp(500)))
+            j.event(srv("a", 1_000, 1.0, 2.0)); j.event(srv("b", 1_500, 3.0, 2.0))
+        }
+        // Resumed with the live writer: only the object recorded after the resume is in features.geojsonl.
+        val c = srv("c", 5_000, 5.0, 2.0)
+        SessionJournal(sessDir).use { j -> j.event(c); j.event(SessionStopped("sp", Fixtures.stamp(6_000), "user")) }
+        GeoJsonSeqWriter(File(sessDir, GeoJsonSeqWriter.FILE), ltp, "dev-1", "sess-1").use { it.append(c, c.manualSite) }
+        val root = ExportPackage.build(Fixtures.site, listOf(ExportPackage.SessionInput(sessDir)), null, null, tmp(), 1_700_000_000_000, "test")
+        assertEquals(3, ExportPackage.readManifest(root).sessions.single().featureCount)
+        val ids = GeoJsonSeq.latest(GeoJsonSeq.read(File(root, "sessions/dev-1/sess-1.geojsonl")).items).keys
+        assertEquals(setOf("a", "b", "c"), ids)
+    }
+
     @Test fun packageManifestHashesAndRawReimport() {
         val sessDir = tmp()
         SessionJournal(sessDir, Fixtures.header).use { j ->
@@ -113,5 +129,10 @@ class GeoJsonExportTest {
         }
         val bad = mapper.readTree("""{"type":"Feature","id":"x","geometry":null,"properties":{"rev":0}}""")
         assertTrue(schema.validate(bad).isNotEmpty())
+        for ((kind, g) in listOf("shape" to "rectangle", "annotation" to "point", "zone" to "polygon", "shape" to "polyline")) {
+            val pts = if (g == "point") listOf(Enu(1.0, 1.0, 0.0)) else listOf(Enu(0.0, 0.0, 0.0), Enu(4.0, 0.0, 0.0), Enu(4.0, 3.0, 0.0))
+            val f = GeoJsonFeatures.shape(app.lumisite.core.model.ShapeEvent("s-$g", Fixtures.stamp(1), kind, g, pts), ltp, "s-$g", 1, "dev-1", "sess-1")
+            assertEquals(emptySet(), schema.validate(mapper.readTree(f.toString())), "$kind/$g")
+        }
     }
 }

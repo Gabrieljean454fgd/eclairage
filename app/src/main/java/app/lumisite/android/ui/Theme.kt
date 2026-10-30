@@ -21,9 +21,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
 
-/** Theme choice (D10): rotation Système → Clair → Sombre → Nuit rouge. */
+/** Theme choice (O11, 30/10): Jour → Nuit → Nuit rouge (expérimental, still under field test). */
 enum class ThemeMode(val label: String, val glyph: String) {
-    SYSTEM("Thème : système", "◐"), LIGHT("Thème : clair", "☀"), DARK("Thème : sombre", "☾"), NIGHT_RED("Thème : nuit rouge", "●");
+    DAY("Thème : jour", "☀"), NIGHT("Thème : nuit", "☾"), NIGHT_RED("Thème : nuit rouge (expérimental)", "●");
     fun next() = entries[(ordinal + 1) % entries.size]
 }
 
@@ -35,15 +35,22 @@ val LocalMapTone = staticCompositionLocalOf { MapTone.NORMAL }
 /** Stored in SharedPreferences, read synchronously before the first frame (no white flash). */
 object ThemePrefs {
     private const val FILE = "lumisite_theme"
-    var mode by mutableStateOf(ThemeMode.SYSTEM)
+    var mode by mutableStateOf(ThemeMode.DAY)
+    /** No choice saved yet (or the former "Système"): start from the system setting. Former Clair/Sombre map to Jour/Nuit. */
     fun load(ctx: Context) {
-        mode = runCatching { ThemeMode.valueOf(ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("mode", null)!!) }.getOrDefault(ThemeMode.SYSTEM)
+        val systemDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        mode = when (val v = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("mode", null)) {
+            "LIGHT" -> ThemeMode.DAY
+            "DARK" -> ThemeMode.NIGHT
+            else -> ThemeMode.entries.firstOrNull { it.name == v } ?: if (systemDark) ThemeMode.NIGHT else ThemeMode.DAY
+        }
     }
     fun cycle(ctx: Context) {
         mode = mode.next()
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString("mode", mode.name).apply()
     }
-    fun isDark(systemDark: Boolean) = when (mode) { ThemeMode.SYSTEM -> systemDark; ThemeMode.LIGHT -> false; else -> true }
+    @Suppress("UNUSED_PARAMETER")
+    fun isDark(systemDark: Boolean) = mode != ThemeMode.DAY
 }
 
 private val Light = lightColorScheme()

@@ -27,7 +27,7 @@ Durée totale : 60 + 20 + 320 = 400 ms. Implémentation propre, sans dépendance
 
 ## Déroulé d'une manche « Synchroniser »
 
-Chaque appareil enregistre 6 s et émet son signal à un instant aléatoire, entre 0,8 et 4,2 s, pour limiter les collisions. Il entend ensuite son propre chirp et ceux des autres, tous sur **sa propre horloge** (principe BeepBeep).
+Chaque appareil enregistre 12 s et émet son signal à un instant aléatoire, entre 1 et 10 s, pour limiter les collisions. Il entend ensuite son propre chirp et ceux des autres, tous sur **sa propre horloge** (principe BeepBeep).
 
 Pour chaque chirp identifié, l'appareil écrit un `SyncEvent` :
 
@@ -64,3 +64,10 @@ Un long enregistrement, par exemple un WAV à 48 kHz de l'outil dictaphone, peut
 - **Collision d'identifiants** : 16 bits, probabilité ≈ N²/131 072 ; à vérifier au bureau avec `device_id`.
 - **Environnement** : micro `UNPROCESSED` quand il est disponible. Un environnement bruyant ou réverbérant peut faire échouer le checksum ; dans ce cas la manche n'est pas comptée.
 - **Validation** : aucune sur téléphone réel ; seuls des signaux synthétiques ont été testés (`SyncAcousticTest`).
+
+## Calage, source audio, enregistrements (revue 30/10)
+
+- « Calé » exige un échange réciproque : A a entendu le chirp de B et B celui de A. Un appareil seul ne peut pas le savoir (micro coupé chez B : A entend quand même B) ; sur place l'écran affiche « Entendu (N), à confirmer », et « Calé » n'est affiché qu'à l'import de l'export de l'autre appareil (`SyncReciprocity.mutual`).
+- La source `UNPROCESSED` n'est utilisée que si l'appareil déclare `PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED = true` ; sinon `MIC`.
+- Aucun WAV n'est écrit par défaut ; la case « Garder l'enregistrement audio » l'écrit dans le dossier de session pour analyse.
+- Fenêtre élargie à 12 s (6 s laissait trop peu de marge pour toucher « Synchroniser » sur plusieurs appareils).

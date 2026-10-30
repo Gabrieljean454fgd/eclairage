@@ -31,7 +31,21 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 const val FORMAT_ID = "lumisite.session"
-const val FORMAT_VERSION = "0.1.0"
+const val FORMAT_VERSION = "0.2.0"
+
+/** Versions this build reads: 0.1.x (before lot 7) and 0.2.x. Anything newer is refused with a clear message. */
+object FormatVersions {
+    private fun parts(v: String) = v.split('.').map { it.toIntOrNull() ?: -1 }.let { it + List(3 - minOf(3, it.size)) { 0 } }
+    fun problem(v: String): String? {
+        val (ma, mi) = parts(v); val (cMa, cMi) = parts(FORMAT_VERSION)
+        return when {
+            ma < 0 || mi < 0 -> "Version de format illisible : $v"
+            ma > cMa || (ma == cMa && mi > cMi) -> "Format $v plus récent que cette version de LumiSite ($FORMAT_VERSION) : mettez l'outil à jour"
+            ma != cMa -> "Version de format incompatible : $v"
+            else -> null
+        }
+    }
+}
 
 @Serializable
 data class FileEntry(
@@ -224,7 +238,7 @@ object SessionImporter {
         val problems = ArrayList<String>()
         val warnings = ArrayList<String>()
         if (manifest.format != FORMAT_ID) problems += "Unknown format ${manifest.format}"
-        if (manifest.formatVersion.substringBefore('.') != FORMAT_VERSION.substringBefore('.')) problems += "Incompatible major version ${manifest.formatVersion}"
+        FormatVersions.problem(manifest.formatVersion)?.let { problems += it }
         fun <T> load(path: String, ser: KSerializer<T>): List<T> {
             val fe = manifest.files.firstOrNull { it.path == path }
             val b = bytesOf(path)

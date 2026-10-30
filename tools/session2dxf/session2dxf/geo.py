@@ -33,7 +33,8 @@ def convergence_deg(lon: float, lat: float) -> float:
 
 def azimuth_to_rotation(azimuth_true_deg: float, convergence: float) -> float:
     """True azimuth (0 = north, clockwise) → DXF rotation (0 = +X, counter-clockwise) in the L93 grid."""
-    grid_az = azimuth_true_deg + convergence
+    # pyproj meridian convergence γ > 0 east of the central meridian, where true north points at −γ in the grid.
+    grid_az = azimuth_true_deg - convergence
     return (90.0 - grid_az) % 360.0
 
 

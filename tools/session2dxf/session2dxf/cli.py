@@ -50,7 +50,8 @@ def collect(pkgs: list[Package], default_sigma: float = DEFAULT_SIGMA_M):
                 pts = [geo.lonlat_to_l93(c[0], c[1]) for c in ring]
                 if g["type"] == "Polygon" and len(pts) > 1 and pts[0] == pts[-1]:
                     pts = pts[:-1]
-                shapes.append(Shape(f["id"], p["kind"], g["type"], pts, p.get("label") or p.get("note")))
+                holes = [[geo.lonlat_to_l93(c[0], c[1]) for c in r[:-1] if True] for r in g["coordinates"][1:]] if g["type"] == "Polygon" else []
+                shapes.append(Shape(f["id"], p["kind"], g["type"], pts, p.get("label") or p.get("note"), holes))
     return objs, shapes, skipped
 
 
@@ -117,7 +118,8 @@ def run(args) -> dict:
     if args.homologous and args.xref:
         src, dst = _read_pairs(args.homologous)
         opts.xref_name, opts.xref_fit = args.xref, geo.fit_similarity(src, dst, fixed_scale=not args.free_scale)
-        report["recalage_plan"] = {"xref": args.xref, "rms_m": opts.xref_fit.rms, "residus_m": opts.xref_fit.residuals,
+        opts.xref_frame = getattr(args, "homologous_frame", "dessin")
+        report["recalage_plan"] = {"xref": args.xref, "repere_points_plan": opts.xref_frame, "rms_m": opts.xref_fit.rms, "residus_m": opts.xref_fit.residuals,
                                    "echelle": opts.xref_fit.scale, "rotation_deg": opts.xref_fit.rotation_deg}
     elif not args.no_osm:
         opts.osm_rings = osm_rings(pkgs)
@@ -127,7 +129,11 @@ def run(args) -> dict:
     report.update({
         "inserts": stats.inserted, "comptages": stats.counts, "fusions": res.fusions, "conflits": res.conflicts,
         "a_classer": sum((p.to_classify for p in pkgs), []), "hors_catalogue": sum((p.out_of_catalog for p in pkgs), []),
-        "sans_position": skipped, "blocs_absents_du_gabarit": stats.missing_blocks, "blocs_renommes": stats.renamed_blocks,
+        "sans_position": skipped,
+        # Listed only (O7 open): aimed points without a plane or floor, kept with their method.
+        "points_estimes": [{"id": f["id"], "block": f["properties"].get("block_name"), "methode": (f["properties"].get("accuracy") or {}).get("method")}
+                           for pkg in pkgs for f in pkg.features if f["properties"].get("kind") == "equipment"
+                           and ((f["properties"].get("accuracy") or {}).get("method") or "") in ("ESTIMATED", "AR_FLOOR_ESTIMATE")], "blocs_absents_du_gabarit": stats.missing_blocks, "blocs_renommes": stats.renamed_blocks,
         "geodata_gabarit_supprime": stats.geodata_removed, "audit_erreurs": stats.audit_errors,
         "avertissements": sum((p.warnings for p in pkgs), []), "erreurs": sum((p.errors for p in pkgs), []),
         "sigma_par_defaut_m": args.default_sigma, "notes": stats.notes + [
@@ -155,6 +161,8 @@ def main(argv=None) -> int:
     ap.add_argument("--presentation", help="table JSON des échelles de présentation (remplace les valeurs par défaut)")
     ap.add_argument("--xref", help="nom du bloc du plan d'architecte (ex. « 02-Plan au sol »)")
     ap.add_argument("--homologous", help="CSV ; plan_x;plan_y;l93_x;l93_y (2 à 4 points)")
+    ap.add_argument("--homologous-frame", choices=["dessin", "bloc"], default="dessin",
+                    help="repère des points plan : « dessin » (lus dans le gabarit ouvert, défaut) ou « bloc » (coordonnées propres du bloc xref)")
     ap.add_argument("--free-scale", action="store_true", help="échelle libre (PDF importé pas à l'échelle)")
     ap.add_argument("--no-osm", action="store_true")
     ap.add_argument("--apply-pending-renames", action="store_true", help="les 4 renommages en attente de validation")

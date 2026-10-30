@@ -90,11 +90,22 @@ class OsmApiTest {
         assertEquals(5, f.calls)
     }
 
-    @Test fun depthIsBounded() {
-        val f = SplitFetcher({ throw OsmHttpException(400, OsmGuard.TOO_MANY_NODES) }, maxCalls = 100, maxDepth = 2)
-        val e = assertFailsWith<OsmHttpException> { f.fetchSplit(BBox(0.0, 0.0, 1.0, 1.0)) }
-        assertEquals(OsmGuard.Failure.TOO_MANY_NODES, e.failure)
-        assertEquals(2, f.calls) // first quadrant, then its first sub-quadrant fails at max depth: stop at once
+    @Test fun depthIsBoundedAndKeepsPartialResults() {
+        val seen = ArrayList<Int>()
+        val f = SplitFetcher({ b ->
+            if (b.south == 0.0 && b.west == 0.0) throw OsmHttpException(400, OsmGuard.TOO_MANY_NODES)
+            doc(node((b.south * 100 + b.west * 10).toLong() + 2, b.south, b.west, "\"power\":\"pole\""))
+        }, maxCalls = 100, maxDepth = 2, onCall = { seen += it })
+        val el = f.fetchSplit(BBox(0.0, 0.0, 1.0, 1.0))
+        assertEquals(1 + 4 + 3, f.calls) // SW quadrant split once, its SW sub-quadrant still too dense at max depth
+        assertEquals(listOf(BBox(0.0, 0.0, 0.25, 0.25)), f.missing)
+        assertEquals(6, el.nodes.size) // 3 quadrants + 3 sub-quadrants kept
+        assertEquals((1..8).toList(), seen)
+    }
+
+    @Test fun otherFailuresAreNotHidden() {
+        val f = SplitFetcher({ throw OsmHttpException(429, "") }, maxCalls = 100, maxDepth = 2)
+        assertFailsWith<OsmHttpException> { f.fetchSplit(BBox(0.0, 0.0, 1.0, 1.0)) }
     }
 
     @Test fun ignFirstThenNominatim() {

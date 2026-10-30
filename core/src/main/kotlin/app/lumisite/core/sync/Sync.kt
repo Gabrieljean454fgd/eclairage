@@ -1,6 +1,8 @@
 package app.lumisite.core.sync
 
 import app.lumisite.core.model.SyncEvent
+import app.lumisite.core.model.SyncMethod
+import app.lumisite.core.model.SyncRole
 import kotlinx.serialization.Serializable
 import kotlin.math.PI
 import kotlin.math.abs
@@ -201,5 +203,21 @@ object MultiChirp {
             val best = (maxOf(0, c - coarse)..minOf(signal.size - m, c + coarse)).maxBy { score(it) }
             Heard(ChirpDetection(best, score(best), median), IdFrame.decode(signal, best, rate))
         }.sortedBy { it.detection.index }
+    }
+}
+
+/**
+ * A device pair is "calé" only when the exchange is mutual: B heard one of A's chirps AND A heard one of B's.
+ * One device alone cannot know whether its chirp was heard (muted mic on B → A still hears B), so this is checked
+ * once both journals are available (import of the other export).
+ */
+object SyncReciprocity {
+    private fun ownChirps(ev: List<SyncEvent>) =
+        ev.filter { it.method == SyncMethod.AUDIO_CHIRP && it.role == SyncRole.EMITTER }.map { it.syncCode }.toSet()
+
+    fun mutual(a: List<SyncEvent>, b: List<SyncEvent>): Boolean {
+        val heardA = a.filter { it.method == SyncMethod.AUDIO_CHIRP }.map { it.syncCode }.toSet()
+        val heardB = b.filter { it.method == SyncMethod.AUDIO_CHIRP }.map { it.syncCode }.toSet()
+        return ownChirps(a).any { it in heardB } && ownChirps(b).any { it in heardA }
     }
 }

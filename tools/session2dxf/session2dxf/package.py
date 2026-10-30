@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import atexit
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
@@ -43,6 +45,7 @@ def sha256(path: Path) -> str:
 def _find_root(path: Path) -> Path:
     if path.is_file() and zipfile.is_zipfile(path):
         tmp = Path(tempfile.mkdtemp(prefix="lumisite_"))
+        atexit.register(shutil.rmtree, tmp, True)
         with zipfile.ZipFile(path) as z:
             z.extractall(tmp)
         path = tmp

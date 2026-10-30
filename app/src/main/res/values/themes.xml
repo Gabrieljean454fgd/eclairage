@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.LumiSite" parent="@android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <!-- Dark starting window whatever the saved theme: never a white flash before the first frame. -->
+        <item name="android:windowBackground">@android:color/black</item>
     </style>
 </resources>

@@ -111,3 +111,4 @@ Chaque ligne renvoie à son lot. Une case n'est cochée qu'après vérification 
 | Lot | Vérifié sans téléphone | Reste à vérifier sur le 13T Pro |
 |---|---|---|
 | 1 | `./gradlew :core:test` vert, `assembleDebug` OK ; schéma JSON valide. | Toute la checklist Lot 1 ci-dessus (rien n'a été vérifié sur appareil). |
+| 2 | Tests JVM `CatalogTest` (25 noms, alias, refus des inconnus, anciens kinds) et `SurveyPositionsTest` (pas de position sans calibration, recalage sur les seuls relevés postérieurs, édition/suppression append-only, lecture v0.1) ; `assembleDebug` OK. | Toute la checklist Lot 2 : interface, cap, Centrer/Suivre, réouverture, page du site. |

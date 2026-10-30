@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
 import app.lumisite.android.data.OsmClient
 import app.lumisite.android.data.Repository
+import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.geo.LatLon
 import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.model.OsmSnapshot
@@ -181,10 +182,14 @@ fun SiteEditorScreen(onSave: (Site) -> Unit, onCancel: () -> Unit) {
 }
 
 @Composable
-fun SiteScreen(site: Site, sessions: List<SessionHeader>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit) {
+fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPositions.Resolved>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
+    val ltp = remember(site.id) { LocalTangentPlane(site.origin) }
     Row(Modifier.fillMaxSize()) {
-        OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, MapContent(origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef), onTap = {})
+        OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, MapContent(
+            origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef,
+            points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },
+        ), onTap = {})
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onBack) { Text("← Retour") }
@@ -194,6 +199,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, onNewSession: () -> Un
             Text("Origine %.7f, %.7f (%s)".format(site.origin.lat, site.origin.lon, site.originSource), style = MaterialTheme.typography.bodySmall)
             Text(site.osm?.let { "OSM : ${it.features.size} objets, récupérés le ${fmtTime(it.retrievedUtcMs)} (${it.license})" } ?: "Pas de données OSM (site défini manuellement)", style = MaterialTheme.typography.bodySmall)
             Text("Plans importés : ${site.plans.size} (import prévu dans une tranche ultérieure)", style = MaterialTheme.typography.bodySmall)
+            Text("Relevés : ${surveys.size} (${surveys.count { it.site == null }} sans position)", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onNewSession) { Text("Nouvelle session terrain") }
             HorizontalDivider()
             Text("Sessions", style = MaterialTheme.typography.titleMedium)

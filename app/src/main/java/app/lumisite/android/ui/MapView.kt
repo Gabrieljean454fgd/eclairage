@@ -23,7 +23,7 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 
-data class MapPoint(val pos: LatLon, val title: String, val color: Int)
+data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null)
 data class MapLine(val a: LatLon, val b: LatLon, val color: Int, val title: String? = null)
 
 /** Everything the map can draw. Trajectories are estimates and drawn as such (no uncertainty is invented). */
@@ -37,6 +37,10 @@ data class MapContent(
     val points: List<MapPoint> = emptyList(),
     val current: LatLon? = null,
     val picked: LatLon? = null,
+    /** Heading sector of the current position (triangle, site frame), drawn only when tracked and calibrated. */
+    val headingSector: List<LatLon> = emptyList(),
+    /** When set, the map keeps this point centred ("Suivre"). */
+    val follow: LatLon? = null,
 )
 
 private fun gp(p: LatLon) = GeoPoint(p.lat, p.lon)
@@ -50,6 +54,7 @@ fun OsmMap(
     recenterKey: Any? = null,
     onTap: (LatLon) -> Unit,
     onFeatureTap: ((OsmFeature) -> Unit)? = null,
+    onPointTap: ((String) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val map = remember {
@@ -117,9 +122,21 @@ fun OsmMap(
             mv.overlays += Polyline(mv).apply { setPoints(listOf(gp(l.a), gp(l.b))); outlinePaint.color = l.color; outlinePaint.strokeWidth = 5f; title = l.title }
         }
         content.origin?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }
-        content.points.forEach { p -> mv.overlays += Marker(mv).apply { position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20) } }
+        content.points.forEach { p ->
+            mv.overlays += Marker(mv).apply {
+                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
+                val id = p.id
+                setOnMarkerClickListener { m, _ -> if (id != null && onPointTap != null) onPointTap(id) else m.showInfoWindow(); true }
+            }
+        }
+        if (content.headingSector.size >= 3) mv.overlays += Polygon(mv).apply {
+            points = content.headingSector.map(::gp)
+            fillPaint.color = Color.argb(90, 0, 120, 255); outlinePaint.color = Color.rgb(0, 120, 255); outlinePaint.strokeWidth = 2f
+            setOnClickListener { _, _, _ -> false }
+        }
         content.picked?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Point choisi" } }
         content.current?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Position estimée"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 120, 255), 26) } }
+        content.follow?.let { mv.controller.setCenter(gp(it)) }
         mv.overlays += ScaleBarOverlay(mv)
         mv.overlays += CopyrightOverlay(ctx).apply { setTextSize(12) }
         mv.invalidate()

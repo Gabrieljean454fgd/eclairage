@@ -7,7 +7,9 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import app.lumisite.android.BuildConfig
+import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.export.LoadedExport
+import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
 import app.lumisite.core.export.SessionImporter
 import app.lumisite.core.export.SessionManifest
@@ -85,5 +87,10 @@ class Repository(private val ctx: Context) {
     /** Below Android 10: copies the zip to a document chosen by the user (ACTION_CREATE_DOCUMENT). */
     fun copyTo(zip: File, target: Uri) {
         ctx.contentResolver.openOutputStream(target)!!.use { out -> zip.inputStream().use { it.copyTo(out) } }
+    }
+
+    /** Current survey records of every session of a site, positioned with the shared position function. */
+    fun siteSurveys(site: Site): List<SurveyPositions.Resolved> = sessions(site.id).flatMap { h ->
+        runCatching { SurveyPositions.resolveAll(SessionReader.read(sessionDir(h.id), includeImu = false).events) }.getOrDefault(emptyList())
     }
 }

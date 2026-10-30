@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +18,8 @@ import app.lumisite.android.ui.SiteEditorScreen
 import app.lumisite.android.ui.SiteScreen
 import org.osmdroid.config.Configuration
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 sealed interface Screen {
     data object Home : Screen
@@ -43,8 +46,10 @@ class MainActivity : ComponentActivity() {
                         Screen.NewSite -> SiteEditorScreen(onSave = { repo.saveSite(it); screen = Screen.SiteDetail(it.id) }, onCancel = { screen = Screen.Home })
                         is Screen.SiteDetail -> {
                             val site = repo.site(s.siteId)
+                            var surveys by remember(s.siteId) { mutableStateOf(emptyList<app.lumisite.core.compute.SurveyPositions.Resolved>()) }
+                            LaunchedEffect(s.siteId) { surveys = site?.let { withContext(Dispatchers.IO) { repo.siteSurveys(it) } }.orEmpty() }
                             if (site == null) screen = Screen.Home else SiteScreen(
-                                site, repo.sessions(site.id),
+                                site, repo.sessions(site.id), surveys,
                                 onNewSession = { screen = Screen.Live(SessionController(applicationContext, repo, site, Ids.new("ses"), resume = false)) },
                                 onResume = { h -> screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true)) },
                                 onBack = { screen = Screen.Home },

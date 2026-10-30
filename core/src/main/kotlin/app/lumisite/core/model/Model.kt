@@ -301,7 +301,7 @@ data class SurveyEvent(
     val tracking: TrackingState,
     /** Position at record time as computed by the app with the transform active then (derived). */
     val estimatedSite: Enu? = null,
-    /** "AR_POSE" | "MANUAL_MAP" | "NONE" */
+    /** "AR_POSE" | "MANUAL_MAP" | "MANUAL_EDIT" (moved after creation) | "NONE" (legacy only) */
     val positionSource: String,
     val manualSite: Enu? = null,
     val lastGps: GpsFix? = null,
@@ -309,6 +309,12 @@ data class SurveyEvent(
     val payload: JsonObject? = null,
     val attachments: List<Attachment> = emptyList(),
     val dxf: DxfHint? = null,
+    /** Edit of an earlier record: id of the survey event this one replaces (optional, format 0.1 compatible). */
+    /** Time of the original pose when this record is an edit (t = edit time): positions resolve on it. */
+    val poseT: Stamp? = null,
+    val supersedes: String? = null,
+    /** true: the record [supersedes] points to is deleted. */
+    val deleted: Boolean? = null,
 ) : SessionEvent
 
 @Serializable

@@ -387,6 +387,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun editShape(id: String, delete: Boolean = false, change: (ShapeEvent) -> ShapeEvent = { it }): String? {
         val old = currentShapes().firstOrNull { it.id == id } ?: run { fail("Forme introuvable."); return null }
         val e = change(old).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null)
+        val bad = if (e.kind == "zone" && !delete) app.lumisite.core.survey.Zones.problem(e.points, e.holes.orEmpty()) else null
+        if (bad != null) { fail("Modification refusée : $bad."); return null }
         record(e, if (delete) "Forme supprimée." else "Forme modifiée."); undoStack.addLast(e.id)
         return e.id
     }

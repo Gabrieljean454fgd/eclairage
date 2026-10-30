@@ -37,11 +37,15 @@ object Shapes {
 
     fun centroid(s: ShapeEvent): Enu = Enu(s.points.map { it.e }.average(), s.points.map { it.n }.average(), 0.0)
 
-    fun translate(s: ShapeEvent, de: Double, dn: Double) = s.copy(points = s.points.map { Enu(it.e + de, it.n + dn, it.u) })
+    fun translate(s: ShapeEvent, de: Double, dn: Double): ShapeEvent {
+        fun f(p: Enu) = Enu(p.e + de, p.n + dn, p.u)
+        return s.copy(points = s.points.map(::f), holes = s.holes?.map { h -> h.map(::f) })
+    }
 
     fun scale(s: ShapeEvent, k: Double): ShapeEvent {
         val c = centroid(s)
-        return s.copy(points = s.points.map { Enu(c.e + (it.e - c.e) * k, c.n + (it.n - c.n) * k, it.u) }, radiusM = s.radiusM?.times(k))
+        fun f(p: Enu) = Enu(c.e + (p.e - c.e) * k, c.n + (p.n - c.n) * k, p.u)
+        return s.copy(points = s.points.map(::f), holes = s.holes?.map { h -> h.map(::f) }, radiusM = s.radiusM?.times(k))
     }
 
     private fun segDist(p: Enu, a: Enu, b: Enu): Double {

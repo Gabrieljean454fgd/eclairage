@@ -23,9 +23,14 @@ class VisibleStorage(private val ctx: Context) {
         ctx.contentResolver.persistedUriPermissions.any { it.uri == u && it.isWritePermission }
     }
 
+    /** Incremented after each restore that brought files back, so screens reload their lists. */
+    val restored = kotlinx.coroutines.flow.MutableStateFlow(0)
+    @Volatile private var needRestore = true
+
     fun setTree(uri: Uri) {
         ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         prefs.edit().putString("tree", uri.toString()).apply()
+        needRestore = true // e.g. after a reinstall, the old folder is chosen again: bring its sessions back before copying out
     }
 
     /** Readable path, e.g. "Documents/LumiSite" (primary storage) or the raw document id. */
@@ -51,6 +56,7 @@ class VisibleStorage(private val ctx: Context) {
     /** Private dir -> visible folder. Never deletes anything. Returns the number of files written. */
     @Synchronized fun sync(privateRoot: File): Int {
         val r = root() ?: return 0
+        if (needRestore) { if (restore(privateRoot) > 0) restored.value++; needRestore = false }
         return runCatching {
             val src = dirs.flatMap { d -> File(privateRoot, d).takeIf { it.exists() }?.let { Mirror.list(it).map { e -> e.copy(rel = "$d/${e.rel}") } } ?: emptyList() }
             val dst = mutableListOf<Pair<Mirror.Entry, DocumentFile>>(); list(r, "", dst)
@@ -75,11 +81,14 @@ class VisibleStorage(private val ctx: Context) {
             val src = mutableListOf<Pair<Mirror.Entry, DocumentFile>>(); list(r, "", src)
             val wanted = src.filter { (e, _) -> dirs.any { e.rel.startsWith("$it/") } }
             val have = dirs.flatMap { d -> File(privateRoot, d).takeIf { it.exists() }?.let { Mirror.list(it).map { e -> e.copy(rel = "$d/${e.rel}") } } ?: emptyList() }
-            val missing = have.associate { it.rel to it.size }
-            val actions = wanted.filter { (e, _) -> (missing[e.rel] ?: -1) < 0 }
+            val local = have.associate { it.rel to it.size }
+            // Missing files, and append-only streams shorter here (interrupted restore). A longer or changed private file is never overwritten.
+            val actions = wanted.filter { (e, _) -> val l = local[e.rel]; l == null || (Mirror.appendOnly(e.rel) && l < e.size) }
             actions.forEach { (e, doc) ->
                 val to = File(privateRoot, e.rel).apply { parentFile?.mkdirs() }
-                ctx.contentResolver.openInputStream(doc.uri)!!.use { i -> to.outputStream().use { i.copyTo(it) } }
+                val tmp = File(to.path + ".tmp")
+                ctx.contentResolver.openInputStream(doc.uri)!!.use { i -> tmp.outputStream().use { o -> i.copyTo(o); o.fd.sync() } }
+                if (!tmp.renameTo(to)) error("Restauration impossible : ${e.rel}")
             }
             actions.size
         }.getOrElse { lastError = it.message ?: it.toString(); 0 }

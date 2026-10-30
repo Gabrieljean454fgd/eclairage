@@ -49,8 +49,8 @@ import java.util.Locale
 fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
 
 @Composable
-fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, storageWarning: Boolean = false, onSettings: () -> Unit = {}) {
-    val sites = remember { repo.sites() }
+fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, refreshKey: Int = 0, storageWarning: Boolean = false, onSettings: () -> Unit = {}) {
+    val sites = remember(refreshKey) { repo.sites() }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)

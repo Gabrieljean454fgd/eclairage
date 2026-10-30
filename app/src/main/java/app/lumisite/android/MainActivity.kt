@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,15 +51,15 @@ class MainActivity : ComponentActivity() {
         val repo = Repository(applicationContext)
         storage = VisibleStorage(applicationContext)
         lifecycleScope.launch(Dispatchers.IO) {
-            storage.restore(filesDir)
             while (true) { storage.sync(filesDir); delay(5_000) }
         }
         setContent {
             MaterialTheme {
                 Surface {
                     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+                    val restored by storage.restored.collectAsState()
                     when (val s = screen) {
-                        Screen.Home -> HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite },
+                        Screen.Home -> HomeScreen(repo, refreshKey = restored, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite },
                             storageWarning = storage.treeUri == null, onSettings = { screen = Screen.Settings })
                         Screen.Settings -> SettingsScreen(storage, onBack = { screen = Screen.Home })
                         Screen.NewSite -> SiteEditorScreen(onSave = { repo.saveSite(it); screen = Screen.SiteDetail(it.id) }, onCancel = { screen = Screen.Home })

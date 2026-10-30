@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: safety net in the Android cloud backup and device-to-device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="sessions/" />
+        <include domain="file" path="sites/" />
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="sessions/" />
+        <include domain="file" path="sites/" />
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

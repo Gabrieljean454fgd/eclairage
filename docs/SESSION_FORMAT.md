@@ -54,6 +54,9 @@ Une ligne NDJSON tronquée ou illisible (arrêt brutal pendant l'écriture) n'es
 `session_started`, `session_stopped`, `time_base_added`, `tracking_state`, `calibration`, `relocalization`, `sync`, `survey`.
 Un consommateur doit ignorer les champs et types qu'il ne connaît pas (versions mineures futures).
 
+- `session_stopped` : `reason` (chaîne, requise ; `user` quand la session est terminée par « Terminer la session », le bouton
+  Retour ou le geste retour). Écrit après l'arrêt du rendu caméra et la fermeture d'ARCore, juste avant de quitter l'écran.
+  Une session sans `session_stopped` (arrêt brutal) reste lisible : à la reprise, un `time_base_added` est ajouté.
 - `calibration` : `method` (`ONE_POINT_HEADING`, `TWO_POINTS`, `TWO_POINTS_KNOWN_DISTANCE`), `observations` (pose brute + point de référence
   avec source et incertitude), cap saisi et sa source, distance connue, `transform` résultante, `measuredScale`, `scaleFixed`, `residualM`.
 - `relocalization` : observation, `estimatedBefore` / `correctedAfter` / `deltaM`, `transformBefore` / `transformAfter`, modèle de correction.

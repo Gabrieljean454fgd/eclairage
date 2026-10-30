@@ -46,3 +46,68 @@ Rien de ce qui suit n'a été vérifié sur un appareil réel. L'émulateur ne v
 - [ ] Chirp audio, appareils à 1 m puis 5 m, environnement calme puis bruyant : noter le score, la confiance, l'écart et sa dispersion sur ≥ 5 événements.
 - [ ] Répéter à 15 min d'intervalle pour estimer la dérive (ppm).
 - [ ] Vérifier que le chirp est audible et pas gênant (volume média de la tablette).
+
+## 8. Checklist Xiaomi 13T Pro (docs/PROPOSITIONS.md § 14)
+
+Chaque ligne renvoie à son lot. Une case n'est cochée qu'après vérification sur le téléphone.
+
+**Lot 1 — Bugs bloquants**
+- [ ] Export : le ZIP est dans Téléchargements, la feuille de partage s'ouvre, et une phrase dit où il est.
+- [ ] Export en échec : le bouton n'est pas grisé et l'erreur reste affichée.
+- [ ] « Terminer la session » et le geste retour reviennent au site, dix fois, sans retour au bureau Android.
+- [ ] Depuis un projet, le bouton et le geste retour reviennent à la liste des projets. Depuis l'accueil, le geste retour quitte l'appli.
+- [ ] Création sans nom : message, puis nom par défaut. Création après un échec de récupération (mode avion), sans contours.
+- [ ] Le bouton d'accueil dit « Nouveau ».
+- [ ] En paysage, la caméra et les boutons ne se recouvrent pas.
+
+**Lot 2 — Relevé fiable et catalogue**
+- [ ] Ordre des pastilles : Synchro, Calibrer, Relevé, Recaler, Export.
+- [ ] Le relevé est visible tout de suite, encore là après la réouverture ; sélection, déplacement, suppression.
+- [ ] Sans calibration ni position manuelle : message, pas de point fantôme.
+- [ ] Recalage : un relevé antérieur ne bouge pas, un relevé postérieur suit la transformation (écran = ZIP).
+- [ ] Catalogue : les 25 noms exacts du DWG, avec `bloc secours` et `tableau divisionnaire` ; `prise électrique`, `boîte de dérivation` et `micro col` inchangés ; un ancien nom saisi donne le nom canonique ; un spot sort avec `blockName = "spot"`, et plus aucun `_GENERIC`.
+
+**Lots 3 et 4 — OSM**
+- [ ] Rectangle de site, recadrage à la réouverture, zones récentes.
+- [ ] Contours récupérés par l'API OSM sur un bâtiment en moins de 3 s ; pas d'itinéraire de randonnée ; trou de cour conservé.
+- [ ] Rectangle trop grand refusé, avec une proposition de réduction.
+- [ ] Zone dense : 400 « too many nodes » traité, avec le choix entre réduire ou découper puis fusionner, sans doublon.
+- [ ] API en échec : passage à Overpass, puis « sans contours », avec un message en français ; « Créer » reste actif.
+- [ ] Recherche « 10 rue de Rivoli Paris » : le résultat IGN arrive d'abord.
+
+**Lot 5 — Carte**
+- [ ] Zoom jusqu'à ce qu'une pièce de 4 m remplisse la carte ; fond flou, vecteurs nets.
+- [ ] Croix, loupe, pas de 0,1 m, « Suivre » avec le cap.
+- [ ] Fonds OSM, Plan IGN et Ortho IGN (`PM_0_19`), avec l'attribution de chacun.
+- [ ] Cache de la zone, puis mode avion : le fond s'affiche encore. Au zoom 26 avec un cache vide, l'appli reste fluide. Pas de téléchargement Esri.
+
+**Lot 6 — Export GeoJSON**
+- [ ] Paquet projet : un `.geojsonl` par appareil et par session ; ouvert dans QGIS, au bon endroit sur OSM.
+- [ ] Appli tuée en plein relevé : tout est là sauf au plus la dernière ligne, qui est signalée.
+- [ ] Manifeste et `sha256` vérifiés ; un fichier modifié est détecté.
+- [ ] Export de toutes les sessions d'un projet, retrouvable dans Téléchargements. Aucun DXF produit par l'appli.
+
+**Lot 7 — Objets et annotation**
+- [ ] Rectangle « local TGBT » avec un commentaire : déplacer, agrandir, supprimer, annuler ; Feature `shape` dans l'export.
+- [ ] Famille en 1 tap, favoris et 6 derniers utilisés en tête, détails facultatifs non bloquants.
+- [ ] Note texte, note vocale et photo d'étiquette attachées à l'objet, présentes dans le paquet avec leur `sha256`.
+
+**Lot 8 — Thème**
+- [ ] Bouton Système / Clair / Sombre en haut à droite sur tous les écrans ; choix gardé au redémarrage ; carte non éblouissante en sombre ; caméra jamais filtrée.
+
+**Lot 9 — Synchro**
+- [ ] Un seul bouton, « Calé (2) » à deux appareils, top manuel encore disponible.
+
+**Lot 10 — AR**
+- [ ] Réticule AR, plans au sol, état calibré ou non calibré sur l'image.
+- [ ] Visée rasante refusée avec un message ; pose de point sans plantage pendant 30 min ; torche en faible lumière.
+
+**Lots 11 et 12 — Bureau et iPad** (hors téléphone, notés pour mémoire)
+- [ ] Outil de bureau : aller-retour `eclairage03` avec les mêmes comptages ; fusion de deux appareils avec doublons et conflits listés ; DXF en L93 ; xref recalée avec l'erreur moyenne affichée ; aucun GEODATA du Poitou ; Block Legend = nombre d'INSERT ; jamais l'ancien et le nouveau nom d'un bloc dans un même dessin ; DWG obtenu.
+- [ ] Dictaphone iPad : morceaux FLAC, chirps retrouvés au bureau, propositions vocales justes au moins 8 fois sur 10, validation humaine avant tout ATTRIB, pause micro et témoin.
+
+## 9. Journal des lots (ce qui a été vérifié hors téléphone)
+
+| Lot | Vérifié sans téléphone | Reste à vérifier sur le 13T Pro |
+|---|---|---|
+| 1 | `./gradlew :core:test` vert, `assembleDebug` OK ; schéma JSON valide. | Toute la checklist Lot 1 ci-dessus (rien n'a été vérifié sur appareil). |

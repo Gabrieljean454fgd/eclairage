@@ -41,6 +41,7 @@ import app.lumisite.core.osm.CallCapReached
 import app.lumisite.core.osm.Geocoding
 import app.lumisite.core.osm.OsmGuard
 import app.lumisite.core.osm.OsmHttpException
+import app.lumisite.core.osm.Overpass
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -135,38 +136,47 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     }
     LaunchedEffect(query) { delay(1_000); doSearch() }
 
-    fun fetch(split: Boolean, overpass: Boolean = false) {
+    val unavailable = "Le serveur de contours est indisponible. Le site est utilisable sans contours."
+
+    fun fetch(split: Boolean) {
         val b = rect ?: return
         if (!OsmGuard.areaOk(b)) { tooLarge = true; status = "Rectangle trop grand (%.4f degré carré, maximum %.2f) : réduisez-le.".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2); return }
-        if (!overpass && !OsmClient.isHttps(apiUrl)) { status = "L'URL de l'API OSM doit commencer par https://"; return }
+        if (!OsmClient.isHttps(apiUrl)) { status = "L'URL de l'API OSM doit commencer par https://"; return }
         OsmClient.osmApiBase = apiUrl.trim().trimEnd('/')
         busy = true; failure = null
-        status = when { overpass -> "Requête Overpass…"; split -> "Découpage en sous-zones (au plus ${OsmGuard.MAX_CALLS} appels)…"; else -> "Requête API OSM…" }
+        status = if (split) "Découpage en sous-zones (au plus ${OsmGuard.MAX_CALLS} appels)…" else "Requête API OSM…"
         scope.launch {
-            try {
-                val now = System.currentTimeMillis()
-                val onCall = { n: Int -> scope.launch { status = "Découpage : appel $n / ${OsmGuard.MAX_CALLS}…" }; Unit }
-                val (f, file) = withContext(Dispatchers.IO) {
-                    val r = when { overpass -> OsmClient.fetchOverpass(b, now); split -> OsmClient.fetchMapSplit(b, now, onCall); else -> OsmClient.fetchMap(b, now) }
-                    r.copy(raw = emptyList()) to stageOsmSource(r)
-                }
-                fetched = f; staged = file
+            val now = System.currentTimeMillis()
+            val onCall = { n: Int -> scope.launch { status = "Découpage : appel $n / ${OsmGuard.MAX_CALLS}…" }; Unit }
+            suspend fun fetchStaged(get: () -> OsmClient.Fetched): OsmClient.Fetched {
+                val (r, file) = withContext(Dispatchers.IO) { val r = get(); r.copy(raw = emptyList()) to stageOsmSource(r) }
+                staged = file; return r
+            }
+            fun show(f: OsmClient.Fetched, via: String) {
+                fetched = f
                 val counts = f.snapshot.features.groupingBy { it.category }.eachCount()
-                val partial = if (f.missing.isEmpty()) "" else " Résultat PARTIEL : ${f.missing.size} sous-zone(s) encore trop dense(s) non récupérée(s)."
-                status = "OSM : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s).$partial Touchez un bâtiment pour le sélectionner. Les contours OSM peuvent être absents ou imprécis."
-            } catch (e: OsmHttpException) {
-                failure = e.failure
-                status = when (e.failure) {
-                    OsmGuard.Failure.TOO_MANY_NODES -> if (split) "Zone encore trop dense après découpage : réduisez le rectangle." else
-                        "Zone trop dense pour l'API OSM (plus de 50 000 nœuds). Réduisez le rectangle, ou découpez-le et fusionnez les résultats."
-                    OsmGuard.Failure.BBOX_TOO_LARGE -> "L'API OSM refuse ce rectangle (taille maximale dépassée) : réduisez-le."
-                    OsmGuard.Failure.RATE_LIMITED -> "API OSM saturée (HTTP ${e.code}). Essayez Overpass, ou créez le site sans contours."
-                    OsmGuard.Failure.OTHER -> "API OSM : erreur HTTP ${e.code}. Le site peut être créé sans contours."
-                }
-            } catch (e: CallCapReached) {
-                status = "Plafond de ${e.calls} appels atteint : réduisez le rectangle. Le site peut être créé sans contours."
+                status = "$via : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s)." +
+                    (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
+                    (if (f.missing.isEmpty()) "" else " Résultat PARTIEL : ${f.missing.size} sous-zone(s) encore trop dense(s) non récupérée(s).") +
+                    " Touchez un bâtiment pour le sélectionner. Les contours OSM peuvent être absents ou imprécis."
+            }
+            try {
+                show(fetchStaged { if (split) OsmClient.fetchMapSplit(b, now, onCall) else OsmClient.fetchMap(b, now) }, "API OSM")
             } catch (e: Exception) {
-                status = "Contours indisponibles (${e.javaClass.simpleName}: ${e.message}). Le site peut être créé sans contours."
+                if (Overpass.shouldFallback(e)) {
+                    status = "API OSM indisponible (${(e as? OsmHttpException)?.let { "HTTP ${it.code}" } ?: e.javaClass.simpleName}) : bascule sur Overpass…"
+                    try { show(fetchStaged { OsmClient.fetchOverpass(b, now) { n -> scope.launch { status = "Overpass : essai $n…" } } }, "Overpass (secours)") }
+                    catch (e2: Exception) { status = unavailable }
+                } else status = when (e) {
+                    is OsmHttpException -> { failure = e.failure; when (e.failure) {
+                        OsmGuard.Failure.TOO_MANY_NODES -> if (split) "Zone encore trop dense après découpage : réduisez le rectangle." else
+                            "Zone trop dense pour l'API OSM (plus de 50 000 nœuds). Réduisez le rectangle, ou découpez-le et fusionnez les résultats."
+                        OsmGuard.Failure.BBOX_TOO_LARGE -> "L'API OSM refuse ce rectangle (taille maximale dépassée) : réduisez-le."
+                        else -> "API OSM : erreur HTTP ${e.code}. $unavailable"
+                    } }
+                    is CallCapReached -> "Plafond de ${e.calls} appels atteint : réduisez le rectangle. Le site est utilisable sans contours."
+                    else -> "Contours indisponibles (${e.javaClass.simpleName}: ${e.message}). Le site est utilisable sans contours."
+                }
             } finally { busy = false }
         }
     }
@@ -238,8 +248,6 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                     OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }) { Text("Réduire") }
                 if (failure == OsmGuard.Failure.TOO_MANY_NODES)
                     OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }) { Text("Découper et fusionner") }
-                if (failure == OsmGuard.Failure.RATE_LIMITED)
-                    OutlinedButton(enabled = !busy, onClick = { fetch(split = false, overpass = true) }) { Text("Essayer Overpass") }
             }
             TextButton(onClick = { showUrls = !showUrls }) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
             if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.fillMaxWidth(), singleLine = true)

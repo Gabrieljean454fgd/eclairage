@@ -45,4 +45,12 @@ class OverpassTest {
         assertFailsWith<java.io.IOException> { f.fetch("data=x") }
         assertEquals(6, f.tried.size)
     }
+
+    @Test fun mirrorsMustBeHttpsAndCallsAreCounted() {
+        kotlin.test.assertFailsWith<IllegalArgumentException> { MirrorFetcher(FormPoster { _, _ -> "{}" }, mirrors = listOf("http://example.org/api/interpreter")) }
+        val seen = ArrayList<Int>()
+        val f = MirrorFetcher({ url, _ -> if (url.contains("kumi")) "{}" else throw java.io.IOException("502") }, sleep = {}, onCall = { seen += it })
+        f.fetch("data=x")
+        kotlin.test.assertEquals(listOf(1, 2, 3), seen)
+    }
 }

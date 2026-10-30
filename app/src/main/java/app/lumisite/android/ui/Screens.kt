@@ -68,17 +68,42 @@ fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.R
 @Composable
 fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
     val sites = remember { repo.sites() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf<String?>(null) }
+    var exportMsg by remember { mutableStateOf<String?>(null) }
+    fun exportProject(s: Site) {
+        exporting = s.id; exportMsg = null
+        scope.launch {
+            try {
+                val zip = withContext(Dispatchers.IO) { repo.exportProject(s) }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    withContext(Dispatchers.IO) { repo.publishToDownloads(zip) }
+                    exportMsg = "Enregistré dans Téléchargements : ${zip.name}"
+                } else exportMsg = "Paquet prêt : ${zip.name} (Android < 10 : utilisez le partage)"
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", zip)
+                ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager le projet")
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) { exportMsg = "Échec de l'export du projet : ${e.message ?: e}" }
+            finally { exporting = null }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Button(onClick = onNew) { Text("Nouveau") }
+        exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sites) { s ->
                 Card(Modifier.fillMaxWidth().clickable { onOpen(s) }) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(s.name, style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            TextButton(enabled = exporting == null, onClick = { exportProject(s) }) { Text(if (exporting == s.id) "Export…" else "⇪ Exporter") }
+                        }
                         Text("%.6f, %.6f · %s · OSM : %s".format(s.origin.lat, s.origin.lon, s.originSource,
                             s.osm?.let { "${it.features.size} objets" } ?: "aucune donnée"), style = MaterialTheme.typography.bodySmall)
                     }

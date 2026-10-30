@@ -10,6 +10,7 @@ import app.lumisite.android.BuildConfig
 import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.model.BBox
 import app.lumisite.core.osm.Bboxes
+import app.lumisite.core.export.ExportPackage
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -69,6 +70,23 @@ class Repository(private val ctx: Context) {
         SessionExporter.zipDir(dir, zip)
         dir.deleteRecursively()
         return ExportResult(zip, manifest, SessionImporter.load(zip))
+    }
+
+    /** Project package (fiche E): every session of the site as GeoJSONSeq + frames + raw lumisite.session, ZIP "store". */
+    fun exportProject(site: Site): File {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
+        val work = File(exportsDir, "project_${site.id}_$stamp").apply { mkdirs() }
+        val catalog = runCatching { ctx.assets.open("equipment_catalog.json").bufferedReader().use { it.readText() } }.getOrNull()
+        val root = ExportPackage.build(
+            site, sessions(site.id).map { ExportPackage.SessionInput(sessionDir(it.id)) }, catalog,
+            File(sitesDir, "${site.id}/osm_source.json"), work, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}",
+        )
+        val problems = ExportPackage.verify(root)
+        check(problems.isEmpty()) { "Vérification du paquet : $problems" }
+        val zip = File(exportsDir, "LumiSite_${site.id}_$stamp.zip")
+        ExportPackage.zipStored(root, zip)
+        work.deleteRecursively()
+        return zip
     }
 
     /** Android 10+ (API 29): copies the zip into the public Downloads collection via MediaStore. */

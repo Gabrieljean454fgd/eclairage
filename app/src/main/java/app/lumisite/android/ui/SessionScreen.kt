@@ -211,6 +211,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
             }
             if (arReady) {
+                Column(Modifier.width(200.dp)) {
+                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp)) {
                 AndroidView(factory = { ctx ->
                     GLSurfaceView(ctx).apply {
                         preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
@@ -218,6 +220,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                         glView = this
                     }
                 }, modifier = Modifier.width(200.dp).height(150.dp))
+                ArReticle(c)
+                }
+                ArControls(c)
+                }
             }
         }
     }

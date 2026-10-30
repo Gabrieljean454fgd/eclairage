@@ -322,7 +322,7 @@ data class SurveyEvent(
     val tracking: TrackingState,
     /** Position at record time as computed by the app with the transform active then (derived). */
     val estimatedSite: Enu? = null,
-    /** "AR_POSE" | "MANUAL_MAP" | "MANUAL_EDIT" (moved after creation) | "NONE" (legacy only) */
+    /** "AR_POSE" | "AR_PLANE" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE" | "ESTIMATED" (50 cm fallback) | "MANUAL_MAP" | "MANUAL_EDIT" (moved after creation) | "NONE" (legacy only) */
     val positionSource: String,
     val manualSite: Enu? = null,
     val lastGps: GpsFix? = null,

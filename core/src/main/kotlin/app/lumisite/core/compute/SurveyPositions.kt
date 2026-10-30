@@ -15,7 +15,7 @@ object SurveyPositions {
 
     fun resolve(s: SurveyEvent, timeline: List<TrajectoryCorrector.Segment>): Resolved {
         if (isManual(s)) return Resolved(s, s.manualSite, null)
-        val seg = TrajectoryCorrector.activeAt(timeline, s.t.monotonicNs)
+        val seg = TrajectoryCorrector.activeAt(timeline, (s.poseT ?: s.t).monotonicNs)
         if (s.pose != null && seg != null) {
             val v = seg.transform.apply(PoseGeometry.plane(s.pose))
             return Resolved(s, Enu(v.x, v.y, PoseGeometry.height(s.pose)), seg.eventId)

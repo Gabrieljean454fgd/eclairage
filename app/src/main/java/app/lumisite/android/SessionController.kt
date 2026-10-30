@@ -160,7 +160,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         ar.close()
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
         runCatching { journal.close() }
-        runCatching { features.close() }
+        runCatching { featuresWriter?.close() }
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }
@@ -247,7 +247,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         _state.update { it.copy(trajectory = splitTraj, uncorrected = split(uncorrected), currentSite = traj.lastOrNull()?.site, distanceSinceFixM = distanceSinceFix(splitTraj, seg?.fromNs)) }
     }
 
-    private val features by lazy { GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId) }
+    // Opened on the first record only: closing a session must never create an empty features.geojsonl.
+    private var featuresWriter: GeoJsonSeqWriter? = null
+    private val features: GeoJsonSeqWriter
+        get() = featuresWriter ?: GeoJsonSeqWriter(File(repo.sessionDir(sessionId), GeoJsonSeqWriter.FILE), ltp, header.device.id, sessionId).also { featuresWriter = it }
 
     private fun record(e: SessionEvent, msg: String? = null) {
         if (closed) return

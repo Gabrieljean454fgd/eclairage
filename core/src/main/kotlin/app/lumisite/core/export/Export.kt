@@ -71,6 +71,8 @@ data class DerivedSurveyPoint(
     val tracking: TrackingState,
     val dxfLayer: String?,
     val dxfBlock: String?,
+    /** Computed zone (deepest containing zone), never stored in the journal. */
+    val zoneId: String? = null,
 )
 
 @Serializable
@@ -171,9 +173,12 @@ object SessionExporter {
     }
 
     fun derivedSurveyPoints(data: SessionData): List<DerivedSurveyPoint> =
-        SurveyPositions.resolveAll(data.events).map { r ->
-            val s = r.event
-            DerivedSurveyPoint(s.id, s.kind, s.t.monotonicNs, s.t.utcEpochMs, r.site, s.positionSource, r.transformEventId, s.tracking, s.dxf?.layer, s.dxf?.blockName)
+        app.lumisite.core.survey.Zones.current(data.events).let { zones ->
+            SurveyPositions.resolveAll(data.events).map { r ->
+                val s = r.event
+                DerivedSurveyPoint(s.id, s.kind, s.t.monotonicNs, s.t.utcEpochMs, r.site, s.positionSource, r.transformEventId, s.tracking, s.dxf?.layer, s.dxf?.blockName,
+                    zoneId = r.site?.let { app.lumisite.core.survey.Zones.zoneOf(it, zones)?.id })
+            }
         }
 
     fun zipDir(dir: File, zip: File) {

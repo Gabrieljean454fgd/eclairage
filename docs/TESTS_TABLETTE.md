@@ -2,6 +2,19 @@
 
 Rien de ce qui suit n'a été vérifié sur un appareil réel. L'émulateur ne valide ni ARCore réel, ni GPS réel, ni micro/haut-parleur réels.
 
+## Niveaux de vérification (état au lot 13, revue du 30/10)
+
+| Niveau | État |
+|---|---|
+| Tests JVM (`:core:test`) | 96 tests verts, 3 exécutions de suite avec `:app:assembleDebug` |
+| Tests Python (`tools/session2dxf`) | 21 tests verts, sur données et gabarit synthétiques (pas le vrai `eclairage03.dwg`) |
+| Compilation APK debug | OK |
+| Émulateur x86_64 | Écrans des lots 1 à 3 seulement, avant la revue du 30/10 |
+| Tests UI pilotés (parcours complets) | Non faits |
+| ARCore réel (suivi, plans, torche, visée) | Non testé : l'émulateur ne fait pas tourner ARCore |
+| Xiaomi 13T Pro | Rien n'a été testé : tout le § 8 ci-dessous reste à faire |
+| AutoCAD (ouverture DXF, conversion DWG) | Non testé |
+
 ## 0. Pré-requis
 - [ ] Vérifier que le modèle figure sur https://developers.google.com/ar/devices (sinon : l'app fonctionne en positions manuelles uniquement).
 - [ ] Installer `app-debug.apk` (`adb install -r app-debug.apk`), accepter caméra et localisation.
@@ -122,3 +135,4 @@ Chaque ligne renvoie à son lot. Une case n'est cochée qu'après vérification 
 | 10 | Tests JVM `SurveyPositionsTest.aimedPointIsUsedNotThePhonePosition` (point visé → position du site et Feature exportée, plus la position du téléphone) ; `AimTest` (intersection analytique rayon/plan, repli plan du dernier objet puis sol estimé, refus à angle rasant, repli ESTIMATED à 50 cm, pas de point sans suivi, axe caméra, relecture 0.1) ; `assembleDebug` OK. | Réticule visible et coloré ; « N plan(s) au sol » après un mouvement lent ; libellé « Calibré · résidu · échelle » après calibration ; visée rasante refusée avec message ; torche auto en faible luminosité (seuil 0,15 à régler) et bouton ; mesure A–B sur une distance connue (noter l'écart ici) ; 30 min de relevé sans plantage ; sans ARCore : vue absente + texte. |
 | 11 | Outil de bureau `tools/session2dxf` : 10 tests pytest (aller-retour synthétique 293 INSERT aux 25 noms, positions < 1 mm, rotations, échelles ; 2 appareils / 10 doublons → 10 fusions + 1 conflit ; alias → un seul bloc « bloc secours » ; session vide ; ligne tronquée ; ATTRIB ID ; polyligne fermée ; sans position exclu ; sha256 ; GEODATA supprimé ; recalage xref). Pas d'appareil concerné. | Aller-retour sur le vrai `eclairage03.dxf` et le gabarit de Sébastien ; ouverture AutoCAD + visionneur libre ; conversion DWG ODA. |
 | 12 | Bureau : 6 tests pytest voix (extraction ; « spot dichroïque MR16, 50 watts » → bon spot 10 visites synthétiques sur 10 (critère ≥ 8) ; « à choisir » / « objet non relevé ? » ; seules les validations vont dans les ATTRIB ; réattribuer / corriger ; 3 chirps retrouvés à l'échantillon dans un WAV et un FLAC de 12 s). Appli iOS non développée. | Visite test de 30 min téléphone + iPad (appli iOS à écrire) ; Whisper réel sur un enregistrement de terrain. |
+| 13 | Tests JVM `ZonesTest` (4) : convexe, concave, cloître avec cour, hors zone → null, zones imbriquées → la plus profonde, polygone qui se recoupe → rejeté, relecture d'une forme 0.1. `:core:test :app:assembleDebug` OK. | Tracer une zone en forme de 8 → message de refus ; tracer église / chœur et vérifier l'export Feature `zone`. Revue 30/10 : `ZoneEventTest` (événement `zone` 0.2 et zones 0.1 relues, anneaux fermés extérieur CCW / trous CW, `zone_id` calculé dans la Feature et `derived/`, contacts colinéaires et trous invalides refusés) vert sur JVM. **À tester sur le 13T Pro** : tracé refusé conservé à l'écran, message d'erreur. |

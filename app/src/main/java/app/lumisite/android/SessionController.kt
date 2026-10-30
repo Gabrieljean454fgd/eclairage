@@ -331,6 +331,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
             dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
+            aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         undoStack.addLast(e.id)
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")

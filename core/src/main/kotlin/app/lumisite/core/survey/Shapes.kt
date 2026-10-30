@@ -3,6 +3,7 @@ package app.lumisite.core.survey
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.ShapeEvent
+import app.lumisite.core.model.ZoneEvent
 import app.lumisite.core.model.SurveyEvent
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -10,7 +11,7 @@ import kotlin.math.sin
 
 /** Geometry helpers for shapes drawn in the site frame (metres). */
 object Shapes {
-    private fun sup(e: SessionEvent) = when (e) { is ShapeEvent -> e.supersedes; is SurveyEvent -> e.supersedes; else -> null }
+    private fun sup(e: SessionEvent) = when (e) { is ShapeEvent -> e.supersedes; is ZoneEvent -> e.supersedes; is SurveyEvent -> e.supersedes; else -> null }
 
     /** Latest version id of the edit chain containing [id]. */
     fun head(events: List<SessionEvent>, id: String): String {
@@ -21,7 +22,8 @@ object Shapes {
     }
 
     /** Current shapes: chain heads that are not deleted. */
-    fun current(events: List<SessionEvent>): List<ShapeEvent> {
+    fun current(all: List<SessionEvent>): List<ShapeEvent> {
+        val events = all.map { (it as? ZoneEvent)?.asShape() ?: it }
         val superseded = events.mapNotNull { (it as? ShapeEvent)?.supersedes }.toSet()
         return events.filterIsInstance<ShapeEvent>().filter { it.id !in superseded && it.deleted != true }
     }

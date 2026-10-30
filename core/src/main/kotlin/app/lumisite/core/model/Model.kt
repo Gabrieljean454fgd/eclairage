@@ -355,6 +355,37 @@ data class Attachment(
 @Serializable
 data class DxfHint(val layer: String, val blockName: String, val rotationDeg: Double? = null, val attributes: Map<String, String> = emptyMap())
 
+/**
+ * Zone (format 0.2, decision O6): explicit event instead of ShapeEvent(kind = "zone"), which is still read (0.1 exports).
+ * Outer ring and holes in site metres, closed implicitly. Edits are append-only ([supersedes] + optional [deleted]).
+ */
+@Serializable
+@SerialName("zone")
+data class ZoneEvent(
+    override val id: String,
+    override val t: Stamp,
+    val points: List<Enu>,
+    val holes: List<List<Enu>>? = null,
+    /** ARCHITECTURAL | TECHNIQUE | CIRCULATION | EXTERIEUR */
+    val zoneKind: String = "ARCHITECTURAL",
+    val parentZoneId: String? = null,
+    val label: String? = null,
+    val comment: String? = null,
+    val style: ShapeStyle = ShapeStyle(),
+    /** MANUAL_MAP (PLAN_IMPORT later). */
+    val source: String? = null,
+    val supersedes: String? = null,
+    val deleted: Boolean? = null,
+) : SessionEvent {
+    fun asShape() = ShapeEvent(id, t, "zone", "polygon", points, label = label, comment = comment, style = style, supersedes = supersedes,
+        deleted = deleted, zoneKind = zoneKind, parentZoneId = parentZoneId, holes = holes, source = source)
+
+    companion object {
+        fun of(s: ShapeEvent) = ZoneEvent(s.id, s.t, s.points, s.holes, s.zoneKind ?: "ARCHITECTURAL", s.parentZoneId, s.label, s.comment,
+            s.style, s.source, s.supersedes, s.deleted)
+    }
+}
+
 /** Drawing style of a shape (fiche F): named colours, optional fill, width in dp. */
 @Serializable
 data class ShapeStyle(val stroke: String = "rouge", val fill: String? = null, val widthDp: Float = 3f, val opacity: Float = 1f)

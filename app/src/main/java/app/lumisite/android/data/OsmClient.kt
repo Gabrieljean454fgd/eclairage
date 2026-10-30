@@ -36,7 +36,8 @@ object OsmClient {
     const val OVERPASS = "https://overpass-api.de/api/interpreter"
     private val userAgent = "LumiSite/${BuildConfig.VERSION_NAME} (field lighting survey; Android; github.com/Gabrieljean454fgd/eclairage)"
     private val json = Json { ignoreUnknownKeys = true }
-    private const val RAW_MAX = 500_000
+    /** Maximum size kept per raw response (osm_source.json, rawResponse). */
+    const val RAW_MAX = 500_000
     private var lastNominatimMs = 0L
 
     /** IGN first, Nominatim if IGN fails or finds nothing (outside France). Nominatim: at most 1 request per second. */
@@ -61,10 +62,15 @@ object OsmClient {
         return BBox(c.lat - dLat, c.lon - dLon, c.lat + dLat, c.lon + dLon)
     }
 
-    fun mapUrl(b: BBox) = "$osmApiBase/map.json?bbox=${Bboxes.apiParam(b)}"
+    fun mapUrl(b: BBox): String {
+        require(isHttps(osmApiBase)) { "L'URL de l'API OSM doit commencer par https://" }
+        return "$osmApiBase/map.json?bbox=${Bboxes.apiParam(b)}"
+    }
 
     /** Result of a fetch: the snapshot plus the raw dated responses for osm_source.json. */
-    data class Fetched(val snapshot: OsmSnapshot, val raw: List<Pair<BBox, String>>, val calls: Int)
+    data class Fetched(val snapshot: OsmSnapshot, val raw: List<Pair<BBox, String>>, val calls: Int, val missing: List<BBox> = emptyList())
+
+    fun isHttps(url: String) = url.trim().startsWith("https://")
 
     /** One call to /map.json. Throws [OsmHttpException] (too many nodes, bbox size, 429/509…) without retrying. */
     fun fetchMap(b: BBox, nowUtcMs: Long): Fetched {
@@ -74,9 +80,11 @@ object OsmClient {
 
     /** "Découper et fusionner": quadrants, bounded recursion, capped number of calls, merge by type+id. */
     fun fetchMapSplit(b: BBox, nowUtcMs: Long, onCall: (Int) -> Unit = {}): Fetched {
-        val f = SplitFetcher({ q -> get(mapUrl(q)).also { onCall(-1) } })
+        val f = SplitFetcher({ q -> get(mapUrl(q)) }, onCall = onCall)
         val el = f.fetchSplit(b)
-        return snapshot(b, el, f.responses, f.calls, nowUtcMs, "bbox=${Bboxes.apiParam(b)} découpé en ${f.responses.size} sous-zones")
+        val partial = if (f.missing.isEmpty()) "" else ", partiel : ${f.missing.size} sous-zone(s) trop dense(s) non récupérée(s)"
+        return snapshot(b, el, f.responses, f.calls, nowUtcMs, "bbox=${Bboxes.apiParam(b)} découpé en ${f.responses.size} sous-zones$partial")
+            .copy(missing = f.missing.toList())
     }
 
     private fun snapshot(b: BBox, el: OsmElements, raw: List<Pair<BBox, String>>, calls: Int, now: Long, query: String) = Fetched(

@@ -3,6 +3,7 @@ package app.lumisite.core.survey
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.ShapeEvent
+import app.lumisite.core.model.ZoneEvent
 
 /**
  * Zones (lot 13): polygons in site metres stored as ShapeEvent(kind = "zone"). The zone of a survey is COMPUTED (never
@@ -11,8 +12,25 @@ import app.lumisite.core.model.ShapeEvent
 object Zones {
     val KINDS = listOf("ARCHITECTURAL", "TECHNIQUE", "CIRCULATION", "EXTERIEUR")
 
-    /** Current zones: ZoneEvent (0.2) and ShapeEvent(kind = "zone") (0.1), as shapes. */
-    fun current(events: List<SessionEvent>): List<ShapeEvent> = Shapes.current(events).filter { it.kind == "zone" }
+    /** Event id -> id of the first version of its edit chain (stable zone identity = exported Feature id). */
+    fun roots(events: List<SessionEvent>): Map<String, String> {
+        val root = HashMap<String, String>()
+        events.forEach { e ->
+            val (id, sup) = when (e) { is ShapeEvent -> e.id to e.supersedes; is ZoneEvent -> e.id to e.supersedes; else -> return@forEach }
+            root[id] = sup?.let { root[it] ?: it } ?: id
+        }
+        return root
+    }
+
+    /**
+     * Current zones: ZoneEvent (0.2) and ShapeEvent(kind = "zone") (0.1), as shapes. `id` and `parentZoneId` are the
+     * stable identities (first version of each edit chain), so they match the exported Feature ids across edits.
+     */
+    fun current(events: List<SessionEvent>): List<ShapeEvent> {
+        val root = roots(events)
+        return Shapes.current(events).filter { it.kind == "zone" }
+            .map { z -> z.copy(id = root[z.id] ?: z.id, parentZoneId = z.parentZoneId?.let { root[it] ?: it }) }
+    }
 
     /** Even-odd ray casting; points exactly on an edge may fall either side. */
     fun inRing(ring: List<Enu>, p: Enu): Boolean {
@@ -63,15 +81,25 @@ object Zones {
         return false
     }
 
+    private fun open(r: List<Enu>) = if (r.size > 1 && r.first().e == r.last().e && r.first().n == r.last().n) r.dropLast(1) else r
+
+    private fun same(a: Enu, b: Enu) = kotlin.math.abs(a.e - b.e) < EPS && kotlin.math.abs(a.n - b.n) < EPS
+
+    /** Fewer than 3 distinct vertices, a repeated consecutive vertex (zero-length edge), or zero area. */
+    private fun degenerate(r: List<Enu>) =
+        r.size < 3 || r.indices.any { same(r[it], r[(it + 1) % r.size]) } || kotlin.math.abs(signedArea(r)) < EPS
+
     private fun ringsTouch(a: List<Enu>, b: List<Enu>) =
         a.indices.any { i -> b.indices.any { j -> segmentsTouch(a[i], a[(i + 1) % a.size], b[j], b[(j + 1) % b.size]) } }
 
     /** Why the zone is refused, or null: self-intersecting outer ring or hole, hole outside the outer ring, rings touching. */
-    fun problem(outer: List<Enu>, holes: List<List<Enu>> = emptyList()): String? {
-        if (outer.size < 3) return "au moins 3 sommets"
+    fun problem(outer0: List<Enu>, holes0: List<List<Enu>> = emptyList()): String? {
+        val outer = open(outer0); val holes = holes0.map(::open)
+        if (degenerate(outer)) return "au moins 3 sommets distincts, surface non nulle"
         if (selfIntersects(outer)) return "le polygone se recoupe"
         holes.forEachIndexed { k, h ->
-            if (h.size < 3 || selfIntersects(h)) return "le trou ${k + 1} se recoupe"
+            if (degenerate(h)) return "le trou ${k + 1} est plat ou a moins de 3 sommets"
+            if (selfIntersects(h)) return "le trou ${k + 1} se recoupe"
             if (!h.all { inRing(outer, it) } || ringsTouch(outer, h)) return "le trou ${k + 1} sort du contour"
             for (m in 0 until k) if (ringsTouch(holes[m], h) || inRing(holes[m], h[0]) || inRing(h, holes[m][0])) return "les trous ${m + 1} et ${k + 1} se chevauchent"
         }

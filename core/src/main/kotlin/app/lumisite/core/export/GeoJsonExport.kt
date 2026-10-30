@@ -125,15 +125,15 @@ object GeoJsonFeatures {
                     val f = feature(e, site, ltp, id, n, deviceId, sessionId)
                     site?.let { Zones.zoneOf(it, zones) }?.let { z -> withProperty(f, "zone_id", z.id) } ?: f
                 }
-                is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId)
-                is ZoneEvent -> shape(e.asShape(), ltp, id, n, deviceId, sessionId)
+                is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId, e.parentZoneId?.let { root[it] ?: it })
+                is ZoneEvent -> shape(e.asShape(), ltp, id, n, deviceId, sessionId, e.parentZoneId?.let { root[it] ?: it })
                 else -> null
             }
         }
     }
 
     /** Shape / annotation / zone Feature: WGS84 geometry plus the same geometry in site metres (properties.local). */
-    fun shape(s: ShapeEvent, ltp: LocalTangentPlane, featureId: String, rev: Int, deviceId: String, sessionId: String): JsonObject {
+    fun shape(s: ShapeEvent, ltp: LocalTangentPlane, featureId: String, rev: Int, deviceId: String, sessionId: String, parentZoneFeatureId: String? = s.parentZoneId): JsonObject {
         val op = when { s.deleted == true -> "delete"; s.supersedes != null -> "update"; else -> "create" }
         fun ll(p: Enu) = ltp.toLatLon(p.copy(u = 0.0)).let { buildJsonArray { add(JsonPrimitive(r(it.lon, 8))); add(JsonPrimitive(r(it.lat, 8))) } }
         val ring = Shapes.outline(s)
@@ -153,7 +153,7 @@ object GeoJsonFeatures {
                     s.radiusM?.let { put("radius_m", r(it, 3)) }
                 })
                 s.label?.let { put("label", it) }; s.comment?.let { put("note", it) }; s.annotationType?.let { put("annotation_type", it) }
-                if (s.kind == "zone") { put("zone_id", s.id); s.zoneKind?.let { put("zone_kind", it) }; s.parentZoneId?.let { put("parent_zone_id", it) }; s.source?.let { put("source", it) } }
+                if (s.kind == "zone") { put("zone_id", featureId); s.zoneKind?.let { put("zone_kind", it) }; parentZoneFeatureId?.let { put("parent_zone_id", it) }; s.source?.let { put("source", it) } }
                 put("style", buildJsonObject { put("stroke", s.style.stroke); put("fill", s.style.fill); put("width_dp", s.style.widthDp); put("opacity", s.style.opacity) })
                 s.attachedTo?.let { put("attached_to", it) }
                 put("time", buildJsonObject { put("captured_utc", Instant.ofEpochMilli(s.t.utcEpochMs).toString()); put("device_monotonic_ns", s.t.monotonicNs) })
@@ -190,7 +190,7 @@ class GeoJsonSeqWriter(val file: File, private val ltp: LocalTangentPlane, priva
         val id = s.supersedes?.let { root[it] ?: it } ?: s.id
         root[s.id] = id
         val n = (rev[id] ?: 0) + 1; rev[id] = n
-        out.write((GeoJsonFeatures.shape(s, ltp, id, n, deviceId, sessionId).toString() + "\n").toByteArray(Charsets.UTF_8))
+        out.write((GeoJsonFeatures.shape(s, ltp, id, n, deviceId, sessionId, s.parentZoneId?.let { root[it] ?: it }).toString() + "\n").toByteArray(Charsets.UTF_8))
         out.flush(); out.fd.sync()
     }
 

@@ -1,0 +1,95 @@
+name: APK d'étape
+
+# À chaque push sur une branche d'étape (etape-*) et à la demande : tests JVM, APK debug signé avec la clé de TEST
+# publique (docs/SIGNATURE_APK.md), pré-release GitHub etape<N>-<hash court>.
+on:
+  push:
+    branches: ["etape-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # versionCode = nombre de commits
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Identité de l'APK
+        id: id
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          N=$(echo "$BRANCH" | sed -nE 's/^etape-?([0-9]+).*/\1/p')
+          [ -z "$N" ] && N=0
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VC=$(git rev-list --count HEAD)
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "vc=$VC" >> "$GITHUB_OUTPUT"
+          echo "apk=lumisite-etape${N}-v${VC}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
+          echo "tag=etape${N}-${SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Tests JVM et APK debug signé
+        run: ./gradlew --no-daemon -PversionCode=${{ steps.id.outputs.vc }} :core:test :app:assembleDebug
+
+      - name: Vérification de la signature (clé de test)
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.id.outputs.apk }}"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "${{ steps.id.outputs.apk }}" | tee certs.txt
+          grep -q "LumiSite TEST KEY" certs.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "${{ steps.id.outputs.apk }}" | head -1 | tee badging.txt
+
+      - name: Notes de version
+        run: |
+          N=${{ steps.id.outputs.n }}
+          {
+            echo "APK de test de l'étape $N, commit ${{ steps.id.outputs.short }} (branche \`${GITHUB_REF_NAME}\`)."
+            echo
+            echo "- Fichier : \`${{ steps.id.outputs.apk }}\`"
+            echo "- applicationId \`app.lumisite.android\`, versionCode ${{ steps.id.outputs.vc }}"
+            echo "- Signé avec la **clé de TEST publique** (docs/SIGNATURE_APK.md) : jamais pour la production."
+            echo
+            echo '```'; cat badging.txt; grep -E "certificate (DN|SHA-256)" certs.txt | head -2; echo '```'
+            echo
+            if [ -f "docs/livraisons/etape-$N.md" ]; then cat "docs/livraisons/etape-$N.md"; else echo "_Pas de liste de points livrés (docs/livraisons/etape-$N.md absent)._"; fi
+            echo
+            echo "## Derniers commits"
+            git log -15 --format='- %h %s'
+          } > notes.md
+
+      - name: Pré-release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=${{ steps.id.outputs.tag }}
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${{ steps.id.outputs.apk }}" --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" "${{ steps.id.outputs.apk }}" --prerelease --target "$GITHUB_SHA" \
+              --title "Étape ${{ steps.id.outputs.n }} — ${{ steps.id.outputs.short }} (versionCode ${{ steps.id.outputs.vc }})" --notes-file notes.md
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.id.outputs.apk }}
+          path: ${{ steps.id.outputs.apk }}

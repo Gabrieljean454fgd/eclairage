@@ -190,6 +190,22 @@ data class SessionStopped(override val id: String, override val t: Stamp, val re
 @SerialName("time_base_added")
 data class TimeBaseAdded(override val id: String, override val t: Stamp, val timeBase: TimeBase, val reason: String) : SessionEvent
 
+/**
+ * Stop, resume or repair of a capture stream (stage 1, reserves R1/R2): every interruption is written, never bridged.
+ * [state]: STOPPED | RESUMED | REPAIRED (segment left open by an abrupt stop, closed at next opening) | COPY_FAILED.
+ */
+@Serializable
+@SerialName("stream_state")
+data class StreamStateEvent(
+    override val id: String,
+    override val t: Stamp,
+    /** Stream name ("imu", "gps", "poses", "camera", "arcore", "audio", "events", "mirror"...). */
+    val stream: String,
+    val state: String,
+    val reason: String? = null,
+    val detail: String? = null,
+) : SessionEvent
+
 @Serializable
 @SerialName("tracking_state")
 data class TrackingStateChanged(

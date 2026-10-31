@@ -1,0 +1,13 @@
+# Scénario 1 : Session > « Annoter » > « Polygone », trois appuis sur la carte puis « Fermer le polygone ».
+appId: app.lumisite.android
+name: "Scénario 1.2 — Session, Annoter"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_annoter" }
+- tapOn: { id: "session_annoter_polygon" }
+- tapOn: { point: "40%,70%" }
+- tapOn: { point: "60%,70%" }
+- tapOn: { point: "50%,85%" }
+- tapOn: { id: "session_annoter_fermer_le_polygone", optional: true }
+- tapOn: { id: "session_annoter" }
+- assertVisible: { id: "session_terminer_la_session" }

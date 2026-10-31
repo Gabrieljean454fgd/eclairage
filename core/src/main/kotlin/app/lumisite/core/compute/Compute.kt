@@ -126,35 +126,66 @@ data class CorrectedPoint(
  * are used: ARCore does not provide a valid pose while tracking is paused.
  */
 object TrajectoryCorrector {
-    data class Segment(val fromNs: Long, val transform: Similarity2D, val eventId: String)
+    data class Segment(val fromNs: Long, val transform: Similarity2D, val eventId: String, val timeBaseId: String? = null)
+
+    /**
+     * Stage 1.7: order of the time bases of a session = order of their first appearance in the journal (append order).
+     * Monotonic clocks restart at each phone boot, so stamps are ordered by (time base rank, monotonicNs), never by
+     * monotonicNs alone.
+     */
+    fun baseRanks(events: List<SessionEvent>): Map<String, Int> {
+        val out = LinkedHashMap<String, Int>()
+        for (e in events) {
+            out.getOrPut(e.t.timeBaseId) { out.size }
+            if (e is TimeBaseAdded) out.getOrPut(e.timeBase.id) { out.size }
+        }
+        return out
+    }
+
+    fun order(ranks: Map<String, Int>): Comparator<Stamp> =
+        compareBy<Stamp>({ ranks[it.timeBaseId] ?: Int.MAX_VALUE }, { it.monotonicNs })
 
     /**
      * Transform timeline. A [TimeBaseAdded] (session resumed: new AR frame) ends the validity of earlier
      * transforms until a new calibration is made.
      */
     fun timeline(events: List<SessionEvent>): List<Segment> {
-        val sorted = events.sortedBy { it.t.monotonicNs }
+        val cmp = order(baseRanks(events))
+        val sorted = events.sortedWith { a, b -> cmp.compare(a.t, b.t) }
         val out = ArrayList<Segment>()
         for (e in sorted) when (e) {
-            is CalibrationEvent -> out += Segment(e.t.monotonicNs, e.transform, e.id)
-            is RelocalizationEvent -> if (out.isNotEmpty()) out += Segment(e.t.monotonicNs, e.transformAfter, e.id)
+            is CalibrationEvent -> out += Segment(e.t.monotonicNs, e.transform, e.id, e.t.timeBaseId)
+            is RelocalizationEvent -> if (out.isNotEmpty()) out += Segment(e.t.monotonicNs, e.transformAfter, e.id, e.t.timeBaseId)
             is TimeBaseAdded -> out.clear()
             else -> {}
         }
         return out
     }
 
+    /** Latest segment at or before [monotonicNs] (same time base as the timeline, i.e. the current one). */
     fun activeAt(timeline: List<Segment>, monotonicNs: Long): Segment? = timeline.lastOrNull { it.fromNs <= monotonicNs }
 
+    /** Latest segment of the same time base at or before [t]; a stamp of another base (other boot) gets none. */
+    fun activeAt(timeline: List<Segment>, t: Stamp): Segment? =
+        timeline.lastOrNull { (it.timeBaseId == null || it.timeBaseId == t.timeBaseId) && it.fromNs <= t.monotonicNs }
+
     fun correct(poses: List<PoseSample>, events: List<SessionEvent>, ltp: LocalTangentPlane?): List<CorrectedPoint> {
+        val out = ArrayList<CorrectedPoint>()
+        correctEach(poses.asSequence(), events, ltp) { out += it }
+        val cmp = order(baseRanks(events))
+        return out.sortedWith { a, b -> cmp.compare(Stamp(a.utcEpochMs, a.monotonicNs, a.timeBaseId), Stamp(b.utcEpochMs, b.monotonicNs, b.timeBaseId)) }
+    }
+
+    /** Streaming form (export): each TRACKING pose with an active transform of its own time base gives one point. */
+    fun correctEach(poses: Sequence<PoseSample>, events: List<SessionEvent>, ltp: LocalTangentPlane?, emit: (CorrectedPoint) -> Unit) {
         val tl = timeline(events)
-        if (tl.isEmpty()) return emptyList()
-        return poses.sortedBy { it.t.monotonicNs }.mapNotNull { p ->
-            if (p.tracking != TrackingState.TRACKING) return@mapNotNull null
-            val seg = activeAt(tl, p.t.monotonicNs) ?: return@mapNotNull null
+        if (tl.isEmpty()) return
+        for (p in poses) {
+            if (p.tracking != TrackingState.TRACKING) continue
+            val seg = activeAt(tl, p.t) ?: continue
             val v = seg.transform.apply(PoseGeometry.plane(p))
             val enu = Enu(v.x, v.y, PoseGeometry.height(p))
-            CorrectedPoint(p.t.monotonicNs, p.t.utcEpochMs, p.t.timeBaseId, enu, ltp?.toLatLon(enu.copy(u = 0.0)), p.tracking, seg.eventId)
+            emit(CorrectedPoint(p.t.monotonicNs, p.t.utcEpochMs, p.t.timeBaseId, enu, ltp?.toLatLon(enu.copy(u = 0.0)), p.tracking, seg.eventId))
         }
     }
 

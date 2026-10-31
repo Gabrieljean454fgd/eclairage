@@ -1,0 +1,31 @@
+# Scénario de validation 1, partie « clics » : Accueil > « Nouveau » > « Créer sans contours OSM », puis Site > « Nouvelle session terrain ».
+# Libellés réels (l'indicatif « Accueil > Nouveau relevé » n'existe pas encore sur etape-1 : il arrive à l'étape 2).
+# Le clavier est fermé et chaque champ amené à l'écran avant saisie (formulaire défilable, imePadding).
+appId: app.lumisite.android
+name: "Scénario 1.1 — Créer un relevé"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau" }
+    timeout: 60000
+- tapOn: { id: "accueil_nouveau" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro bureau"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- tapOn: { id: "nouveau_site_creer" }
+- tapOn: { id: "site_nouvelle_session_terrain" }
+- assertVisible: { id: "session_terminer_la_session" }

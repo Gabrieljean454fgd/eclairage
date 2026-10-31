@@ -8,6 +8,7 @@ import android.opengl.GLSurfaceView
 import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
+import app.lumisite.android.data.DiagLog
 import app.lumisite.core.model.PoseSample
 import app.lumisite.core.model.TrackingState
 import app.lumisite.core.time.StampFactory
@@ -47,6 +48,12 @@ class ArTracker(
 ) : GLSurfaceView.Renderer {
     var session: Session? = null; private set
     var lastError: String? = null; private set
+    private fun setError(msg: String) { lastError = msg; DiagLog.e("ARCORE", msg) }
+
+    /** Debug ARCore recording / playback (task 2): set from launch extras, see [ArDebug]. */
+    val playback = MutableStateFlow(false)
+    val recording = MutableStateFlow(false)
+    private var datasetApplied = false
     private val degradedWindowMs = 3_000L
     private var everTracked = false
     private var pausedSinceMs: Long? = null
@@ -70,7 +77,7 @@ class ArTracker(
     /** Torch on/off, applied from the caller thread (never session.configure() inside onDrawFrame). Off on pause. */
     fun setTorch(on: Boolean) {
         val s = session ?: return
-        runCatching { applyTorchInternal(s, on); torchOn.value = on }.onFailure { lastError = "torche : ${it.message}" }
+        runCatching { applyTorchInternal(s, on); torchOn.value = on }.onFailure { setError("torche : ${it.message}") }
     }
 
     companion object {
@@ -104,7 +111,7 @@ class ArTracker(
             configNote = "caméra ${s.cameraConfig.imageSize.width}×${s.cameraConfig.imageSize.height}, profondeur ${s.config.depthMode}"
             session = s; lastError = null; true
         } catch (e: Exception) {
-            lastError = "${e.javaClass.simpleName}: ${e.message}"; false
+            setError("${e.javaClass.simpleName}: ${e.message}"); false
         }
     }
 
@@ -113,14 +120,34 @@ class ArTracker(
 
     fun resume() {
         if (!rendering) return
-        try { session?.resume() } catch (e: Exception) { lastError = "resume: ${e.message}" }
+        val s = session ?: return
+        if (!datasetApplied) {
+            datasetApplied = true
+            // Playback must be set while the session is paused, before resume(); recording uses setMp4DatasetUri.
+            ArDebug.playbackPath?.let { path ->
+                try {
+                    s.setPlaybackDatasetUri(android.net.Uri.fromFile(java.io.File(path)))
+                    playback.value = true
+                    DiagLog.i("ARCORE", "PLAYBACK du jeu de données $path")
+                } catch (e: Exception) { setError("playback $path : ${e.javaClass.simpleName} ${e.message}") }
+            }
+            if (!playback.value) ArDebug.recordPath?.let { path ->
+                try {
+                    java.io.File(path).parentFile?.mkdirs()
+                    s.startRecording(com.google.ar.core.RecordingConfig(s).setMp4DatasetUri(android.net.Uri.fromFile(java.io.File(path))).setAutoStopOnPause(false))
+                    recording.value = true
+                    DiagLog.i("ARCORE", "Enregistrement ARCore vers $path")
+                } catch (e: Exception) { setError("enregistrement $path : ${e.javaClass.simpleName} ${e.message}") }
+            }
+        }
+        try { s.resume() } catch (e: Exception) { setError("resume: ${e.message}") }
     }
 
     fun pause() {
         // Flash back to OFF in the config too, otherwise ARCore relights it on resume while the UI says "off".
         session?.let { s -> runCatching { applyTorchInternal(s, false) } }
         torchOn.value = false
-        try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" }
+        try { session?.pause() } catch (e: Exception) { setError("pause: ${e.message}") }
     }
 
     /** Call only once the GLSurfaceView is paused (no concurrent onDrawFrame). Never throws. */
@@ -128,8 +155,9 @@ class ArTracker(
         rendering = false
         val s = session ?: return
         session = null
+        if (recording.value) { runCatching { s.stopRecording() }; recording.value = false }
         try { s.pause() } catch (_: Exception) {}
-        try { s.close() } catch (e: Exception) { lastError = "close: ${e.message}" }
+        try { s.close() } catch (e: Exception) { setError("close: ${e.message}") }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -176,7 +204,7 @@ class ArTracker(
         val s = session ?: return
         if (viewportChanged) { s.setDisplayGeometry(displayRotation(), viewportW, viewportH); viewportChanged = false }
         s.setCameraTextureName(bg.textureId)
-        val frame: Frame = try { s.update() } catch (e: Exception) { lastError = "update: ${e.message}"; return }
+        val frame: Frame = try { s.update() } catch (e: Exception) { setError("update: ${e.message}"); return }
         bg.draw(frame)
         val cam = frame.camera
         val nowMs = SystemClock.elapsedRealtime()
@@ -313,5 +341,26 @@ private class PlaneRenderer {
             GLES20.glDisableVertexAttribArray(aPos)
         }
         GLES20.glDisable(GLES20.GL_BLEND)
+    }
+}
+
+/**
+ * Debug-only ARCore dataset recording and playback (task 2, tests on the development Pixel 7):
+ *   adb shell am start -n app.lumisite.android/.MainActivity --es arcore_playback /sdcard/Android/data/app.lumisite.android/files/arcore/x.mp4
+ *   adb shell am start -n app.lumisite.android/.MainActivity --es arcore_record auto   (→ files/arcore/rec-<date>.mp4)
+ * Ignored in non-debug builds. Playback shows a visible « PLAYBACK » badge on the Session screen.
+ */
+object ArDebug {
+    @Volatile var playbackPath: String? = null
+    @Volatile var recordPath: String? = null
+
+    fun fromIntent(ctx: Context, intent: android.content.Intent?, debug: Boolean) {
+        if (!debug || intent == null) return
+        intent.getStringExtra("arcore_playback")?.takeIf { it.isNotBlank() }?.let { playbackPath = it }
+        intent.getStringExtra("arcore_record")?.takeIf { it.isNotBlank() }?.let { v ->
+            recordPath = if (v == "auto") java.io.File(ctx.getExternalFilesDir("arcore"),
+                "rec-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT).format(java.util.Date())}.mp4").path else v
+        }
+        if (playbackPath != null || recordPath != null) DiagLog.i("ARCORE", "Mode debug : playback=$playbackPath record=$recordPath")
     }
 }

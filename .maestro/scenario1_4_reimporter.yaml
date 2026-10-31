@@ -1,0 +1,24 @@
+# Scénario 1 : après effacement des données de l'appli (simule la réinstallation ; la vraie désinstallation reste à faire
+# sur le Xiaomi), Accueil > « Réglages » > Stockage > « Réimporter une session depuis Documents/LumiSite ».
+# Le sélecteur de dossier est celui d'Android : ses libellés dépendent de la langue et de la surcouche (MIUI/HyperOS).
+appId: app.lumisite.android
+name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
+---
+- runFlow: scenario1_3_exporter.yaml
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_reglages" }
+    timeout: 60000
+- tapOn: { id: "accueil_reglages" }
+- assertVisible: { id: "reglages_stockage_chemin" }
+- tapOn: { id: "reglages_stockage_reimporter" }
+- tapOn: { text: "(?i)utiliser ce dossier|use this folder", optional: true }
+- tapOn: { text: "(?i)autoriser|allow", optional: true }
+- extendedWaitUntil:
+    visible: { id: "reglages_stockage_resultat" }
+    timeout: 60000
+- assertVisible: ".*réimportée.*"
+- tapOn: { id: "reglages_retour" }
+- assertVisible: "Maestro bureau"

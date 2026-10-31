@@ -1,6 +1,7 @@
 package app.lumisite.android.ui
 
 import android.content.Context
+import androidx.compose.ui.platform.testTag
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -79,7 +80,7 @@ fun themeBackground(systemDark: Boolean): Int = when {
 /** Sun/moon button: one tap switches immediately; state (session, zoom) is kept because only the colour scheme changes. */
 @Composable
 fun ThemeToggle(ctx: Context, modifier: Modifier = Modifier) {
-    IconButton(onClick = { ThemePrefs.cycle(ctx) }, modifier = modifier.semantics { contentDescription = ThemePrefs.mode.label }) {
+    IconButton(onClick = { ThemePrefs.cycle(ctx) }, modifier = Modifier.testTag("theme_iconbutton").then(modifier.semantics { contentDescription = ThemePrefs.mode.label })) {
         Text(ThemePrefs.mode.glyph, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }

@@ -106,7 +106,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            TextButton(enabled = exporting == null, onClick = { exportProject(s) }) { Text(if (exporting == s.id) "Export…" else "⇪ Exporter") }
+                            TextButton(enabled = exporting == null, onClick = { exportProject(s) }, modifier = Modifier.testTag("accueil_site_exporter")) { Text(if (exporting == s.id) "Export…" else "⇪ Exporter") }
                         }
                         Text("%.6f, %.6f · %s · OSM : %s".format(s.origin.lat, s.origin.lon, s.originSource,
                             s.osm?.let { "${it.features.size} objets" } ?: "aucune donnée"), style = MaterialTheme.typography.bodySmall)
@@ -225,18 +225,18 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         )
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onCancel) { Text("← Retour") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
                 Text("Nouveau site", style = MaterialTheme.typography.titleLarge)
             }
             OutlinedTextField(
-                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
                 isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
             )
             HorizontalDivider()
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
-                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { lastSearched = ""; doSearch() }),
             )
             results.forEach { r ->
@@ -246,40 +246,40 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
-                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
                 val la = latText.replace(',', '.').toDoubleOrNull(); val lo = lonText.replace(',', '.').toDoubleOrNull()
                 if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) status = "Coordonnées invalides." else { setOrigin(LatLon(la, lo), "COORDINATES"); zoom = 18.0 }
-            }) { Text("Utiliser ces coordonnées") }
+            }, modifier = Modifier.testTag("nouveau_site_utiliser_ces_coordonnees")) { Text("Utiliser ces coordonnées") }
             Text(origin?.let { "Origine : %.7f, %.7f (%s)".format(it.lat, it.lon, originSource) } ?: "Origine non définie", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Text("2. Rectangle du site (conservé même sans OSM)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { tapMode = TapMode.CORNERS; cornerA = null }) {
+                OutlinedButton(onClick = { tapMode = TapMode.CORNERS; cornerA = null }, modifier = Modifier.testTag("nouveau_site_touchez_le_1er_coin")) {
                     Text(if (tapMode == TapMode.CORNERS) (if (cornerA == null) "Touchez le 1er coin…" else "Touchez le 2e coin…") else "Deux coins sur la carte")
                 }
-                OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.width(110.dp), singleLine = true)
-                OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }) { Text("Autour de l'origine") }
+                OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.testTag("nouveau_site_demi_cote_m").width(110.dp), singleLine = true)
+                OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }, modifier = Modifier.testTag("nouveau_site_autour_de_l_origine")) { Text("Autour de l'origine") }
             }
             if (recentZones.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
-                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }) }
+                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_assistchip")) }
             }
             rect?.let { b -> Text("Rectangle : %.5f degré carré%s".format(Bboxes.areaDeg2(b), if (tooLarge) " — trop grand (max %.2f)".format(OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall) }
             HorizontalDivider()
             Text("3. (Optionnel) Contours OSM du rectangle (API OSM v0.6)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && rect != null, onClick = { fetch(split = false) }) { Text("Récupérer") }
+                Button(enabled = !busy && rect != null, onClick = { fetch(split = false) }, modifier = Modifier.testTag("nouveau_site_recuperer")) { Text("Récupérer") }
                 if (tooLarge || failure == OsmGuard.Failure.TOO_MANY_NODES || failure == OsmGuard.Failure.BBOX_TOO_LARGE)
-                    OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }) { Text("Réduire") }
+                    OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }, modifier = Modifier.testTag("nouveau_site_reduire")) { Text("Réduire") }
                 if (failure == OsmGuard.Failure.TOO_MANY_NODES)
-                    OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }) { Text("Découper et fusionner") }
+                    OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }, modifier = Modifier.testTag("nouveau_site_decouper_et_fusionner")) { Text("Découper et fusionner") }
             }
-            TextButton(onClick = { showUrls = !showUrls }) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
-            if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            TextButton(onClick = { showUrls = !showUrls }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6")) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
+            if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6_2").fillMaxWidth(), singleLine = true)
             selected?.let { Text("Bâtiment sélectionné : $it", style = MaterialTheme.typography.bodySmall) }
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             HorizontalDivider()
@@ -296,9 +296,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                         ),
                         osm = osm, selectedBuildingOsmRef = selected, bbox = rect ?: osm?.bbox,
                     ), staged)
-                }) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
+                }, modifier = Modifier.testTag("nouveau_site_creer")) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = onCancel) { Text("Annuler") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_annuler")) { Text("Annuler") }
             }
         }
     }
@@ -316,7 +316,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
         ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onBack) { Text("← Retour") }
+                OutlinedButton(onClick = onBack, modifier = Modifier.testTag("site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
                 Text(site.name, style = MaterialTheme.typography.titleLarge)
             }
@@ -324,7 +324,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
             Text(site.osm?.let { "OSM : ${it.features.size} objets, récupérés le ${fmtTime(it.retrievedUtcMs)} (${it.license})" } ?: "Pas de données OSM (site défini manuellement)", style = MaterialTheme.typography.bodySmall)
             Text("Plans importés : ${site.plans.size} (import prévu dans une tranche ultérieure)", style = MaterialTheme.typography.bodySmall)
             Text("Relevés : ${surveys.size} (${surveys.count { it.site == null }} sans position)", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onNewSession) { Text("Nouvelle session terrain") }
+            Button(onClick = onNewSession, modifier = Modifier.testTag("site_nouvelle_session_terrain")) { Text("Nouvelle session terrain") }
             HorizontalDivider()
             Text("Sessions", style = MaterialTheme.typography.titleMedium)
             sessions.forEach { h ->

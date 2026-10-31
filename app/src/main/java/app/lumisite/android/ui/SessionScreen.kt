@@ -193,10 +193,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
             )
-            OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 56.dp)) {
+            OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.testTag("session_point_a_la_croix").align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 56.dp)) {
                 Text("Point à la croix")
             }
-            OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+            OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.testTag("session_trajectoire_estimee_vert_non_gar").align(Alignment.BottomEnd).padding(8.dp)) {
                 Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
             }
             Text(
@@ -211,6 +211,11 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TrackingBanner(st.tracking, st.trackingReason)
                 Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
+                val playback by c.ar.playback.collectAsState()
+                val recording by c.ar.recording.collectAsState()
+                if (playback) Text("PLAYBACK", color = Color.White, style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.background(Color(0xFFB00020)).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_ar_playback"))
+                if (recording) Text("● REC ARCore", color = Color(0xFFB00020), style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_ar_enregistrement"))
                 ThemeToggle(activity)
                 if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
             }
@@ -233,12 +238,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     }
     val actionBar: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(enabled = !closing, onClick = { finish() }) { Text("← Terminer la session") }
+            OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Mode.entries.filter { it != Mode.NONE }.forEach { m ->
                     FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
                         Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
-                    })
+                    }, modifier = Modifier.testTag("session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }))
                 }
             }
         }
@@ -246,7 +251,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val panel: @Composable (Modifier) -> Unit = { m ->
         Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
-                Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }) { Text("Installer / mettre à jour ARCore") }
+                Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
             }
             val gps = st.lastGps
             Text(
@@ -262,7 +267,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
             st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(showUncorrected, { showUncorrected = it }); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
+                Checkbox(showUncorrected, { showUncorrected = it }, modifier = Modifier.testTag("session_checkbox")); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
             }
             surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
@@ -318,27 +323,27 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, hasA: Boolea
     var known by remember { mutableStateOf("") }
     var fixScale by remember { mutableStateOf(true) }
     Text("Calibration initiale : aligne le repère AR sur le repère du site.", style = MaterialTheme.typography.labelLarge)
-    Row { FilterChip(method == 0, { method = 0 }, { Text("1 point + cap") }); Spacer(Modifier.width(6.dp)); FilterChip(method == 1, { method = 1 }, { Text("2 points") }) }
+    Row { FilterChip(method == 0, { method = 0 }, { Text("1 point + cap") }, modifier = Modifier.testTag("session_calibrer_1_point_cap")); Spacer(Modifier.width(6.dp)); FilterChip(method == 1, { method = 1 }, { Text("2 points") }, modifier = Modifier.testTag("session_calibrer_2_points")) }
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
     if (method == 0) {
         val compass = c.sensors.cameraHeadingDeg
         Text("Placez-vous sur le point, visez avec la caméra une direction connue et saisissez son cap (° depuis le nord), ou utilisez la boussole (non fiable en intérieur).", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée (°)") })
+        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
         Row {
-            OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
+            OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
         }
         Button(onClick = {
             val r = ref("Calibration P1"); val h = heading.replace(',', '.').toDoubleOrNull()
             if (r != null && h == null) c.notify("Saisissez un cap de visée valide (degrés depuis le nord).")
             if (r != null && h != null) c.calibrateOnePoint(r, h, if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL", if (compass != null) 15.0 else null)
-        }) { Text("Valider la calibration") }
+        }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider la calibration") }
     } else {
         Text("Placez-vous sur A, touchez A sur la carte, capturez. Marchez jusqu'à B (≥ 0,5 m, idéalement > 5 m), touchez B, validez.", style = MaterialTheme.typography.bodySmall)
-        if (!hasA) Button(onClick = { ref("Calibration A")?.let(c::captureCalibrationA) }) { Text("Capturer A") }
+        if (!hasA) Button(onClick = { ref("Calibration A")?.let(c::captureCalibrationA) }, modifier = Modifier.testTag("session_calibrer_capturer_a")) { Text("Capturer A") }
         else {
-            OutlinedTextField(known, { known = it }, label = { Text("Distance A-B mesurée (m, optionnel)") })
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(fixScale, { fixScale = it }); Text("Échelle fixée à 1 (AR métrique)", style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = { ref("Calibration B")?.let { c.calibrateTwoPoints(it, fixScale, known.replace(',', '.').toDoubleOrNull()) } }) { Text("Capturer B et valider") }
+            OutlinedTextField(known, { known = it }, label = { Text("Distance A-B mesurée (m, optionnel)") }, modifier = Modifier.testTag("session_calibrer_distance_a_b_mesuree_m"))
+            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(fixScale, { fixScale = it }, modifier = Modifier.testTag("session_calibrer_checkbox")); Text("Échelle fixée à 1 (AR métrique)", style = MaterialTheme.typography.bodySmall) }
+            Button(onClick = { ref("Calibration B")?.let { c.calibrateTwoPoints(it, fixScale, known.replace(',', '.').toDoubleOrNull()) } }, modifier = Modifier.testTag("session_calibrer_capturer_b_et_valider")) { Text("Capturer B et valider") }
         }
     }
 }
@@ -349,16 +354,16 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
     var note by remember { mutableStateOf("") }
     Text("Recalage : placez-vous sur un point connu, touchez-le sur la carte et confirmez. La trajectoire antérieure est conservée.", style = MaterialTheme.typography.labelLarge)
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
-    OutlinedTextField(headingCorr, { headingCorr = it }, label = { Text("Correction de cap (°, optionnel, + = horaire)") })
-    OutlinedTextField(note, { note = it }, label = { Text("Note") })
-    Button(onClick = { ref("Recalage")?.let { c.relocalize(it, headingCorr.replace(',', '.').toDoubleOrNull(), note.ifBlank { null }) } }) { Text("Je suis ici : recaler") }
+    OutlinedTextField(headingCorr, { headingCorr = it }, label = { Text("Correction de cap (°, optionnel, + = horaire)") }, modifier = Modifier.testTag("session_recaler_correction_de_cap_optionnel_hora"))
+    OutlinedTextField(note, { note = it }, label = { Text("Note") }, modifier = Modifier.testTag("session_recaler_note"))
+    Button(onClick = { ref("Recalage")?.let { c.relocalize(it, headingCorr.replace(',', '.').toDoubleOrNull(), note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }) }
+        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_releve_famille_filterchip")) }
     }
 }
 
@@ -371,13 +376,13 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     FamilyQuickGrid(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
     DetailsForm(family, details)
-    OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") })
-    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { useMap = it }); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
+    OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_releve_commentaire_facultatif"))
+    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { useMap = it }, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null
         val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
         if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap() } }
-    }) { Text("Enregistrer le relevé") }
+    }, modifier = Modifier.testTag("session_releve_enregistrer_le_releve")) { Text("Enregistrer le relevé") }
 }
 
 @Composable
@@ -391,20 +396,20 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
         AttachmentButtons(c, r.event.id)
         if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(0.1, 0.5).forEach { d ->
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }) { Text("N +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d)) }) { Text("N −$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d)) }) { Text("E +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d)) }) { Text("E −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d)) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d)) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d)) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
             }
         }
-        OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }) {
+        OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }, modifier = Modifier.testTag("session_objet_deplacer_au_point_touche_sur")) {
             Text("Déplacer au point touché sur la carte")
         }
-        OutlinedTextField(note, { note = it }, label = { Text("Commentaire") })
+        OutlinedTextField(note, { note = it }, label = { Text("Commentaire") }, modifier = Modifier.testTag("session_objet_commentaire"))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button({ c.editSurvey(r.event.id, note = note); onDone() }) { Text("Enregistrer") }
-            OutlinedButton({ changeFamily = !changeFamily }) { Text("Changer de famille") }
-            OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }) { Text("Supprimer", color = Color.Red) }
+            Button({ c.editSurvey(r.event.id, note = note); onDone() }, modifier = Modifier.testTag("session_objet_enregistrer")) { Text("Enregistrer") }
+            OutlinedButton({ changeFamily = !changeFamily }, modifier = Modifier.testTag("session_objet_changer_de_famille")) { Text("Changer de famille") }
+            OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }, modifier = Modifier.testTag("session_objet_supprimer")) { Text("Supprimer", color = Color.Red) }
         }
         if (changeFamily) FamilyGrid(c, r.event.kind) { c.editSurvey(r.event.id, familyId = it); onDone() }
     }
@@ -445,9 +450,9 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var keepWav by remember { mutableStateOf(false) }
     Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(keepWav, { keepWav = it }); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
+        Checkbox(keepWav, { keepWav = it }, modifier = Modifier.testTag("session_synchro_checkbox")); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
     }
-    OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true)
+    OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_de_synchro_genere_facultati"))
     Button(enabled = !busy, onClick = {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
         busy = true; cale = null; result = "Écoute et émission en cours…"
@@ -468,15 +473,15 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             busy = false
             if ((cale ?: 0) < 2) secours = true
         }
-    }) { Text("Synchroniser") }
+    }, modifier = Modifier.testTag("session_synchro_synchroniser")) { Text("Synchroniser") }
     // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
     cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
-    TextButton({ secours = !secours }) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
     if (secours) {
-        OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true)
-        OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }) { Text("TOP manuel (appuyer au signal)") }
+        OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme_2"))
+        OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }, modifier = Modifier.testTag("session_synchro_top_manuel_appuyer_au_signal")) { Text("TOP manuel (appuyer au signal)") }
     }
-    OutlinedButton(onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("Estimer l'écart avec l'export d'un autre appareil…") }
+    OutlinedButton(onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream")) }, modifier = Modifier.testTag("session_synchro_estimer_l_ecart_avec_l")) { Text("Estimer l'écart avec l'export d'un autre appareil…") }
     val st by c.state.collectAsState()
     Text("Événements de synchro : " + st.events.filterIsInstance<SyncEvent>().joinToString { "${it.syncCode}/${it.method}" }.ifEmpty { "aucun" }, style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

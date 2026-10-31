@@ -1,6 +1,6 @@
-# Format d'export `lumisite.session` v0.2.0
+# Format d'export `lumisite.session` v0.2.1
 
-Versions : 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone.
+Versions : 0.2.1 (étape 1) ajoute l'événement `stream_state`, les champs `bootId`/`bootCount` des bases de temps et la catégorie de fichiers `media` (pièces jointes copiées dans `media/`) ; un lecteur 0.2.0 lit un export 0.2.1 (champs inconnus ignorés, un `stream_state` lui apparaît comme une ligne illisible). 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone.
 
 Un export est un dossier (ou le ZIP de ce dossier) :
 
@@ -94,3 +94,17 @@ repère du plan AutoCAD.
 - Événement `shape` (`ShapeEvent`) : `kind` (`shape` | `annotation` | `zone`), `geometryType` (`rectangle` | `circle` | `line` | `polyline` | `arrow` | `polygon` | `point`), `points` en mètres dans le repère du site (Enu), `radiusM`, `label`, `comment`, `annotationType`, `style {stroke, fill, widthDp, opacity}`, `attachedTo`, `supersedes`, `deleted`. Une modification ou une annulation ajoute un nouvel événement : rien n'est réécrit.
 - `Attachment` reçoit `role` (`etiquette` | `vue` | `voix`), `startUtcMs` et `monotonicNs`. Les fichiers sont dans `<session>/attachments/` (`ph_<n>.jpg`, `vn_<n>.m4a`), avec leur sha256.
 - `payload.details` : `sous_type, technologie, culot, puissance_W, temp_couleur_K, ref_etiquette, etat, status`. Un champ vide est absent, jamais 0. Puissance de 1 à 5 000 W, température de couleur de 1 000 à 10 000 K. Pas de taille ni de miroir.
+
+## Étape 1 (format 0.2.1)
+
+- **Disposition sur l'appareil** (pas dans l'export) : chaque flux est écrit en segments `seg/<flux>.<n°>.part` → `.ndjson`
+  (voir `docs/STOCKAGE_ET_JOURNAL.md`). L'export concatène les segments : `raw/*.ndjson` garde la même forme qu'en 0.2.0.
+- **`stream_state`** (`StreamStateEvent`) : `stream` (`imu`, `gps`, `arcore`, `poses`, `events`…), `state`
+  (`STOPPED` | `RESUMED` | `REPAIRED`), `reason` (`APP_PAUSED`, `APP_RESUMED`, `ABRUPT_STOP`), `detail`.
+  Toute coupure et toute reprise d'un flux est écrite ; une trajectoire n'est jamais comblée (réserve R1).
+- **Base de temps** : `TimeBase.bootId` (Android : `/proc/sys/kernel/random/boot_id`) et `bootCount`
+  (`Settings.Global.BOOT_COUNT`). Ordre des instants : (rang de la base dans le journal, `monotonicNs`), jamais
+  `monotonicNs` seul. Une reprise après redémarrage du téléphone écrit `time_base_added` avec la raison
+  `session resumed after PHONE_REBOOT` ; les transformations antérieures cessent de s'appliquer.
+- **`files[].category = "media"`** : pièce jointe copiée telle quelle dans `media/<fichier>`, avec SHA-256.
+- **Export en flux** : `SessionImporter.verify` vérifie empreintes et nombres d'enregistrements ligne à ligne.

@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
         val systemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeBackground(systemDark)))
         DiagLog.init(applicationContext)
+        app.lumisite.android.capture.ArDebug.fromIntent(applicationContext, intent, BuildConfig.DEBUG)
         val repo = Repository(applicationContext)
         setContent {
             LumiTheme {

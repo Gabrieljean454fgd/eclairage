@@ -1,6 +1,7 @@
 package app.lumisite.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,13 +66,13 @@ fun ArControls(c: SessionController) {
     Column(Modifier.width(200.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("$hint · $planes plan(s) au sol", style = MaterialTheme.typography.labelSmall, color = color)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            OutlinedButton({ c.ar.setTorch(!torch) }) { Text(if (torch) "Torche : oui" else "Torche : non", fontSize = 11.sp) }
+            OutlinedButton({ c.ar.setTorch(!torch) }, modifier = Modifier.testTag("session_ar_torche_oui")) { Text(if (torch) "Torche : oui" else "Torche : non", fontSize = 11.sp) }
             OutlinedButton({
                 val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" }?.point
                 if (p == null) measure = "Mesure : visez une cible"
                 else if (a == null) { a = p; measure = "Point A posé, visez B" }
                 else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null }
-            }) { Text(if (a == null) "Mesure A" else "Mesure B", fontSize = 11.sp) }
+            }, modifier = Modifier.testTag("session_ar_mesure_a")) { Text(if (a == null) "Mesure A" else "Mesure B", fontSize = 11.sp) }
         }
         measure?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
     }

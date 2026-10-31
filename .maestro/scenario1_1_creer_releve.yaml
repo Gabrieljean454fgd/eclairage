@@ -7,20 +7,24 @@ name: "Scénario 1.1 — Créer un relevé"
 - launchApp:
     clearState: true
     permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau" }
+    timeout: 60000
 - tapOn: { id: "accueil_nouveau" }
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro bureau"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" }, centerElement: true }
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_longitude" }, centerElement: true }
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" }, centerElement: true }
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
 - scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - tapOn: { id: "nouveau_site_creer" }
 - tapOn: { id: "site_nouvelle_session_terrain" }

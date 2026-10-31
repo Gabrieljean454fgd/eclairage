@@ -8,6 +8,9 @@ name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
 - launchApp:
     clearState: true
     permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_reglages" }
+    timeout: 60000
 - tapOn: { id: "accueil_reglages" }
 - assertVisible: { id: "reglages_stockage_chemin" }
 - tapOn: { id: "reglages_stockage_reimporter" }

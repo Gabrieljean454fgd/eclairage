@@ -14,6 +14,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -239,7 +240,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val actionBar: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Mode.entries.filter { it != Mode.NONE }.forEach { m ->
                     FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
                         Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
@@ -487,9 +488,11 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ExportPanel(activity: Activity, repo: Repository, c: SessionController) {
     val scope = rememberCoroutineScope()
+    val resultView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
     var busy by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<SessionExporter.Progress?>(null) }
     var out by remember { mutableStateOf<Repository.ExportResult?>(null) }
@@ -531,9 +534,11 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
     }
     err?.let { Text(it, color = Color.Red, modifier = Modifier.testTag("session_export_erreur")) }
     out?.let { r ->
+        // The result appears below the fold of the scrollable panel: bring the path and its buttons into view.
+        LaunchedEffect(r) { resultView.bringIntoView() }
         Text("Exporté dans ${r.publicPath ?: r.zip.path}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("session_export_resultat"))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.bringIntoViewRequester(resultView)) {
             Button(onClick = { open(r) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
             OutlinedButton(onClick = { share(r.zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
         }

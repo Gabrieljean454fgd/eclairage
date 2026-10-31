@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
@@ -122,6 +123,7 @@ private enum class TapMode { ORIGIN, CORNERS }
 
 @Composable
 fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
+    val focusManager = LocalFocusManager.current
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -220,6 +222,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRef = selected, rect = rect, picked = cornerA),
             recenterKey = recenter,
             onTap = {
+                focusManager.clearFocus()
                 if (tapMode == TapMode.CORNERS) {
                     val a0 = cornerA
                     if (a0 == null) cornerA = it else { setRect(Bboxes.fromCorners(a0, it)); cornerA = null; tapMode = TapMode.ORIGIN }

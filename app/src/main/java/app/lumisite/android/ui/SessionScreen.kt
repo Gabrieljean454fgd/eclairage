@@ -50,6 +50,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import app.lumisite.core.export.SessionExporter
+import app.lumisite.android.data.DiagLog
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -482,49 +486,55 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
 private fun ExportPanel(activity: Activity, repo: Repository, c: SessionController) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf<SessionExporter.Progress?>(null) }
     var out by remember { mutableStateOf<Repository.ExportResult?>(null) }
-    var saved by remember { mutableStateOf<String?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
 
+    fun localUri(zip: File) = FileProvider.getUriForFile(activity, activity.packageName + ".files", zip)
     fun share(zip: File) {
-        val uri = FileProvider.getUriForFile(activity, activity.packageName + ".files", zip)
-        activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager l'export"))
+        activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, localUri(zip)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager l'export"))
+    }
+    fun open(r: Repository.ExportResult) {
+        val uri = r.publicUri?.takeIf { it.scheme == "content" } ?: localUri(r.zip)
+        try { activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/zip").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+        catch (e: android.content.ActivityNotFoundException) { err = "Aucune appli ne sait ouvrir un ZIP sur ce téléphone : utilisez « Partager »."; DiagLog.e("EXPORT", "Ouvrir : aucune appli pour application/zip", e) }
     }
 
-    // Android < 10: no MediaStore Downloads collection, the user picks the destination.
-    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
-        val r = out ?: return@rememberLauncherForActivityResult
-        if (uri == null) { err = "Enregistrement annulé : le fichier reste dans l'appli (${r.zip.name}). Utilisez « Partager… »."; share(r.zip); return@rememberLauncherForActivityResult }
-        scope.launch {
-            try { withContext(Dispatchers.IO) { repo.copyTo(r.zip, uri) }; saved = "Enregistré : ${r.zip.name}"; share(r.zip) }
-            catch (e: Exception) { err = "Copie impossible : ${e.message}" }
-        }
-    }
-
-    Text("Export JSON versionné (session.json + NDJSON raw/ et derived/), puis relecture automatique. Le ZIP est copié dans Téléchargements.", style = MaterialTheme.typography.labelLarge)
-    Button(enabled = !busy, onClick = {
-        busy = true; err = null; saved = null
+    Text("Export en flux (session.json, raw/, derived/, media/), relu par empreintes, puis copié dans Documents/LumiSite/<site>/<session>/exports/.", style = MaterialTheme.typography.labelLarge)
+    Button(modifier = Modifier.testTag("session_export_exporter_la_session"), enabled = !busy, onClick = {
+        busy = true; err = null; out = null; progress = null
+        DiagLog.i("EXPORT", "Début de l'export de la session ${c.sessionId}"); DiagLog.memory("avant export")
         scope.launch {
             try {
-                c.flush()
-                val r = withContext(Dispatchers.IO) { repo.export(c.site, c.sessionId) }
+                withContext(Dispatchers.IO) { c.mirrorNow() }
+                val r = withContext(Dispatchers.IO) { repo.export(c.site, c.sessionId) { p -> progress = p } }
                 out = r
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    withContext(Dispatchers.IO) { repo.publishToDownloads(r.zip) }
-                    saved = "Enregistré dans Téléchargements : ${r.zip.name}"
-                    share(r.zip)
-                } else createDoc.launch(r.zip.name)
-            } catch (e: Exception) {
-                err = "Échec de l'export : ${e.message ?: e.toString()}"
-            } finally { busy = false }
+                val msgs = ArrayList<String>()
+                if (r.problems.isNotEmpty()) msgs += "Relecture : ${r.problems.joinToString()}"
+                if (r.publicPath == null) msgs += "Copie dans Documents/LumiSite impossible : le ZIP reste dans l'appli, utilisez « Partager ». Détail dans Réglages > Journal."
+                err = msgs.joinToString("\n").ifEmpty { null }
+                DiagLog.i("EXPORT", "Exporté dans ${r.publicPath ?: r.zip.path} (${r.zip.length()} octets), relecture ${if (r.problems.isEmpty()) "OK" else r.problems.toString()}")
+            } catch (e: Throwable) {
+                err = "Échec de l'export : ${e.message ?: e}. L'erreur est écrite dans Réglages > Journal."
+                DiagLog.e("EXPORT", "Échec de l'export de ${c.sessionId}", e)
+            } finally { busy = false; DiagLog.memory("après export") }
         }
     }) { Text(if (busy) "Export…" else "Exporter la session") }
-    saved?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-    err?.let { Text(it, color = Color.Red) }
+    if (busy) progress?.let { p ->
+        LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.fillMaxWidth().testTag("session_export_progression"))
+        Text("${p.step} : ${(p.fraction * 100).toInt()} % (${p.doneBytes shr 10} / ${p.totalBytes shr 10} Ko)", style = MaterialTheme.typography.bodySmall)
+    }
+    err?.let { Text(it, color = Color.Red, modifier = Modifier.testTag("session_export_erreur")) }
     out?.let { r ->
+        Text("Exporté dans ${r.publicPath ?: r.zip.path}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag("session_export_resultat"))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { open(r) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
+            OutlinedButton(onClick = { share(r.zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
+        }
         Text("Fichier : ${r.zip.name} (${r.zip.length() / 1024} Ko)\n" + r.manifest.files.joinToString("\n") { "${it.category} · ${it.path} · ${it.records} enr." } +
-            "\nRelecture : ${r.verification.problems.ifEmpty { listOf("OK, hashes et nombres d'enregistrements vérifiés") }}" +
-            r.verification.warnings.joinToString("") { "\nAvertissement : $it" }, style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { share(r.zip) }) { Text("Partager…") }
+            "\nRelecture : ${r.problems.ifEmpty { listOf("OK, empreintes et nombres d'enregistrements vérifiés") }}" +
+            r.manifest.integrity.entries.joinToString("") { "\nAvertissement : ${it.key}, lignes ${it.value} déjà illisibles dans le journal (arrêt brutal)" },
+            style = MaterialTheme.typography.bodySmall)
     }
 }

@@ -17,7 +17,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import app.lumisite.core.export.LoadedExport
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
 import app.lumisite.core.export.SessionImporter
@@ -59,17 +58,58 @@ class Repository(private val ctx: Context) {
         .filter { it.siteId == siteId }
         .sortedByDescending { it.createdUtcMs }
 
-    data class ExportResult(val zip: File, val manifest: SessionManifest, val verification: LoadedExport)
+    val publicStore = PublicStore(ctx)
 
-    /** Builds the export zip, then immediately re-reads it to verify hashes and counts. */
-    fun export(site: Site, sessionId: String): ExportResult {
+    /**
+     * Stage 1.6 result: [zip] is the local copy (sharing), [publicPath] the visible copy in
+     * Documents/LumiSite/<site>/<session>/exports/ ([publicUri] to open it), [problems] the streaming re-read.
+     */
+    data class ExportResult(val zip: File, val manifest: SessionManifest, val problems: List<String>, val publicPath: String?, val publicUri: Uri?)
+
+    /** Builds the export zip in a stream (progress in bytes), re-reads it to verify, then copies it to Documents/LumiSite. */
+    fun export(site: Site, sessionId: String, progress: (SessionExporter.Progress) -> Unit = {}): ExportResult {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
         val dir = File(exportsDir, "${sessionId}_$stamp")
-        val manifest = SessionExporter.exportToDir(site, sessionDir(sessionId), dir, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}")
-        val zip = File(exportsDir, "${dir.name}.zip")
-        SessionExporter.zipDir(dir, zip)
-        dir.deleteRecursively()
-        return ExportResult(zip, manifest, SessionImporter.load(zip))
+        try {
+            val manifest = SessionExporter.exportToDir(site, sessionDir(sessionId), dir, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}", progress)
+            val zip = File(exportsDir, "${dir.name}.zip")
+            progress(SessionExporter.Progress("Compression ZIP", 0, 1))
+            SessionExporter.zipDir(dir, zip)
+            dir.deleteRecursively()
+            val total = zip.length()
+            var done = 0L
+            progress(SessionExporter.Progress("Relecture", 0, total * 2))
+            val problems = SessionImporter.verify(zip) { done += it; progress(SessionExporter.Progress("Relecture", done, total * 2)) }
+            val parts = listOf(PublicStore.siteFolder(site), sessionId, "exports")
+            val copied = runCatching { publicStore.copy(zip, parts) }
+            progress(SessionExporter.Progress("Copie dans ${PublicStore.displayPath(parts)}", total * 2, total * 2))
+            copied.exceptionOrNull()?.let { DiagLog.e("EXPORT", "Copie de ${zip.name} vers ${PublicStore.displayPath(parts)}", it) }
+            return ExportResult(zip, manifest, problems, copied.getOrNull()?.displayPath, copied.getOrNull()?.uri)
+        } finally { File(exportsDir, "${dir.name}").deleteRecursively() }
+    }
+
+    fun mirror(site: Site, sessionId: String, onEvent: (String, Throwable?) -> Unit) = publicStore.SessionMirror(site, sessionDir(sessionId), onEvent)
+
+    data class ReimportResult(val sessionId: String, val path: String, val problems: List<String>, val skipped: String? = null)
+
+    /**
+     * « Réglages > Stockage > Réimporter une session depuis Documents/LumiSite »: copies every session found under the
+     * folder chosen by the user (ACTION_OPEN_DOCUMENT_TREE) back into the app, verifies it, and restores its site.
+     * A session already present locally is not overwritten.
+     */
+    fun reimport(tree: Uri): List<ReimportResult> = publicStore.findSessions(tree).map { found ->
+        val local = sessionDir(found.name)
+        if (File(local, Streams.HEADER).exists()) return@map ReimportResult(found.name, found.path, emptyList(), "déjà présente dans l'appli")
+        val staging = File(sessionsDir, ".import-${found.name}").apply { deleteRecursively() }
+        val problems = runCatching { publicStore.importSession(tree, found, staging) }.getOrElse { listOf("lecture impossible : ${it.message}") }.toMutableList()
+        val header = runCatching { LumiJson.decodeFromString(SessionHeader.serializer(), File(staging, Streams.HEADER).readText()) }.getOrNull()
+        if (header == null) { staging.deleteRecursively(); return@map ReimportResult(found.name, found.path, problems + "en-tête illisible") }
+        val siteFile = File(staging, "site.json")
+        if (site(header.siteId) == null) {
+            runCatching { saveSite(LumiJson.decodeFromString(Site.serializer(), siteFile.readText())) }.onFailure { problems += "site.json illisible : site non restauré" }
+        }
+        check(staging.renameTo(sessionDir(header.id))) { "Impossible d'installer la session ${header.id}" }
+        ReimportResult(header.id, found.path, problems)
     }
 
     /** Project package (fiche E): every session of the site as GeoJSONSeq + frames + raw lumisite.session, ZIP "store". */

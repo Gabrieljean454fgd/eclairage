@@ -11,6 +11,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.lumisite.android.data.Ids
+import app.lumisite.android.data.DiagLog
+import app.lumisite.android.ui.SettingsScreen
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.ExperimentalComposeUiApi
 import app.lumisite.android.data.Repository
 import app.lumisite.android.ui.HomeScreen
 import app.lumisite.android.ui.SessionScreen
@@ -40,8 +45,10 @@ sealed interface Screen {
     data object NewSite : Screen
     data class SiteDetail(val siteId: String) : Screen
     data class Live(val controller: SessionController) : Screen
+    data object Settings : Screen
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,11 +61,17 @@ class MainActivity : ComponentActivity() {
         ThemePrefs.load(applicationContext)
         val systemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeBackground(systemDark)))
+        DiagLog.init(applicationContext)
         val repo = Repository(applicationContext)
         setContent {
             LumiTheme {
-                Surface {
+                Surface(Modifier.semantics { testTagsAsResourceId = true }) {
                     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+                    var homeKey by remember { mutableStateOf(0) }
+                    LaunchedEffect(screen) {
+                        DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau"; is Screen.SiteDetail -> "Site"
+                            is Screen.Live -> "Session"; Screen.Settings -> "Réglages" })
+                    }
                     val scope = rememberCoroutineScope()
                     // The theme button has its own row: it never covers a screen title.
                     androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
@@ -67,7 +80,8 @@ class MainActivity : ComponentActivity() {
                     ) { ThemeToggle(this@MainActivity) }
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (val s = screen) {
-                        Screen.Home -> HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite })
+                        Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }) }
+                        Screen.Settings -> SettingsScreen(repo, onBack = { screen = Screen.Home }, onReimported = { homeKey++ })
                         Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
                             repo.stageOsmSource(f.snapshot.retrievedUtcMs, f.snapshot.endpoint, f.raw)
                         }, onSave = { site, staged ->

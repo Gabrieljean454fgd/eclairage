@@ -77,9 +77,10 @@ object DiagLog {
     /** Copies the current file to Documents/LumiSite/_journal/journal-courant.txt (background). */
     fun mirrorNow() {
         if (!::app.isInitialized) return
-        val snap = File(dir, "journal-courant.txt")
+        // One temporary file per snapshot: a later snapshot never overwrites one still queued.
+        val snap = File(dir, "journal-courant-${System.nanoTime()}.tmp")
         synchronized(this) { if (current.exists()) current.copyTo(snap, overwrite = true) else return }
-        exec.execute { runCatching { PublicStore(app).copy(snap, listOf("_journal"), snap.name) } }
+        exec.execute { runCatching { PublicStore(app).copy(snap, listOf("_journal"), "journal-courant.txt") }; snap.delete() }
     }
 
     /** One file with the kept history (oldest first) for « Réglages > Journal > Partager le journal ». */

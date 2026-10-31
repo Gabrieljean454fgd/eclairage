@@ -179,6 +179,9 @@ object Segments {
  * [syncEveryMs] (and at each segment end); a segment is closed after [maxBytes] or [maxAgeMs]. At worst an abrupt stop
  * loses the lines written since the last fsync of the open segment (≤ [syncEveryMs]), never a finished segment.
  */
+/** Monotonic milliseconds for fsync/rotation intervals: a wall-clock change never delays a sync. */
+fun elapsedMs(): Long = System.nanoTime() / 1_000_000
+
 class SegmentedAppender(
     private val dir: File,
     val stream: String,
@@ -186,7 +189,7 @@ class SegmentedAppender(
     private val maxBytes: Long = 1L shl 20,
     private val maxAgeMs: Long = 60_000,
     private val syncEveryMs: Long = 2_000,
-    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val nowMs: () -> Long = ::elapsedMs,
     private val onSegmentClosed: (File) -> Unit = {},
 ) : AutoCloseable {
     private var seq = Segments.nextSeq(dir, stream) - 1
@@ -246,7 +249,7 @@ class SegmentedAppender(
 class SessionJournal(
     val dir: File,
     header: SessionHeader? = null,
-    nowMs: () -> Long = System::currentTimeMillis,
+    nowMs: () -> Long = ::elapsedMs,
     onSegmentClosed: (File) -> Unit = {},
 ) : AutoCloseable {
     private val events: SegmentedAppender

@@ -165,8 +165,18 @@ object SessionExporter {
         // files describe exactly the exported bytes even if the journal is still being appended to.
         rawStreams.forEach { (stream, target, _) -> Segments.snapshot(sessionDir, stream, File(outDir, target)) }
         val events = Ndjson.read(File(outDir, "raw/events.ndjson"), SessionEvent.serializer()).items
-        val media = events.filterIsInstance<SurveyEvent>().flatMap { it.attachments }.distinctBy { it.file }
-            .mapNotNull { a -> File(sessionDir, a.file).takeIf { it.isFile }?.let { a to it } }
+        val refs = events.filterIsInstance<SurveyEvent>().flatMap { it.attachments }.distinctBy { it.file }
+        val media = refs.mapNotNull { a -> File(sessionDir, a.file).takeIf { it.isFile }?.let { a to it } }
+        // A referenced attachment that is absent or altered is declared in the manifest and reported by verify():
+        // the export is never presented as complete without it.
+        val mediaProblems = refs.mapNotNull { a ->
+            val f = File(sessionDir, a.file)
+            when {
+                !f.isFile -> "$ATTACHMENT_PROBLEM${a.file} absent"
+                a.sha256 != null && sha256(f) != a.sha256 -> "$ATTACHMENT_PROBLEM${a.file} empreinte différente de celle enregistrée"
+                else -> null
+            }
+        }
         val total = rawStreams.sumOf { File(outDir, it.second).length() } * 2 + media.sumOf { it.second.length() }
         var done = 0L
         fun step(name: String, bytes: Long) { done += bytes; progress(Progress(name, done, total)) }
@@ -232,7 +242,7 @@ object SessionExporter {
                 "Trajectory is an estimate from the platform tracker + user calibration/relocalizations; it is not ground truth.",
                 "Only TRACKING poses after the first calibration are included in derived/trajectory_site.ndjson.",
                 "Poses are ordered by (time base, monotonicNs); a phone reboot starts a new time base and ends earlier transforms.",
-            ),
+            ) + mediaProblems,
         )
         val manifest = SessionManifest(
             exportedUtcMs = exportedUtcMs, generator = generator, site = site, session = header,
@@ -310,6 +320,11 @@ data class LoadedExport(
     val syncEvents: List<SyncEvent> get() = manifest.events.filterIsInstance<SyncEvent>()
 }
 
+/** Prefix of manifest notes describing a missing/altered attachment (always reported as a problem by verify). */
+const val ATTACHMENT_PROBLEM = "ATTACHMENT_PROBLEM: "
+private const val ZIP_MAX_ENTRIES = 200_000
+private const val ZIP_SPACE_MARGIN = 64L shl 20
+
 object SessionImporter {
     /**
      * Streaming verification of an export (stage 1.6): every file listed in session.json is hashed by blocks and every
@@ -321,6 +336,7 @@ object SessionImporter {
         val problems = ArrayList<String>()
         if (manifest.format != FORMAT_ID) problems += "Unknown format ${manifest.format}"
         FormatVersions.problem(manifest.formatVersion)?.let { problems += it }
+        manifest.derivedSummary.notes.filter { it.startsWith(ATTACHMENT_PROBLEM) }.forEach { problems += it }
         for (fe in manifest.files) {
             val f = File(dir, fe.path)
             if (!f.isFile) { problems += "${fe.path} missing"; continue }
@@ -339,12 +355,25 @@ object SessionImporter {
         if (source.isDirectory) return block(source)
         val tmp = Files.createTempDirectory("lumi-import").toFile()
         try {
+            // Bounded extraction: entry count and total size are capped by the free space left (minus a margin).
+            val budget = tmp.usableSpace - ZIP_SPACE_MARGIN
+            var written = 0L
             ZipFile(source).use { zf ->
+                var n = 0
                 for (e in zf.entries().asSequence().filter { !it.isDirectory }) {
+                    require(++n <= ZIP_MAX_ENTRIES) { "Zip refusé : plus de $ZIP_MAX_ENTRIES fichiers" }
                     val out = File(tmp, e.name).canonicalFile
                     require(out.path.startsWith(tmp.canonicalPath + File.separator)) { "Entrée de zip hors du dossier : ${e.name}" }
                     out.parentFile.mkdirs()
-                    zf.getInputStream(e).use { input -> out.outputStream().use { input.copyTo(it, 64 * 1024) } }
+                    zf.getInputStream(e).use { input -> out.outputStream().use { o ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val r = input.read(buf); if (r < 0) break
+                            written += r
+                            require(written <= budget) { "Zip refusé : son contenu dépasse l'espace libre" }
+                            o.write(buf, 0, r)
+                        }
+                    } }
                 }
             }
             return block(tmp)

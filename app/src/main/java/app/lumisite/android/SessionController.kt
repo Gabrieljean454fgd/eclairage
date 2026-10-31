@@ -202,7 +202,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
         runCatching { journal.close() }
         runCatching { featuresWriter?.close() }
-        mirror.syncAll()
+        mirror.close()
         DiagLog.i("SESSION", "Fin de la session $sessionId ($reason), copie dans ${mirror.displayDir}")
         DiagLog.mirrorNow()
     }

@@ -363,7 +363,7 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
 @Composable
 private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_releve_famille_filterchip")) }
+        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_releve_famille_" + f.blockName)) }
     }
 }
 

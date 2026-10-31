@@ -266,7 +266,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
             if (recentZones.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
-                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_assistchip")) }
+                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
             }
             rect?.let { b -> Text("Rectangle : %.5f degré carré%s".format(Bboxes.areaDeg2(b), if (tooLarge) " — trop grand (max %.2f)".format(OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall) }
             HorizontalDivider()

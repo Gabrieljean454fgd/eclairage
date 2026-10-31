@@ -246,10 +246,10 @@ private fun SelectedShape(c: SessionController, d: DrawState, s: ShapeEvent, cen
     Text("Forme sélectionnée : ${s.annotationType ?: s.geometryType}", style = MaterialTheme.typography.labelLarge)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         listOf(0.1, 0.5).forEach { st ->
-            OutlinedButton({ edit { Shapes.translate(it, 0.0, st) } }, modifier = Modifier.testTag("session_annoter_forme_n")) { Text("N +$st") }
-            OutlinedButton({ edit { Shapes.translate(it, 0.0, -st) } }, modifier = Modifier.testTag("session_annoter_forme_n_2")) { Text("N −$st") }
-            OutlinedButton({ edit { Shapes.translate(it, st, 0.0) } }, modifier = Modifier.testTag("session_annoter_forme_e")) { Text("E +$st") }
-            OutlinedButton({ edit { Shapes.translate(it, -st, 0.0) } }, modifier = Modifier.testTag("session_annoter_forme_e_2")) { Text("E −$st") }
+            OutlinedButton({ edit { Shapes.translate(it, 0.0, st) } }, modifier = Modifier.testTag("session_annoter_forme_nord_plus_$st")) { Text("N +$st") }
+            OutlinedButton({ edit { Shapes.translate(it, 0.0, -st) } }, modifier = Modifier.testTag("session_annoter_forme_nord_moins_$st")) { Text("N −$st") }
+            OutlinedButton({ edit { Shapes.translate(it, st, 0.0) } }, modifier = Modifier.testTag("session_annoter_forme_est_plus_$st")) { Text("E +$st") }
+            OutlinedButton({ edit { Shapes.translate(it, -st, 0.0) } }, modifier = Modifier.testTag("session_annoter_forme_est_moins_$st")) { Text("E −$st") }
         }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -277,17 +277,17 @@ private fun StyleSheet(d: DrawState) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Remplissage :", style = MaterialTheme.typography.labelMedium)
         FilterChip(d.fill == null, { d.fill = null }, { Text("sans remplissage") }, modifier = Modifier.testTag("session_annoter_style_sans_remplissage"))
-        NAMED_COLORS.keys.forEach { k -> FilterChip(d.fill == k, { d.fill = k }, { Text(k) }, modifier = Modifier.testTag("session_annoter_style_filterchip_2")) }
+        NAMED_COLORS.keys.forEach { k -> FilterChip(d.fill == k, { d.fill = k }, { Text(k) }, modifier = Modifier.testTag("session_annoter_style_remplissage_" + k)) }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Épaisseur :", style = MaterialTheme.typography.labelMedium)
-        listOf(2f, 3f, 6f).forEach { w -> FilterChip(d.width == w, { d.width = w }, { Text("${w.toInt()}") }, modifier = Modifier.testTag("session_annoter_style_filterchip_3")) }
-        PRESETS.forEach { p -> AssistChip({ d.stroke = p.stroke; d.fill = p.fill; d.width = p.width; d.opacity = p.opacity }, { Text(p.name) }, modifier = Modifier.testTag("session_annoter_style_assistchip")) }
-        TextButton({ more = !more }, modifier = Modifier.testTag("session_annoter_style_moins")) { Text(if (more) "Moins" else "Plus…") }
+        listOf(2f, 3f, 6f).forEach { w -> FilterChip(d.width == w, { d.width = w }, { Text("${w.toInt()}") }, modifier = Modifier.testTag("session_annoter_style_epaisseur_" + w.toInt())) }
+        PRESETS.forEach { p -> AssistChip({ d.stroke = p.stroke; d.fill = p.fill; d.width = p.width; d.opacity = p.opacity }, { Text(p.name) }, modifier = Modifier.testTag("session_annoter_style_preset_" + p.name.lowercase().replace("é", "e"))) }
+        TextButton({ more = !more }, modifier = Modifier.testTag("session_annoter_style_plus")) { Text(if (more) "Moins" else "Plus…") }
     }
     if (more) FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Opacité :", style = MaterialTheme.typography.labelMedium)
-        listOf(1f, 0.6f, 0.3f).forEach { o -> FilterChip(d.opacity == o, { d.opacity = o }, { Text("${(o * 100).toInt()} %") }, modifier = Modifier.testTag("session_annoter_style_filterchip_4")) }
+        listOf(1f, 0.6f, 0.3f).forEach { o -> FilterChip(d.opacity == o, { d.opacity = o }, { Text("${(o * 100).toInt()} %") }, modifier = Modifier.testTag("session_annoter_style_opacite_" + (o * 100).toInt())) }
     }
 }
 
@@ -305,13 +305,13 @@ fun FamilyQuickGrid(c: SessionController, selected: String?, onPick: (String) ->
         if (keys.isEmpty()) return
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelMedium)
-            keys.forEach { k -> FilterChip(selected == k, { onPick(k) }, { Text(label(k)) }, modifier = Modifier.testTag("session_annoter_famille_filterchip")) }
+            keys.forEach { k -> FilterChip(selected == k, { onPick(k) }, { Text(label(k)) }, modifier = Modifier.testTag("session_annoter_famille_" + title.take(4).lowercase().replace("é", "e") + "_" + k)) }
         }
     }
     row("Épinglés :", pins.filter { p -> c.catalog.entries.any { it.blockName == p } }.sorted())
     row("Récents :", recent)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_annoter_famille_filterchip_2")) }
+        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_annoter_famille_" + f.blockName)) }
     }
     if (selected != null) TextButton({
         pins = if (selected in pins) pins - selected else pins + selected
@@ -333,23 +333,23 @@ private val DETAIL_LABELS = mapOf(
 fun DetailsForm(family: String?, values: SnapshotStateMap<String, String>) {
     var open by remember { mutableStateOf(false) }
     LaunchedEffect(family) { values.clear(); family?.let { f -> LastDetails.byFamily[f]?.let { values.putAll(it) } } }
-    TextButton({ open = !open }, modifier = Modifier.testTag("session_details_masquer_les_details")) { Text(if (open) "Masquer les détails" else "Détails (facultatif)") }
+    TextButton({ open = !open }, modifier = Modifier.testTag("session_details_afficher")) { Text(if (open) "Masquer les détails" else "Détails (facultatif)") }
     if (!open) return
     val subs = Details.SUBTYPES[family]
     if (subs != null) FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Sous-type :", style = MaterialTheme.typography.labelMedium)
-        subs.forEach { s -> FilterChip(values["sous_type"] == s, { values["sous_type"] = if (values["sous_type"] == s) "" else s }, { Text(s) }, modifier = Modifier.testTag("session_details_sous_type")) }
+        subs.forEach { s -> FilterChip(values["sous_type"] == s, { values["sous_type"] = if (values["sous_type"] == s) "" else s }, { Text(s) }, modifier = Modifier.testTag("session_details_sous_type_" + s)) }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Statut :", style = MaterialTheme.typography.labelMedium)
-        Details.STATUS.forEach { s -> FilterChip(values["status"] == s, { values["status"] = if (values["status"] == s) "" else s }, { Text(s) }, modifier = Modifier.testTag("session_details_status")) }
+        Details.STATUS.forEach { s -> FilterChip(values["status"] == s, { values["status"] = if (values["status"] == s) "" else s }, { Text(s) }, modifier = Modifier.testTag("session_details_statut_" + s)) }
     }
     DETAIL_LABELS.filterKeys { it != "sous_type" || subs == null }.forEach { (k, l) ->
         val v = values[k] ?: ""
         val err = Details.validate(k, v)
         OutlinedTextField(v, { values[k] = it }, label = { Text(l) }, singleLine = true, isError = err != null,
             supportingText = err?.let { e -> { Text(e) } },
-            keyboardOptions = if (k == "puissance_W" || k == "temp_couleur_K") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default, modifier = Modifier.testTag("session_details_puissance_w"))
+            keyboardOptions = if (k == "puissance_W" || k == "temp_couleur_K") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default, modifier = Modifier.testTag("session_details_" + k.lowercase()))
     }
 }
 
@@ -392,7 +392,7 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
                 // Only capture/ is exposed through the FileProvider; the photo is moved into the session afterwards.
                 val f = File(File(ctx.filesDir, "capture").apply { mkdirs() }, "ph_${System.currentTimeMillis()}.jpg"); pending = "${f.absolutePath}|$role"
                 runCatching { take.launch(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)) }.onFailure { c.notify("Appareil photo indisponible : ${it.message}") }
-            }, modifier = Modifier.testTag("session_pieces_capture")) { Text(l) }
+            }, modifier = Modifier.testTag("session_pieces_photo_" + role)) { Text(l) }
         }
         OutlinedButton({
             val r = rec

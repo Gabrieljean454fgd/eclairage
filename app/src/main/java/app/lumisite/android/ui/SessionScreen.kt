@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -332,17 +333,21 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
 
+    // The header and the mode rows never take more than ~35 % of the height (they scroll inside it): with adjustResize the keyboard
+    // shrinks the screen, and the input panel (Calibrer > Cap de visée, Recaler, Annoter…) must keep room to show the focused field.
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        val topMax = maxHeight * 0.35f
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
                 map(Modifier.weight(0.55f).fillMaxHeight())
                 Column(Modifier.weight(0.45f).fillMaxHeight().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    header(); actionBar(); HorizontalDivider(); panel(Modifier.weight(1f))
+                    Column(Modifier.heightIn(max = topMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
+                    HorizontalDivider(); panel(Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
+                Column(Modifier.heightIn(max = topMax).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
                 map(Modifier.fillMaxWidth().weight(0.45f))
                 panel(Modifier.weight(0.55f).padding(8.dp))
             }

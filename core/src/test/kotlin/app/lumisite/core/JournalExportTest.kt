@@ -6,6 +6,7 @@ import app.lumisite.core.export.FORMAT_VERSION
 import app.lumisite.core.export.SessionExporter
 import app.lumisite.core.export.SessionImporter
 import app.lumisite.core.geo.Enu
+import app.lumisite.core.journal.Segments
 import app.lumisite.core.journal.SessionJournal
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.journal.Streams
@@ -60,7 +61,7 @@ class JournalExportTest {
 
     @Test fun truncatedTailLineIsSkippedNotFatal() {
         val d = tmp(); recordSession(d)
-        File(d, Streams.POSES).appendText("{\"t\":{\"utcEpochMs\":1,") // simulated crash mid-write
+        Segments.files(d, Streams.POSES).last().appendText("{\"t\":{\"utcEpochMs\":1,") // simulated crash mid-write
         val data = SessionReader.read(d)
         assertEquals(21, data.poses.size)
         assertEquals(listOf(22), data.skippedLines[Streams.POSES])
@@ -133,7 +134,7 @@ class JournalExportTest {
 
     @Test fun resumeAfterCrashMidLineKeepsNewRecordsReadable() {
         val d = tmp(); recordSession(d)
-        File(d, Streams.POSES).appendText("{\"t\":{\"utcEpochMs\":1,") // crash mid-write
+        Segments.files(d, Streams.POSES).last().appendText("{\"t\":{\"utcEpochMs\":1,") // crash mid-write
         SessionJournal(d).use { it.pose(Fixtures.pose(9_000_000_000, 1.0, 1.0)) }
         val data = SessionReader.read(d)
         assertEquals(22, data.poses.size)
@@ -164,7 +165,7 @@ class JournalExportTest {
 
     @Test fun sourceTruncationIsAWarningNotAnExportProblem() {
         val d = tmp(); recordSession(d)
-        File(d, Streams.IMU).appendText("{\"t\":{\"utcEpochMs\":1,")
+        Segments.files(d, Streams.IMU).last().appendText("{\"t\":{\"utcEpochMs\":1,")
         SessionJournal(d).use { it.imu(ImuSample(Fixtures.stamp(9_000_000_000), 1, "accel", listOf(0f, 9.8f, 0f), 3)) }
         val out = File(tmp(), "x")
         val m = SessionExporter.exportToDir(Fixtures.site, d, out, 0, "test")

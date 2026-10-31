@@ -6,6 +6,7 @@ import app.lumisite.core.geo.Enu
 import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.journal.LumiJson
 import app.lumisite.core.journal.Ndjson
+import app.lumisite.core.journal.Segments
 import app.lumisite.core.journal.SessionData
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.journal.Streams
@@ -31,7 +32,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 const val FORMAT_ID = "lumisite.session"
-const val FORMAT_VERSION = "0.2.0"
+const val FORMAT_VERSION = "0.2.1"
 
 /** Versions this build reads: 0.1.x (before lot 7) and 0.2.x. Anything newer is refused with a clear message. */
 object FormatVersions {
@@ -130,7 +131,7 @@ object SessionExporter {
             Triple(Streams.GPS_STATUS, "raw/gps_status.ndjson", "GpsStatusSample"),
             Triple(Streams.EVENTS, "raw/events.ndjson", "SessionEvent"),
         )
-        rawStreams.forEach { (stream, _, _) -> Ndjson.snapshotCompleteLines(File(sessionDir, stream), File(staging, stream)) }
+        rawStreams.forEach { (stream, _, _) -> Segments.snapshot(sessionDir, stream, File(staging, stream)) }
         val data = SessionReader.read(staging)
         val counts = mapOf(
             Streams.POSES to data.poses.size, Streams.IMU to data.imu.size, Streams.GPS to data.gps.size,

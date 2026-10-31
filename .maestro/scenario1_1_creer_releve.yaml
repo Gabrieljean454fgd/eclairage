@@ -1,7 +1,8 @@
 # Scénario de validation 1, partie « clics » : Accueil > « Nouveau » > « Créer sans contours OSM », puis Site > « Nouvelle session terrain ».
-# Libellés réels (l'indicatif « Accueil > Nouveau relevé » n'existe pas encore : voir docs/ROADMAP_ETAPES.md).
+# Libellés réels (l'indicatif « Accueil > Nouveau relevé » n'existe pas encore sur etape-1 : il arrive à l'étape 2).
+# Le clavier est fermé et chaque champ amené à l'écran avant saisie (formulaire défilable, imePadding).
 appId: app.lumisite.android
-name: "Scénario 1.1 — créer un relevé (Accueil > Nouveau)"
+name: "Scénario 1.1 — Créer un relevé"
 ---
 - launchApp:
     clearState: true
@@ -9,11 +10,16 @@ name: "Scénario 1.1 — créer un relevé (Accueil > Nouveau)"
 - tapOn: { id: "accueil_nouveau" }
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro bureau"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" }, centerElement: true }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" }, centerElement: true }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" }, centerElement: true }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
 - scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - tapOn: { id: "nouveau_site_creer" }

@@ -2,7 +2,7 @@
 # sur le Xiaomi), Accueil > « Réglages » > Stockage > « Réimporter une session depuis Documents/LumiSite ».
 # Le sélecteur de dossier est celui d'Android : ses libellés dépendent de la langue et de la surcouche (MIUI/HyperOS).
 appId: app.lumisite.android
-name: "Scénario 1.4 — Réglages > Stockage > Réimporter"
+name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
 ---
 - runFlow: scenario1_3_exporter.yaml
 - launchApp:

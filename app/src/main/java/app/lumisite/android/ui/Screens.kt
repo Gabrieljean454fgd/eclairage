@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -210,9 +211,12 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         }
     }
 
-    Row(Modifier.fillMaxSize()) {
+    // imePadding + adjustResize: the keyboard never hides the focused field; the form scrolls (verticalScroll).
+    // Portrait: map on top, form below and scrollable (a swipe in the middle of the screen scrolls the form, not the map).
+    // imePadding + adjustResize: the keyboard never hides the focused field.
+    val mapView: @Composable (Modifier) -> Unit = { m ->
         OsmMap(
-            Modifier.weight(0.6f).fillMaxSize(), center, zoom,
+            m, center, zoom,
             MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRef = selected, rect = rect, picked = cornerA),
             recenterKey = recenter,
             onTap = {
@@ -223,7 +227,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             },
             onFeatureTap = { f -> selected = if (selected == f.ref) null else f.ref },
         )
-        Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }
+    val form: @Composable (Modifier) -> Unit = { m ->
+        Column(m.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
@@ -301,6 +307,10 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_annuler")) { Text("Annuler") }
             }
         }
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        if (maxHeight > maxWidth) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); form(Modifier.fillMaxWidth().weight(0.62f)) }
+        else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); form(Modifier.weight(0.4f)) }
     }
 }
 

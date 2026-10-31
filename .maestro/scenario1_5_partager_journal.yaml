@@ -1,6 +1,6 @@
 # Scénario 1 : Accueil > « Réglages » > Journal > « Partager le journal » (ouvre le partage Android).
 appId: app.lumisite.android
-name: "Scénario 1.5 — Réglages > Journal > Partager le journal"
+name: "Scénario 1.5 — Réglages, Journal, Partager le journal"
 ---
 - launchApp:
     permissions: { all: allow }

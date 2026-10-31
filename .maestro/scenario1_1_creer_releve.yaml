@@ -1,5 +1,4 @@
-# Scénario de validation 1, partie « clics » : Accueil > « Nouveau » > « Créer sans contours OSM », puis Site > « Nouvelle session terrain ».
-# Libellés réels (l'indicatif « Accueil > Nouveau relevé » n'existe pas encore sur etape-1 : il arrive à l'étape 2).
+# Scénario de validation 1, partie « clics » : Accueil > « Nouveau relevé » (ancien libellé « Nouveau ») > « Créer sans contours OSM », puis Site > « Nouvelle session terrain ».
 # Le clavier est fermé et chaque champ amené à l'écran avant saisie (formulaire défilable, imePadding).
 appId: app.lumisite.android
 name: "Scénario 1.1 — Créer un relevé"
@@ -8,9 +7,9 @@ name: "Scénario 1.1 — Créer un relevé"
     clearState: true
     permissions: { all: allow }
 - extendedWaitUntil:
-    visible: { id: "accueil_nouveau" }
-    timeout: 60000
-- tapOn: { id: "accueil_nouveau" }
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro bureau"
 - hideKeyboard

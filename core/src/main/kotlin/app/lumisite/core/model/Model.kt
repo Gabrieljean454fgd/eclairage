@@ -25,6 +25,8 @@ data class Site(
     val osm: OsmSnapshot? = null,
     /** Optional building chosen among OSM features (may be absent: OSM is often incomplete). */
     val selectedBuildingOsmRef: String? = null,
+    /** All buildings selected (stage 2.7: the rectangle pre-selects them, taps add/remove). First = [selectedBuildingOsmRef]. */
+    val selectedBuildingOsmRefs: List<String> = emptyList(),
     /** Site rectangle chosen by the user, kept even when the site was created without OSM data. */
     val bbox: BBox? = null,
     /** Reserved for imported architectural plans (none in this slice). */

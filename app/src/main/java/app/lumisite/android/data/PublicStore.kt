@@ -110,7 +110,10 @@ class PublicStore(private val ctx: Context) {
         @Volatile var failures = 0; private set
         val copiedCount get() = synchronized(done) { done.size }
 
-        fun enqueue(file: File) { exec.execute { copyOne(file) } }
+        fun enqueue(file: File) { if (!exec.isShutdown) runCatching { exec.execute { copyOne(file) } } }
+
+        /** Final sync of the session, then the worker stops once the queue is empty. */
+        fun close() { syncAll(); exec.shutdown() }
 
         private fun copyOne(file: File) {
             if (!file.isFile) return
@@ -120,9 +123,11 @@ class PublicStore(private val ctx: Context) {
                 if (synchronized(done) { done[rel] } == sha) return
                 val sub = rel.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }
                 copy(file, parts + sub, file.name)
+                // The public index is written first: a file is marked done locally only once copies.json lists it,
+                // so a failed index write is retried at the next sync.
+                writeText(LumiJson.encodeToString(indexSer, synchronized(done) { done.toMap() + (rel to sha) }), parts, INDEX)
                 val snapshot = synchronized(done) { done[rel] = sha; done.toMap() }
                 File(sessionDir, "mirror_state.json.tmp").apply { writeText(LumiJson.encodeToString(indexSer, snapshot)); check(renameTo(stateFile)) }
-                writeText(LumiJson.encodeToString(indexSer, snapshot), parts, INDEX)
             } catch (e: Throwable) {
                 failures++
                 onEvent("Copie vers $displayDir/$rel impossible", e)
@@ -180,9 +185,12 @@ class PublicStore(private val ctx: Context) {
         val problems = ArrayList<String>()
         fun walk(docId: String, dir: File) {
             for (k in children(tree, docId)) {
-                if (k.isDir) { walk(k.docId, File(dir, k.name)); continue }
+                // Names come from a document provider: never let one escape the staging folder.
+                val target = File(dir, k.name).canonicalFile
+                if (k.name.isEmpty() || k.name == "." || k.name == ".." || k.name.contains('/') || k.name.contains('\\') ||
+                    !target.path.startsWith(dest.canonicalPath + File.separator)) { problems += "Nom refusé : ${k.name}"; continue }
+                if (k.isDir) { walk(k.docId, target); continue }
                 dir.mkdirs()
-                val target = File(dir, k.name)
                 ctx.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, k.docId))!!.use { input ->
                     target.outputStream().use { input.copyTo(it, 64 * 1024) }
                 }

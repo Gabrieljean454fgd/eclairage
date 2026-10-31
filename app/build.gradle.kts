@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// versionCode grows with every commit (git rev-list --count HEAD); -PversionCode=N overrides it (CI, local tests).
+val gitCommitCount: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
 android {
     namespace = "app.lumisite.android"
     compileSdk = 35
@@ -13,11 +18,23 @@ android {
         applicationId = "app.lumisite.android"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitCommitCount
+        versionName = "0.2.0-v$gitCommitCount"
+    }
+
+    // PUBLIC TEST KEY (docs/SIGNATURE_APK.md): committed on purpose so that every debug APK, built locally or by CI,
+    // has the same certificate and installs over the previous one. Never usable for a store/production release.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("app/keystore/lumisite-test.jks")
+            storePassword = "lumisite-test"
+            keyAlias = "lumisite-test"
+            keyPassword = "lumisite-test"
+        }
     }
 
     buildTypes {
+        debug { signingConfig = signingConfigs.getByName("debug") }
         release {
             isMinifyEnabled = false
         }

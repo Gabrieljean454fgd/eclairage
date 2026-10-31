@@ -14,6 +14,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -196,7 +197,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val relocPreview = if (relocTarget != null && st.currentSite != null)
         listOf(MapLine(c.ltp.toLatLon(st.currentSite!!.copy(u = 0.0)), picked!!, android.graphics.Color.rgb(255, 140, 0), "Décalage à corriger")) else emptyList()
     val map: @Composable (Modifier) -> Unit = { m ->
-        Box(m) {
+        Box(m.testTag("session_carte")) {
             OsmMap(
                 Modifier.fillMaxSize(), c.site.origin, 19.0,
                 MapContent(
@@ -232,6 +233,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
                 Text("Vert : trajectoire estimée (non garantie). Gris pointillé : sans recalage. Rouge : corrections.",
                     Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
+                if (mode == Mode.DRAW) draw.polygonHint()?.let {
+                    Text(it, Modifier.background(Color(0xE6FFF3C4)).padding(6.dp).testTag("session_annoter_polygone_aide"),
+                        color = Color.Black, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
@@ -529,9 +534,11 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ExportPanel(activity: Activity, repo: Repository, c: SessionController) {
     val scope = rememberCoroutineScope()
+    val resultView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
     var busy by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<SessionExporter.Progress?>(null) }
     var out by remember { mutableStateOf<Repository.ExportResult?>(null) }
@@ -573,9 +580,11 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
     }
     err?.let { Text(it, color = Color.Red, modifier = Modifier.testTag("session_export_erreur")) }
     out?.let { r ->
+        // The result appears below the fold of the scrollable panel: bring the path and its buttons into view.
+        LaunchedEffect(r) { resultView.bringIntoView() }
         Text("Exporté dans ${r.publicPath ?: r.zip.path}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("session_export_resultat"))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.bringIntoViewRequester(resultView)) {
             Button(onClick = { open(r) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
             OutlinedButton(onClick = { share(r.zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
         }

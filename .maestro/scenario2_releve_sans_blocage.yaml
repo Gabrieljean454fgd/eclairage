@@ -1,11 +1,14 @@
 # Scénario de validation 2 (partie « clics », sans ARCore) : Accueil > « Nouveau relevé » > « Créer » sans origine (message),
 # « Tracer le rectangle », création ; Session > « Annoter » > « Polygone » fermé sur le dernier sommet ; Session > « Recaler » ; Session > « Export ».
 appId: app.lumisite.android
-name: "Scénario 2 — un petit relevé sans blocage"
+name: "Scénario 2 — Un petit relevé sans blocage"
 ---
 - launchApp:
     clearState: true
     permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
 - tapOn: { id: "accueil_nouveau_releve" }
 - scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - tapOn: { id: "nouveau_site_creer" }
@@ -13,25 +16,35 @@ name: "Scénario 2 — un petit relevé sans blocage"
 - scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" }, direction: UP }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - swipe: { start: "30%,15%", end: "70%,35%", duration: 1500 }
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- waitForAnimationToEnd: { timeout: 30000 }   # la récupération OSM du rectangle allonge le formulaire
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" }, centerElement: true }
 - tapOn: { id: "nouveau_site_creer" }
+- extendedWaitUntil:
+    visible: { id: "site_nouvelle_session_terrain" }
+    timeout: 30000
 - tapOn: { id: "site_nouvelle_session_terrain" }
 - assertVisible: { id: "session_carte_source" }
 - tapOn: { id: "session_annoter" }
 - tapOn: { id: "session_annoter_polygon" }
-- tapOn: { point: "40%,55%" }
-- tapOn: { point: "60%,55%" }
-- tapOn: { point: "50%,65%" }
-- assertVisible: ".*Touchez à nouveau le dernier sommet.*"
-- tapOn: { point: "50%,65%" }
+# Appuis relatifs à la carte (id session_carte) : en portrait la carte n'occupe qu'une bande de l'écran.
+- tapOn: { id: "session_carte", point: "35%,45%" }
+- tapOn: { id: "session_carte", point: "65%,45%" }
+- tapOn: { id: "session_carte", point: "50%,70%" }
+- assertVisible: ".*3 sommets. Touchez à nouveau le dernier sommet.*"
+- tapOn: { id: "session_carte", point: "50%,70%" }
+- assertVisible: ".*0 sommet.*"
 - tapOn: { id: "session_recaler" }
-- tapOn: { point: "50%,60%" }
+- tapOn: { id: "session_carte", point: "50%,55%" }
 - assertVisible: { id: "session_recaler_decalage" }
 - tapOn: { id: "session_export" }
 - tapOn: { id: "session_export_exporter_la_session" }

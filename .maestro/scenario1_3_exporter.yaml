@@ -1,6 +1,6 @@
 # Scénario 1 : Session > « Export » > « Exporter la session » → « Exporté dans Documents/LumiSite/… », boutons Ouvrir et Partager.
 appId: app.lumisite.android
-name: "Scénario 1.3 — Session > Export"
+name: "Scénario 1.3 — Session, Export"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_export" }

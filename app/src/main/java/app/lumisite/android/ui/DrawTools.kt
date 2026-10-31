@@ -95,6 +95,11 @@ private val PRESETS = listOf(Preset("Défaut", "rouge", null, 3f), Preset("Câbl
 class DrawState {
     var tool by mutableStateOf(Tool.MOVE)
     val pts = mutableStateListOf<Enu>()
+
+    /** Polygon guidance, shown over the map (the tool panel below may be scrolled out of view in portrait). */
+    fun polygonHint(): String? = if (tool != Tool.POLYGON) null
+        else if (pts.size < 3) "${pts.size} sommet(s). Un doigt pose un sommet (l'aperçu suit le doigt), deux doigts déplacent la carte."
+        else "${pts.size} sommets. Touchez à nouveau le dernier sommet pour fermer."
     var shapeKind by mutableStateOf("rectangle")
     var arrow by mutableStateOf(false)
     var zone by mutableStateOf(false)
@@ -236,11 +241,6 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         }
         Tool.POLYGON -> {
             FilterChip(d.zone, { d.zone = !d.zone }, { Text("Zone") }, modifier = Modifier.testTag("session_annoter_zone"))
-            Text(
-                if (d.pts.size < 3) "${d.pts.size} sommet(s). Un doigt pose un sommet (l'aperçu suit le doigt), deux doigts déplacent la carte."
-                else "${d.pts.size} sommets. Touchez à nouveau le dernier sommet pour fermer.",
-                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_annoter_polygone_aide"),
-            )
             labels()
         }
         Tool.ANNOTATION -> {

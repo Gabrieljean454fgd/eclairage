@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
@@ -121,6 +123,7 @@ private enum class TapMode { ORIGIN, RECT }
 
 @Composable
 fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
+    val focusManager = LocalFocusManager.current
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -220,7 +223,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             m, center, zoom,
             MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRefs = selected.toSet(), rect = dragRect ?: rect, picked = cornerA),
             recenterKey = recenter,
-            onTap = { setOrigin(it, "MAP_TAP"); missingOrigin = false },
+            onTap = { focusManager.clearFocus(); setOrigin(it, "MAP_TAP"); missingOrigin = false },
             onFeatureTap = { f -> selected = app.lumisite.core.osm.OsmSelection.toggle(selected, f.ref) },
             // Sélection OSM (stage 2.7): press and drag one finger, the rectangle is drawn live; two fingers move the map.
             onFinger = if (tapMode == TapMode.RECT) { phase, ll ->
@@ -236,7 +239,8 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             } else null,
         )
     }
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    // imePadding + adjustResize: the keyboard never hides the focused field; the form scrolls (verticalScroll).
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
     val portrait = maxHeight > maxWidth
     @Composable fun panel(m: Modifier) {
         Column(m.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -267,6 +271,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
+                focusManager.clearFocus() // otherwise the focused field is brought back into view whenever the form grows (OSM results)
                 val la = latText.replace(',', '.').toDoubleOrNull(); val lo = lonText.replace(',', '.').toDoubleOrNull()
                 if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) status = "Coordonnées invalides." else { setOrigin(LatLon(la, lo), "COORDINATES"); zoom = 18.0; missingOrigin = false }
             }, modifier = Modifier.testTag("nouveau_site_utiliser_ces_coordonnees")) { Text("Utiliser ces coordonnées") }
@@ -275,7 +280,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             HorizontalDivider()
             Text("2. Rectangle du site (conservé même sans OSM)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { tapMode = if (tapMode == TapMode.RECT) TapMode.ORIGIN else TapMode.RECT; cornerA = null }, modifier = Modifier.testTag("nouveau_site_tracer_le_rectangle")) {
+                OutlinedButton(onClick = { focusManager.clearFocus(); tapMode = if (tapMode == TapMode.RECT) TapMode.ORIGIN else TapMode.RECT; cornerA = null }, modifier = Modifier.testTag("nouveau_site_tracer_le_rectangle")) {
                     Text(if (tapMode == TapMode.RECT) "Glissez un doigt sur la carte…" else "Tracer le rectangle")
                 }
                 OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.testTag("nouveau_site_demi_cote_m").width(110.dp), singleLine = true)
@@ -285,7 +290,11 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
                 recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
             }
-            rect?.let { b -> Text("Rectangle : %.5f degré carré%s".format(Bboxes.areaDeg2(b), if (tooLarge) " — trop grand (max %.2f)".format(OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall) }
+            rect?.let { b ->
+                val hM = (b.north - b.south) * 111_320.0
+                val wM = (b.east - b.west) * 111_320.0 * kotlin.math.cos(Math.toRadians((b.north + b.south) / 2))
+                Text("Rectangle : environ %.0f × %.0f m%s".format(wM, hM, if (tooLarge) " — trop grand (%.4f degré carré, max %.2f)".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall)
+            }
             HorizontalDivider()
             Text("3. (Optionnel) Contours OSM du rectangle (API OSM v0.6)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -321,7 +330,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
         }
     }
-    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.45f)); panel(Modifier.fillMaxWidth().weight(0.55f)) }
+    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); panel(Modifier.fillMaxWidth().weight(0.62f)) }
     else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); panel(Modifier.weight(0.4f)) }
     }
 }

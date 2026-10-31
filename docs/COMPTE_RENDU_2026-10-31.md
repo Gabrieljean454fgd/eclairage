@@ -1,7 +1,8 @@
 # Compte rendu du 31/10/2026 (nuit comprise)
 
-Rien n'est fusionné. Rien n'a été testé sur le Xiaomi 13T Pro, sur ARCore réel ni avec Maestro (pas d'appareil ni d'émulateur ARM ici) :
-seuls les tests JVM (`./gradlew :core:test`) et l'assemblage APK ont tourné, en local et dans GitHub Actions. Un build vert ne prouve pas que la fonction marche.
+Rien n'est fusionné. Rien n'a été testé sur le Xiaomi 13T Pro ni sur ARCore réel. Les parcours Maestro ont été exécutés après le test Pixel 7 du 31/10
+sur un émulateur « Pixel 7 » (API 34, x86_64, Google APIs, sans ARCore) : voir la section « Corrections après le test Pixel 7 » ci-dessous.
+Tests JVM (`./gradlew :core:test`) et assemblage APK : en local et dans GitHub Actions. Un build vert ne prouve pas que la fonction marche.
 
 | PR | Branche | Base | État |
 |---|---|---|---|
@@ -30,7 +31,7 @@ APK `lumisite-etape<N>-v<versionCode>-<hash>.apk`, notes = `docs/livraisons/etap
 | 1.5 Journal | Accueil > « Réglages » > Journal > « Partager le journal » ; fichier `Documents/LumiSite/_journal/` | fait | — | `scenario1_5_partager_journal.yaml` | erreurs ARCore réelles et arrêts/reprises visibles dans le journal partagé |
 | 1.6 Export | Session > « Export » > « Exporter la session » | fait | `LongExportMemoryTest` (4 h, IMU 3×50 Hz, médias, JVM `-Xmx64m`) | `scenario1_3_exporter.yaml` | progression, « Exporté dans … », Ouvrir, Partager ; pièce jointe manquante ⇒ erreur |
 | 1.7 Ordre après redémarrage | — (base de temps `bootId`/`bootCount`) | fait | `RebootOrderTest` | — | session à cheval sur un redémarrage réel |
-| Testabilité | tous écrans (`testTag`, `testTagsAsResourceId`) | fait, **parcours non exécutés** | — | `.maestro/scenario1_*.yaml` | exécuter sur le Pixel 7 |
+| Testabilité | tous écrans (`testTag`, `testTagsAsResourceId`) | fait ; parcours verts sur émulateur Pixel 7 (voir plus bas) | — | `.maestro/scenario1_*.yaml` | réexécuter sur le Pixel 7 physique |
 | Relecture ARCore | lancement `--es arcore_playback <chemin>` / `--es arcore_record auto` ; badge « PLAYBACK », « ● REC ARCore » | fait, non testé (ARCore réel requis) | — | — | enregistrer puis rejouer un MP4 (`docs/DEBUG_ARCORE.md`) |
 
 Corrections de revue automatique appliquées (`50f2b9a`) : réimport refusant les noms hors dossier, copie marquée faite seulement après `copies.json`,
@@ -39,7 +40,7 @@ fsync sur horloge monotone, pièces jointes absentes signalées à l'export, arr
 Limite connue : l'export compresse un dossier de préparation déjà écrit (lecture en flux, mais espace disque ≈ 2× la session pendant l'export).
 
 ## Étape 2 (PR #18, BROUILLON, en attente de validation de l'étape 1)
-Détail par point dans `docs/livraisons/etape-2.md` (2.1 à 2.10 codés). Tests JVM : `Etape2Test`. Maestro : `scenario2_releve_sans_blocage.yaml` (non exécuté).
+Détail par point dans `docs/livraisons/etape-2.md` (2.1 à 2.10 codés). Tests JVM : `Etape2Test`. Maestro : `scenario2_releve_sans_blocage.yaml` (vert sur émulateur, voir plus bas).
 Libellés changés : Accueil « Nouveau » → « Nouveau relevé » ; « Deux coins sur la carte » → « Tracer le rectangle » ; « Fermer le polygone » supprimé.
 À vérifier sur le Xiaomi : scénario 2 de `docs/TESTS_TABLETTE.md` (geste un/deux doigts, fermeture sur le dernier sommet, lisibilité en portrait, encoche).
 
@@ -53,3 +54,36 @@ signatures sonores, protocole de mesure de précision (R3). Tests JVM : `MultiDe
 3. Nom du dossier de site : `Documents/LumiSite/<site>_<id>/` (id ajouté pour éviter les collisions entre sites homonymes) au lieu de `<site>/` : OK ?
 4. Étape 2 : tolérance de fermeture du polygone (28 dp) et taille de la flèche à ajuster sur le terrain.
 5. Étape 3 : bande de fréquence des signatures, `syncIntervalS`, `hubTimeout`, BLE seul ou Wi-Fi local.
+
+## Corrections après le test Pixel 7 du 31/10 (APK `lumisite-etape2-v110-dba4327`)
+Constat de Jean : installation OK, Robo Firebase sans crash, Maestro 1 parcours sur 6 (seul 1.5 passait).
+Les noms d'APK corrigés sont ceux des pré-releases `etape1-<hash>` et `etape2-<hash>` publiées par ces commits (voir la description des PR #17 et #18).
+
+| # | Écran > Menu > Sous-menu | Cause trouvée | Correction | Branche |
+|---|---|---|---|---|
+| 1 | Accueil > « Nouveau » (étape 2 : « Nouveau relevé ») > formulaire « Nouveau site » | le clavier couvrait Latitude ; en portrait le formulaire n'avait pas la place de défiler | `adjustResize` + `imePadding()` ; en portrait carte en haut (38 %) et formulaire défilable dessous ; flux 1.1 : `hideKeyboard` + `scrollUntilVisible` avant chaque champ | etape-1, etape-2 |
+| 1b | même formulaire | le champ Nom gardait le focus : un appui hors du champ (carte) laissait la saisie suivante s'ajouter au nom (« Maestro bureau43.6045… ») | un appui sur la carte, « Utiliser ces coordonnées » ou « Tracer le rectangle » retire le focus ; flux 1.1 vérifie « Origine : 43.6045000, 1.4440000 (COORDINATES) » | etape-1, etape-2 |
+| 2 | Session > rangée « Synchro / Calibrer / Relevé / Annoter / Recaler / Export » | rangée défilante horizontale : « Annoter » et « Export » hors écran en portrait (flux 1.2, 1.3, 1.4 en échec) | boutons répartis sur plusieurs lignes (tous visibles) | etape-1, etape-2 |
+| 3 | Session > « Export » > « Exporter la session » | « Exporté dans … », Ouvrir et Partager apparaissaient sous le pli du panneau | le résultat est ramené à l'écran à la fin de l'export | etape-1, etape-2 |
+| 4 | Session > « Annoter » > Polygone (étape 2) | les sommets étaient bien posés, mais l'aide « Touchez à nouveau le dernier sommet » était sous le pli du panneau ; et les appuis du flux visaient des points d'écran (70 %, 85 %) qui tombent dans le panneau en portrait | l'aide « N sommets. Touchez à nouveau le dernier sommet pour fermer. » s'affiche sur la carte (`session_annoter_polygone_aide`) ; carte tagguée `session_carte` ; flux 1.2 et 2 : appuis relatifs à la carte, vérification du message puis de la fermeture (« 0 sommet ») | etape-2 (flux 1.2 d'etape-1 inchangé : pas de fermeture au dernier sommet à l'étape 1) |
+| 5 | tous les flux `.maestro/` | `name:` contenait `>` (InvalidPathException sous Windows) | `name:` sans `> : / \ \| ? *` ; les libellés « Écran > Menu > Sous-menu » restent en commentaire | etape-1, etape-2 |
+| 6 | Accueil > « Nouveau relevé » > « Tracer le rectangle » (étape 2) | surface affichée « 0.00000 degré carré » pour un petit rectangle | affichage « environ L × H m » | etape-2 |
+
+`clearState: true` conservé. Démarrage : les flux attendent `accueil_*` jusqu'à 90 s (sur l'émulateur, un lancement après `clearState` a pris jusqu'à 63 s, « Process failed to attach » côté système).
+
+Résultat sur émulateur Pixel 7 (API 34 x86_64), APK local identique au code poussé :
+
+| Parcours | etape-1 | etape-2 |
+|---|---|---|
+| `scenario1_1_creer_releve.yaml` | vert | vert |
+| `scenario1_2_annoter.yaml` | vert | vert (fermeture au dernier sommet vérifiée) |
+| `scenario1_3_exporter.yaml` | vert | vert (exécuté via 1.4) |
+| `scenario1_4_reimporter.yaml` | vert (sélecteur Android, dossier proposé accepté) | vert |
+| `scenario1_5_partager_journal.yaml` | vert | vert |
+| `scenario2_releve_sans_blocage.yaml` | — | vert (rectangle OSM récupéré en ligne, polygone, recalage, export) |
+
+Ce qui reste :
+- réexécuter les 6 parcours sur le Pixel 7 physique avec les nouveaux APK (l'émulateur n'a ni ARCore ni le même clavier/temps de démarrage) ;
+- 1.4 simule la réinstallation par `clearState` : la vraie désinstallation puis réimport reste à faire sur le Xiaomi (R2) ;
+- le flux 2 dépend du réseau (API OSM) pour la présélection des bâtiments ; sans réseau le site est créé sans contours ;
+- sur le Xiaomi : lisibilité de l'aide polygone posée sur la carte, et réglage de la tolérance de fermeture (question ouverte 4).

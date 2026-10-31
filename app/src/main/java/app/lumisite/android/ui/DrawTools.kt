@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,19 +67,20 @@ import app.lumisite.core.model.ShapeStyle
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.survey.Details
 import app.lumisite.core.survey.Shapes
+import app.lumisite.core.survey.Sketch
 import java.io.File
 import kotlin.math.hypot
 
 /** Annotation toolbar (fiche F). Material icons (Apache-2.0) + French word; no Xodo/PDFTron resource is used. */
 enum class Tool(val icon: ImageVector, val label: String) {
-    MOVE(Icons.Default.LocationOn, "Se déplacer"),
+    MOVE(ToolIcons.Move, "Se déplacer"),
     PLACE(Icons.Default.Place, "Poser"),
-    SHAPE(Icons.Default.Create, "Forme"),
-    LINE(Icons.Default.ArrowForward, "Ligne"),
-    POLYGON(Icons.Default.Star, "Polygone"),
+    SHAPE(ToolIcons.Rectangle, "Forme"),
+    LINE(ToolIcons.Line, "Ligne"),
+    POLYGON(ToolIcons.Polygon, "Polygone"),
     ANNOTATION(Icons.Default.Warning, "Annotation"),
-    COMMENT(Icons.Default.Edit, "Commentaire"),
-    SELECT(Icons.Default.Done, "Sélection"),
+    COMMENT(ToolIcons.Comment, "Commentaire"),
+    SELECT(ToolIcons.Select, "Sélection"),
 }
 
 val NAMED_COLORS = linkedMapOf(
@@ -106,9 +109,22 @@ class DrawState {
     var family by mutableStateOf<String?>(null)
     var selected by mutableStateOf<String?>(null)
     var pendingSwitch by mutableStateOf<Tool?>(null)
+    /** Finger position while drawing (elastic preview), null when no finger is down. */
+    var hover by mutableStateOf<Enu?>(null)
+    /** Touch tolerance in metres at the current zoom (Sketch.toleranceM). */
+    var tolM = 0.5
 
     fun style() = ShapeStyle(stroke, fill, width, opacity)
     fun consumesTap() = tool in setOf(Tool.PLACE, Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION, Tool.SELECT)
+    /** Drawing tools: one finger draws, two fingers move the map (stage 2.1). SELECT keeps taps on map objects. */
+    fun capturesFinger() = tool in setOf(Tool.PLACE, Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION)
+
+    fun preview(): List<Enu> = when (tool) {
+        Tool.POLYGON -> Sketch.polygonPreview(pts, hover)
+        Tool.LINE -> Sketch.linePreview(pts, hover)
+        Tool.SHAPE -> if (shapeKind == "rectangle") Sketch.rectanglePreview(pts.firstOrNull(), hover) else Sketch.linePreview(pts, hover)
+        else -> emptyList()
+    }
 
     /** Changing tool ends the current drawing, with confirmation if points are placed. */
     fun request(t: Tool) { if (pts.isNotEmpty() && t != tool) pendingSwitch = t else { tool = t; pts.clear() } }
@@ -131,7 +147,12 @@ class DrawState {
                     else commit(c, "shape", "circle", listOf(pts[0]), hypot(pts[1].e - pts[0].e, pts[1].n - pts[0].n))
                 }
             }
-            Tool.LINE, Tool.POLYGON -> pts.add(p)
+            Tool.LINE -> pts.add(p)
+            Tool.POLYGON -> when (Sketch.polygonTap(pts, p, tolM)) {
+                Sketch.PolygonTap.ADD -> pts.add(p)
+                Sketch.PolygonTap.CLOSE -> commit(c, if (zone) "zone" else "shape", "polygon", pts.toList())
+                Sketch.PolygonTap.IGNORE -> c.notify("Il faut au moins 3 sommets pour fermer le polygone.")
+            }
             Tool.ANNOTATION -> commit(c, "annotation", "point", listOf(p), annotation = annotationType)
             Tool.SELECT -> selected = Shapes.nearest(c.currentShapes(), p)?.id
             else -> {}
@@ -158,15 +179,31 @@ fun shapePoints(c: SessionController, shapes: List<ShapeEvent>, d: DrawState): L
             if (s.id == d.selected) android.graphics.Color.rgb(255, 0, 255) else NAMED_COLORS[s.style.stroke] ?: android.graphics.Color.RED, "shape:${s.id}")
     } + d.pts.mapIndexed { i, p -> MapPoint(c.ltp.toLatLon(p), "Point ${i + 1} du tracé", android.graphics.Color.DKGRAY) }
 
+/** Toolbar button (stage 2.4): telling icon, 48 dp touch target, tooltip on long press, label read by accessibility/tests. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolButton(label: String, icon: ImageVector, selected: Boolean, tag: String, onClick: () -> Unit) {
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = androidx.compose.material3.rememberTooltipState(),
+    ) {
+        androidx.compose.material3.FilledTonalIconToggleButton(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(48.dp).testTag(tag)) {
+            Icon(icon, contentDescription = label)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: String?, onSelectSurvey: (String?) -> Unit) {
     val events = c.state.collectAsState().value.events
     val shapes = Shapes.current(events)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Tool.entries.forEach { t -> FilterChip(d.tool == t, { d.request(t) }, { Text(t.label) }, leadingIcon = { Icon(t.icon, null) }, modifier = Modifier.testTag("session_annoter_" + t.name.lowercase())) }
-        AssistChip({ d.pts.clear(); c.undo() }, { Text("Annuler") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, modifier = Modifier.testTag("session_annoter_annuler"))
+        Tool.entries.forEach { t -> ToolButton(t.label, t.icon, d.tool == t, "session_annoter_" + t.name.lowercase()) { d.request(t) } }
+        ToolButton("Annuler la dernière action", Icons.Default.Refresh, false, "session_annoter_annuler") { d.pts.clear(); c.undo() }
     }
+    Text("Outil : ${d.tool.label}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_annoter_outil_actif"))
     d.pendingSwitch?.let { t ->
         AlertDialog(
             onDismissRequest = { d.pendingSwitch = null },
@@ -199,9 +236,12 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         }
         Tool.POLYGON -> {
             FilterChip(d.zone, { d.zone = !d.zone }, { Text("Zone") }, modifier = Modifier.testTag("session_annoter_zone"))
-            Text("${d.pts.size} point(s). Touchez les sommets, puis « Fermer ».", style = MaterialTheme.typography.bodySmall)
+            Text(
+                if (d.pts.size < 3) "${d.pts.size} sommet(s). Un doigt pose un sommet (l'aperçu suit le doigt), deux doigts déplacent la carte."
+                else "${d.pts.size} sommets. Touchez à nouveau le dernier sommet pour fermer.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_annoter_polygone_aide"),
+            )
             labels()
-            Button(enabled = d.pts.size >= 3, onClick = { d.commit(c, if (d.zone) "zone" else "shape", "polygon", d.pts.toList()) }, modifier = Modifier.testTag("session_annoter_fermer_le_polygone")) { Text("Fermer le polygone") }
         }
         Tool.ANNOTATION -> {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

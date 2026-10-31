@@ -8,6 +8,6 @@ name: "Scénario 1.2 — Session > Annoter"
 - tapOn: { point: "40%,70%" }
 - tapOn: { point: "60%,70%" }
 - tapOn: { point: "50%,85%" }
-- tapOn: { id: "session_annoter_fermer_le_polygone", optional: true }
+- tapOn: { point: "50%,85%" }   # étape 2 : toucher à nouveau le dernier sommet ferme le polygone
 - tapOn: { id: "session_annoter" }
 - assertVisible: { id: "session_terminer_la_session" }

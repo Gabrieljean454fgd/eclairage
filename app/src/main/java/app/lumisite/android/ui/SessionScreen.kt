@@ -104,6 +104,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var selectedSurvey by remember { mutableStateOf<String?>(null) }
     val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms = true }
     fun granted(p: String) = ContextCompat.checkSelfPermission(activity, p) == PackageManager.PERMISSION_GRANTED
@@ -178,6 +180,21 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         listOf(c.ltp.toLatLon(o.copy(u = 0.0)), at(heading - 25, 3.0), at(heading, 3.5), at(heading + 25, 3.0))
     } else emptyList()
 
+    val posStatus = app.lumisite.core.compute.PositionStatus.of(now, c.isCalibrated(), st.tracking, st.lastArValidMs, st.lastGps?.t?.utcEpochMs, picked != null)
+    val arrows = buildList {
+        when (posStatus.source) {
+            app.lumisite.core.compute.PositionStatus.Source.AR -> st.lastArSite?.let {
+                add(MapArrow(c.ltp.toLatLon(it.copy(u = 0.0)), st.lastHeadingDeg, if (posStatus.lost) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 120, 255),
+                    if (posStatus.lost) "Dernière position AR valide (suivi perdu)" else "Position et orientation (AR)"))
+            }
+            app.lumisite.core.compute.PositionStatus.Source.GPS -> st.lastGps?.let { add(MapArrow(LatLon(it.lat, it.lon), null, android.graphics.Color.rgb(0, 150, 136), "Position GPS")) }
+            else -> {}
+        }
+        st.calibMark?.let { add(MapArrow(c.ltp.toLatLon(it.site.copy(u = 0.0)), it.headingDeg, android.graphics.Color.rgb(255, 140, 0), "${it.label} : position du téléphone et direction de la caméra")) }
+    }
+    val relocTarget = if (mode == Mode.RELOCALIZE) picked?.let { c.ltp.toEnu(it).copy(u = 0.0) } else null
+    val relocPreview = if (relocTarget != null && st.currentSite != null)
+        listOf(MapLine(c.ltp.toLatLon(st.currentSite!!.copy(u = 0.0)), picked!!, android.graphics.Color.rgb(255, 140, 0), "Décalage à corriger")) else emptyList()
     val map: @Composable (Modifier) -> Unit = { m ->
         Box(m) {
             OsmMap(
@@ -185,13 +202,24 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
                     trajectory = st.trajectory, uncorrected = if (showUncorrected) st.uncorrected else emptyList(),
-                    lines = relocLines + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), current = currentLl, picked = picked,
-                    headingSector = sector, follow = if (follow) currentLl else null,
+                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), picked = picked,
+                    follow = if (follow) currentLl else null,
+                    selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
+                    preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
                 onTap = { if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) else picked = it },
                 onPointTap = { id -> if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
+                onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
+                onFinger = if (mode == Mode.DRAW && draw.capturesFinger()) { phase, ll ->
+                    val p = c.ltp.toEnu(ll).copy(u = 0.0)
+                    when (phase) {
+                        FingerPhase.DOWN, FingerPhase.MOVE -> draw.hover = p
+                        FingerPhase.UP -> { draw.hover = null; draw.onTap(c, p) }
+                        FingerPhase.CANCEL -> draw.hover = null
+                    }
+                } else null,
             )
             OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.testTag("session_point_a_la_croix").align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 56.dp)) {
                 Text("Point à la croix")
@@ -199,10 +227,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.testTag("session_trajectoire_estimee_vert_non_gar").align(Alignment.BottomEnd).padding(8.dp)) {
                 Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
             }
-            Text(
-                "Trajectoire estimée (vert) : non garantie. Gris pointillé : sans recalage. Rouge : corrections.",
-                Modifier.align(Alignment.TopStart).background(Color(0xCCFFFFFF)).padding(6.dp), style = MaterialTheme.typography.labelSmall,
-            )
+            Column(Modifier.align(Alignment.TopStart).padding(end = 120.dp)) {
+                Text(posStatus.text(), Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
+                    color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
+                Text("Vert : trajectoire estimée (non garantie). Gris pointillé : sans recalage. Rouge : corrections.",
+                    Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
     // Fixed header: status on the left, camera preview top-right with a fixed maximum size. Nothing is drawn over the camera.
@@ -239,7 +269,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val actionBar: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Mode.entries.filter { it != Mode.NONE }.forEach { m ->
                     FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
                         Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
@@ -272,8 +302,20 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
-                Mode.CALIBRATE -> CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
-                Mode.RELOCALIZE -> RelocPanel(c, pickedTxt, ::refPoint)
+                Mode.CALIBRATE -> {
+                    CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
+                    st.calibMark?.let { k -> Text("Repère posé sur le plan (orange) — ${k.label} : téléphone en E %.2f, N %.2f m".format(k.site.e, k.site.n) +
+                        (k.headingDeg?.let { " ; caméra vers %.0f° (depuis le nord)".format(it) } ?: ""), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_repere")) }
+                }
+                Mode.RELOCALIZE -> {
+                    val est = st.currentSite
+                    Text(when {
+                        relocTarget == null -> "Touchez la carte au point où vous êtes : le décalage s'affichera avant de valider."
+                        est == null -> "Décalage inconnu : suivi AR ou calibration manquant."
+                        else -> "Décalage à corriger (orange) : %.2f m (E %+.2f m, N %+.2f m)".format(kotlin.math.hypot(relocTarget.e - est.e, relocTarget.n - est.n), relocTarget.e - est.e, relocTarget.n - est.n)
+                    }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("session_recaler_decalage"))
+                    RelocPanel(c, pickedTxt, ::refPoint)
+                }
                 Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint)
                 Mode.DRAW -> DrawPanel(c, draw, mapCenter?.let { c.ltp.toEnu(it).copy(u = 0.0) }, selectedSurvey) { selectedSurvey = it }
                 Mode.SYNC -> SyncPanel(activity, c)

@@ -6,6 +6,7 @@ import android.graphics.Paint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +55,12 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 
 data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null)
+/** Arrow (position + direction) drawn at a fixed screen size; headingDeg null = dot. Grey when stale. */
+data class MapArrow(val pos: LatLon, val headingDeg: Double?, val color: Int, val title: String)
+
+/** Single-finger gesture phases captured by the map when [OsmMap] gets an onFinger callback (two fingers move the map). */
+enum class FingerPhase { DOWN, MOVE, UP, CANCEL }
+
 data class MapLine(val a: LatLon, val b: LatLon, val color: Int, val title: String? = null)
 
 /** Everything the map can draw. Trajectories are estimates and drawn as such (no uncertainty is invented). */
@@ -73,6 +80,10 @@ data class MapContent(
     val follow: LatLon? = null,
     /** Site rectangle (bbox), drawn as a dashed frame. */
     val rect: BBox? = null,
+    val selectedFeatureRefs: Set<String> = emptySet(),
+    /** Elastic preview of the drawing in progress (follows the finger). */
+    val preview: List<LatLon> = emptyList(),
+    val arrows: List<MapArrow> = emptyList(),
 )
 
 private fun gp(p: LatLon) = GeoPoint(p.lat, p.lon)
@@ -94,7 +105,13 @@ fun OsmMap(
     /** Central cross: the map is moved under it (placement aid). */
     reticle: Boolean = false,
     onViewport: ((center: LatLon, widthM: Double) -> Unit)? = null,
+    /** Metres per dp of the visible map (touch tolerances). */
+    onScale: ((metersPerDp: Double) -> Unit)? = null,
+    /** When set, ONE finger draws (DOWN/MOVE/UP reported here) and TWO fingers pan/zoom the map. */
+    onFinger: ((FingerPhase, LatLon) -> Unit)? = null,
 ) {
+    val fingerCb = rememberUpdatedState(onFinger)
+    val scaleCb = rememberUpdatedState(onScale)
     val ctx = LocalContext.current
     val basemap = MapPrefs.basemap
     var widthM by remember { mutableStateOf<Double?>(null) }
@@ -110,6 +127,7 @@ fun OsmMap(
         }
     }
     val holder = remember { arrayOf<Any?>(null, null) }
+    val gesture = remember { Gesture() }
     if (holder[1] != basemap) {
         holder[1] = basemap
         val src = tileSourceFor(basemap)
@@ -124,6 +142,8 @@ fun OsmMap(
                 val w = TileMath.widthM(bb.centerLatitude, bb.longitudeSpanWithDateLine)
                 widthM = w
                 onViewport?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), w)
+                val dpW = map.width / map.resources.displayMetrics.density
+                if (dpW > 0) scaleCb.value?.invoke(w / dpW)
                 return false
             }
             override fun onScroll(event: ScrollEvent?) = report()
@@ -137,7 +157,30 @@ fun OsmMap(
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> magnifier.show(e.x, e.y)
                 else -> magnifier.dismiss()
             } else if (magnifier != null && Build.VERSION.SDK_INT >= 28) magnifier.dismiss()
-            false
+            val cb = fingerCb.value
+            if (cb == null || gesture.reentry) return@setOnTouchListener false
+            fun ll(x: Float, y: Float) = map.projection.fromPixels(x.toInt(), y.toInt()).let { LatLon(it.latitude, it.longitude) }
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { gesture.multi = false; gesture.x = e.x; gesture.y = e.y; cb(FingerPhase.DOWN, ll(e.x, e.y)); true }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (!gesture.multi) {
+                        // Second finger: the drawing gesture is cancelled and handed to the map (synthetic DOWN, then this event).
+                        gesture.multi = true; cb(FingerPhase.CANCEL, ll(gesture.x, gesture.y))
+                        val down = MotionEvent.obtain(e.downTime, e.eventTime, MotionEvent.ACTION_DOWN, e.getX(0), e.getY(0), 0)
+                        gesture.reentry = true
+                        try { map.dispatchTouchEvent(down) } finally { gesture.reentry = false; down.recycle() }
+                    }
+                    false
+                }
+                else -> if (gesture.multi) false else {
+                    when (e.actionMasked) {
+                        MotionEvent.ACTION_MOVE -> cb(FingerPhase.MOVE, ll(e.x, e.y))
+                        MotionEvent.ACTION_UP -> cb(FingerPhase.UP, ll(e.x, e.y))
+                        MotionEvent.ACTION_CANCEL -> cb(FingerPhase.CANCEL, ll(e.x, e.y))
+                    }
+                    true
+                }
+            }
         }
         onDispose { map.removeMapListener(l) }
     }
@@ -163,7 +206,7 @@ fun OsmMap(
         })
         content.features.forEach { f ->
             if (f.geometry.size >= 3 && f.category in setOf("building", "indoor")) {
-                val sel = f.ref == content.selectedFeatureRef
+                val sel = f.ref == content.selectedFeatureRef || f.ref in content.selectedFeatureRefs
                 mv.overlays += Polygon(mv).apply {
                     points = f.geometry.map(::gp)
                     holes = f.holes.map { r -> r.map(::gp) }
@@ -228,6 +271,18 @@ fun OsmMap(
             fillPaint.color = Color.argb(90, 0, 120, 255); outlinePaint.color = Color.rgb(0, 120, 255); outlinePaint.strokeWidth = 2f
             setOnClickListener { _, _, _ -> false }
         }
+        if (content.preview.size >= 2) mv.overlays += Polyline(mv).apply {
+            setPoints(content.preview.map(::gp))
+            outlinePaint.color = Color.rgb(255, 87, 34); outlinePaint.strokeWidth = 5f
+            outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 8f), 0f)
+            title = "Tracé en cours"
+        }
+        content.arrows.forEach { a ->
+            mv.overlays += Marker(mv).apply {
+                position = gp(a.pos); title = a.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = arrowIcon(mv, a.headingDeg, a.color)
+            }
+        }
         content.picked?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Point choisi" } }
         content.current?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Position estimée"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 120, 255), 26) } }
         content.follow?.let { mv.controller.setCenter(gp(it)) }
@@ -285,6 +340,26 @@ private fun downloadZone(mv: MapView, basemap: Basemap, b: BBox) {
     } catch (e: Exception) {
         Toast.makeText(ctx, "Téléchargement impossible : ${e.message}", Toast.LENGTH_LONG).show()
     }
+}
+
+private class Gesture { var multi = false; var reentry = false; var x = 0f; var y = 0f }
+
+/** North-up map: rotating the canvas clockwise by the heading (degrees from north) points the arrow the right way. */
+private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int = 36): android.graphics.drawable.Drawable {
+    val d = mv.resources.displayMetrics.density
+    val px = (sizeDp * d).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; style = Paint.Style.FILL }
+    val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.5f * d }
+    val c = px / 2f
+    if (headingDeg == null) { cv.drawCircle(c, c, px * 0.28f, fill); cv.drawCircle(c, c, px * 0.28f, edge) }
+    else {
+        cv.rotate(headingDeg.toFloat(), c, c)
+        val path = android.graphics.Path().apply { moveTo(c, px * 0.06f); lineTo(px * 0.84f, px * 0.92f); lineTo(c, px * 0.68f); lineTo(px * 0.16f, px * 0.92f); close() }
+        cv.drawPath(path, fill); cv.drawPath(path, edge)
+    }
+    return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
 }
 
 private fun dot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {

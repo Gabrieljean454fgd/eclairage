@@ -95,7 +95,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau")) { Text("Nouveau") }
+            Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau_releve")) { Text("Nouveau relevé") }
             OutlinedButton(onClick = onSettings, modifier = Modifier.testTag("accueil_reglages")) { Text("Réglages") }
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
@@ -117,7 +117,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
     }
 }
 
-private enum class TapMode { ORIGIN, CORNERS }
+private enum class TapMode { ORIGIN, RECT }
 
 @Composable
 fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
@@ -142,7 +142,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     var staged by remember { mutableStateOf<java.io.File?>(null) }
     var failure by remember { mutableStateOf<OsmGuard.Failure?>(null) }
     var tooLarge by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<List<String>>(emptyList()) }
+    var dragRect by remember { mutableStateOf<BBox?>(null) }
+    var missingOrigin by remember { mutableStateOf(false) }
     var radius by remember { mutableStateOf("80") }
     var apiUrl by remember { mutableStateOf(OsmClient.osmApiBase) }
     var showUrls by remember { mutableStateOf(false) }
@@ -187,7 +189,10 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 status = "$via : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s)." +
                     (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
                     (if (f.missing.isEmpty()) "" else " Résultat PARTIEL : ${f.missing.size} sous-zone(s) encore trop dense(s) non récupérée(s).") +
-                    " Touchez un bâtiment pour le sélectionner. Les contours OSM peuvent être absents ou imprécis."
+                    " Les contours OSM peuvent être absents ou imprécis."
+                selected = app.lumisite.core.osm.OsmSelection.buildingsIn(b, f.snapshot.features)
+                status += if (selected.isEmpty()) " Aucun bâtiment dans le rectangle : touchez un bâtiment pour l'ajouter (facultatif)."
+                    else " ${selected.size} bâtiment(s) sélectionné(s) par le rectangle : touchez un bâtiment pour l'ajouter ou le retirer, ou créez le site."
             }
             try {
                 show(fetchStaged { if (split) OsmClient.fetchMapSplit(b, now, onCall) else OsmClient.fetchMap(b, now) }, "API OSM")
@@ -210,20 +215,31 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         }
     }
 
-    Row(Modifier.fillMaxSize()) {
+    val mapView: @Composable (Modifier) -> Unit = { m ->
         OsmMap(
-            Modifier.weight(0.6f).fillMaxSize(), center, zoom,
-            MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRef = selected, rect = rect, picked = cornerA),
+            m, center, zoom,
+            MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRefs = selected.toSet(), rect = dragRect ?: rect, picked = cornerA),
             recenterKey = recenter,
-            onTap = {
-                if (tapMode == TapMode.CORNERS) {
-                    val a0 = cornerA
-                    if (a0 == null) cornerA = it else { setRect(Bboxes.fromCorners(a0, it)); cornerA = null; tapMode = TapMode.ORIGIN }
-                } else setOrigin(it, "MAP_TAP")
-            },
-            onFeatureTap = { f -> selected = if (selected == f.ref) null else f.ref },
+            onTap = { setOrigin(it, "MAP_TAP"); missingOrigin = false },
+            onFeatureTap = { f -> selected = app.lumisite.core.osm.OsmSelection.toggle(selected, f.ref) },
+            // Sélection OSM (stage 2.7): press and drag one finger, the rectangle is drawn live; two fingers move the map.
+            onFinger = if (tapMode == TapMode.RECT) { phase, ll ->
+                when (phase) {
+                    FingerPhase.DOWN -> { cornerA = ll; dragRect = null }
+                    FingerPhase.MOVE -> cornerA?.let { a -> dragRect = Bboxes.fromCorners(a, ll) }
+                    FingerPhase.UP -> cornerA?.let { a ->
+                        val b = Bboxes.fromCorners(a, ll); cornerA = null; dragRect = null; tapMode = TapMode.ORIGIN
+                        setRect(b); if (OsmGuard.areaOk(b)) fetch(split = false)
+                    }
+                    FingerPhase.CANCEL -> { cornerA = null; dragRect = null }
+                }
+            } else null,
         )
-        Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    val portrait = maxHeight > maxWidth
+    @Composable fun panel(m: Modifier) {
+        Column(m.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
@@ -241,25 +257,26 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             )
             results.forEach { r ->
                 Text("${r.name} (${r.source})", Modifier.fillMaxWidth().clickable {
-                    setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0
+                    setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0; missingOrigin = false
                     if (name.isBlank()) name = r.name.substringBefore(","); results = emptyList()
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
-                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
+                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
+                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
                 val la = latText.replace(',', '.').toDoubleOrNull(); val lo = lonText.replace(',', '.').toDoubleOrNull()
-                if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) status = "Coordonnées invalides." else { setOrigin(LatLon(la, lo), "COORDINATES"); zoom = 18.0 }
+                if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) status = "Coordonnées invalides." else { setOrigin(LatLon(la, lo), "COORDINATES"); zoom = 18.0; missingOrigin = false }
             }, modifier = Modifier.testTag("nouveau_site_utiliser_ces_coordonnees")) { Text("Utiliser ces coordonnées") }
-            Text(origin?.let { "Origine : %.7f, %.7f (%s)".format(it.lat, it.lon, originSource) } ?: "Origine non définie", style = MaterialTheme.typography.bodySmall)
+            Text(origin?.let { "Origine : %.7f, %.7f (%s)".format(it.lat, it.lon, originSource) } ?: "Origine non définie", style = MaterialTheme.typography.bodySmall,
+                color = if (missingOrigin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             HorizontalDivider()
             Text("2. Rectangle du site (conservé même sans OSM)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { tapMode = TapMode.CORNERS; cornerA = null }, modifier = Modifier.testTag("nouveau_site_touchez_le_1er_coin")) {
-                    Text(if (tapMode == TapMode.CORNERS) (if (cornerA == null) "Touchez le 1er coin…" else "Touchez le 2e coin…") else "Deux coins sur la carte")
+                OutlinedButton(onClick = { tapMode = if (tapMode == TapMode.RECT) TapMode.ORIGIN else TapMode.RECT; cornerA = null }, modifier = Modifier.testTag("nouveau_site_tracer_le_rectangle")) {
+                    Text(if (tapMode == TapMode.RECT) "Glissez un doigt sur la carte…" else "Tracer le rectangle")
                 }
                 OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.testTag("nouveau_site_demi_cote_m").width(110.dp), singleLine = true)
                 OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }, modifier = Modifier.testTag("nouveau_site_autour_de_l_origine")) { Text("Autour de l'origine") }
@@ -280,13 +297,15 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
             TextButton(onClick = { showUrls = !showUrls }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6")) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
             if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6_2").fillMaxWidth(), singleLine = true)
-            selected?.let { Text("Bâtiment sélectionné : $it", style = MaterialTheme.typography.bodySmall) }
+            if (selected.isNotEmpty()) Text("Bâtiment(s) sélectionné(s) : ${selected.joinToString()}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("nouveau_site_batiments_selectionnes"))
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             HorizontalDivider()
+            if (missingOrigin) Text("Il manque l'origine du site : recherchez une adresse, saisissez latitude et longitude puis « Utiliser ces coordonnées », ou touchez la carte.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nouveau_site_manque"))
             Row {
-                // Enabled as soon as an origin exists, whatever the state of the OSM request.
-                Button(enabled = origin != null, onClick = {
-                    val o = origin!!
+                // Always enabled (stage 2.6): the check happens on press and says what is missing.
+                Button(onClick = {
+                    val o = origin ?: run { missingOrigin = true; return@Button }
                     val siteName = name.trim().ifEmpty { "Site " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) }
                     onSave(Site(
                         id = Ids.new("site"), name = siteName, origin = o, originSource = originSource, createdUtcMs = System.currentTimeMillis(),
@@ -294,13 +313,16 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                             app.lumisite.core.geo.CrsInfo("EPSG:4326", "GEOGRAPHIC", "WGS84 lat/lon degrees", axes = listOf("lat", "lon"), units = "deg"),
                             LocalTangentPlane(o).crsInfo(),
                         ),
-                        osm = osm, selectedBuildingOsmRef = selected, bbox = rect ?: osm?.bbox,
+                        osm = osm, selectedBuildingOsmRef = selected.firstOrNull(), selectedBuildingOsmRefs = selected, bbox = rect ?: osm?.bbox,
                     ), staged)
                 }, modifier = Modifier.testTag("nouveau_site_creer")) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_annuler")) { Text("Annuler") }
             }
         }
+    }
+    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.45f)); panel(Modifier.fillMaxWidth().weight(0.55f)) }
+    else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); panel(Modifier.weight(0.4f)) }
     }
 }
 
@@ -310,7 +332,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
     val ltp = remember(site.id) { LocalTangentPlane(site.origin) }
     Row(Modifier.fillMaxSize()) {
         OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
-            origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef,
+            origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef, selectedFeatureRefs = site.selectedBuildingOsmRefs.toSet(),
             rect = site.bbox ?: site.osm?.bbox,
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },
         ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)

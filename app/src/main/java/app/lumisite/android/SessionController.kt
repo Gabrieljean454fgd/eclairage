@@ -82,7 +82,16 @@ data class LiveState(
     val distanceSinceFixM: Double? = null,
     val pendingCalibrationA: LocalObservation? = null,
     val message: String? = null,
+    /** Last valid AR position (TRACKING + calibrated), its wall time and the camera heading then (stage 2.8). */
+    val lastArSite: Enu? = null,
+    val lastArValidMs: Long? = null,
+    val lastHeadingDeg: Double? = null,
+    /** Marker left on the plan by Calibrer / Capturer A (stage 2.9). */
+    val calibMark: CalibMark? = null,
 )
+
+/** Phone position (site frame) and camera direction at the moment of a calibration. */
+data class CalibMark(val site: Enu, val headingDeg: Double?, val label: String)
 
 /**
  * Orchestrates capture for one field session: journal (append-only, local), AR poses, IMU, GPS, and the
@@ -261,8 +270,26 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
                 val gap = last == null || p.t.monotonicNs - last.monotonicNs > 1_000_000_000L
                 traj = if (gap) traj + listOf(listOf(pt)) else traj.dropLast(1) + listOf(traj.last() + pt)
             }
-            st.copy(poseCount = st.poseCount + 1, imuCount = imuCount, currentSite = cur, distanceSinceFixM = distanceSinceFix(traj, seg?.fromNs))
+            val valid = cur != null && seg != null && p.tracking == TrackingState.TRACKING
+            st.copy(poseCount = st.poseCount + 1, imuCount = imuCount, currentSite = cur, distanceSinceFixM = distanceSinceFix(traj, seg?.fromNs),
+                lastArSite = if (valid) cur else st.lastArSite, lastArValidMs = if (valid) System.currentTimeMillis() else st.lastArValidMs,
+                lastHeadingDeg = if (valid) headingOf(p, seg!!) else st.lastHeadingDeg)
         }
+    }
+
+    private fun headingOf(p: PoseSample, seg: TrajectoryCorrector.Segment): Double {
+        val enuRad = PoseGeometry.forwardPlaneAngle(p) + seg.transform.rotationRad
+        return ((90.0 - Math.toDegrees(enuRad)) % 360.0 + 360.0) % 360.0
+    }
+
+    fun isCalibrated() = activeSegment() != null
+
+    /** After a calibration: where the phone is on the plan and where the camera looks (from the new transform). */
+    private fun markCalibration(pose: PoseSample, label: String) {
+        val seg = activeSegment() ?: return
+        val xy = seg.transform.apply(PoseGeometry.plane(pose))
+        val site = Enu(xy.x, xy.y, 0.0)
+        _state.update { it.copy(calibMark = CalibMark(site, headingOf(pose, seg), label), lastArSite = site, lastArValidMs = System.currentTimeMillis(), lastHeadingDeg = headingOf(pose, seg)) }
     }
 
     private fun distanceSinceFix(traj: List<List<CorrectedPoint>>, fromNs: Long?): Double? {
@@ -322,11 +349,12 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = trackedPose() ?: return fail("Calibration impossible : suivi AR non actif.")
         val e = Calibrator.onePointHeading(Ids.new("cal"), stamps.now(), LocalObservation(pose, ref), headingDeg, headingSource, uncertaintyDeg)
         record(e, "Calibration enregistrée (1 point + cap %.0f°).".format(headingDeg))
+        markCalibration(pose, "Calibration (1 point + cap)")
     }
 
     fun captureCalibrationA(ref: ReferencePoint) {
         val pose = trackedPose() ?: return fail("Point A impossible : suivi AR non actif.")
-        _state.update { it.copy(pendingCalibrationA = LocalObservation(pose, ref), message = "Point A capturé. Marchez jusqu'au point B.") }
+        _state.update { it.copy(pendingCalibrationA = LocalObservation(pose, ref), message = "Point A capturé. Marchez jusqu'au point B.", calibMark = CalibMark(ref.site, null, "Calibration : point A")) }
     }
 
     fun calibrateTwoPoints(refB: ReferencePoint, fixScale: Boolean, knownDistanceM: Double?) {
@@ -336,6 +364,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             val e = Calibrator.twoPoints(Ids.new("cal"), stamps.now(), a, LocalObservation(pose, refB), fixScale, knownDistanceM)
             _state.update { it.copy(pendingCalibrationA = null) }
             record(e, "Calibration 2 points : échelle carte/AR mesurée %.3f, résidu %.2f m.".format(e.measuredScale, e.residualM))
+            markCalibration(pose, "Calibration (2 points), point B")
         } catch (ex: IllegalArgumentException) { fail(ex.message ?: "Erreur") }
     }
 

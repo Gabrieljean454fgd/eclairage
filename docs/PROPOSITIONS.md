@@ -6,6 +6,8 @@
 **Dépôt :** https://github.com/Gabrieljean454fgd/eclairage, branche `main`, commit de référence `1fb8fc52937be81f0f0d521f62db74349bf76c4d` (« LumiSite 0.1.0 : restauration du code de la tranche 1 (état e5cf515) »). Le 29/10/2026 à 18:26 (Paris), c'était encore la tête de `main`.
 **Appareils :** Xiaomi 13T Pro pour les tests Android (ARCore). Une version iPad sous iOS est prévue.
 
+> **31/10/2026 — Nouvelle référence de travail.** Le prompt v3 (6 étapes validées une par une sur le Xiaomi 13T Pro) est dans [`INSTRUCTIONS_DEVIN.md`](INSTRUCTIONS_DEVIN.md), et le suivi des étapes dans [`ROADMAP_ETAPES.md`](ROADMAP_ETAPES.md). Ce document reste la source des décisions verrouillées et des questions ouvertes ; rien n'en est retiré.
+
 ## Journal des versions
 
 | Version | Date (heure de Paris) | Changements |

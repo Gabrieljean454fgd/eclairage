@@ -214,3 +214,11 @@ Statut : fait, testé sur émulateur avec le réseau de la VM.
 - **Vérifié** : une tuile du cadastre est servie sans clé (HTTP 200, image/png, zoom 17 sur Toulouse), et le style `normal` est bien celui par défaut d'après le GetCapabilities.
 - Test JVM : `BasemapsTest.cadastreUrlUsesGeoplateformeWithoutKey`.
 - Flow Maestro : `.maestro/scenario_p3_cadastre_ign.yaml` (« Session carte cadastre IGN »), passé sur émulateur : Plan IGN, puis cadastre activé (attribution visible), puis désactivé.
+
+### P3b — Spec du mode captation (D9)
+Statut : spécification écrite, sans code, comme demandé : `docs/FORMAT_ECHANGE_CAPTATION.md`.
+- Format JSONL. Champs `t_mono_ns` (= `elapsedRealtimeNanos`), `clock_offset_ns`, `seq`, `device_id`, `time_base`, `type` et `v`.
+- Types de trames : IMU, pose, GNSS, chirps audio, LiDAR / scan 3D, état de liaison, coupures `gap`.
+- Synchro prévue : échange de type NTP en local, puis recalage par chirp au bureau.
+- Contrainte notée : Nearby entre Android et iOS = même Wi-Fi obligatoire.
+- **Question ouverte** : écrire le journal de session « dès maintenant » dans ce format n'est pas fait. La correspondance avec le journal actuel est complète (§6 de la spec). Je propose un export dérivé plutôt qu'une réécriture du stockage.

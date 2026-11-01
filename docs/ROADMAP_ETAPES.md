@@ -34,7 +34,7 @@ Points : 2.1 un doigt dessine, deux doigts déplacent · 2.2 polygone élastique
 
 Scénario de validation 2 (bureau de Sébastien, Toulouse) : créer un relevé avec sélection OSM ; calibrer ; marcher (la flèche et la trajectoire suivent) ; dessiner un polygone au pouce et le fermer sur le dernier point ; recaler ; exporter. Aucun blocage, textes lisibles en portrait.
 
-Statut au 01/11 (prompt v4) : P1 publié sur etape-2 (`etape2-ff0dd61`, `lumisite-etape2-v125-ff0dd61.apk`, 6/6 Maestro en CI émulateur) ; P2 (ergonomie Session, positionnement intérieur D1–D8, version, Annoter, photo à la pose, Synchro) en cours. PR brouillon.
+Statut au 01/11 (prompt v4) : P1 publié (`etape2-ff0dd61`). P2 sur etape-2 : ergonomie Session (`etape2-e916bbc`), positionnement D1–D5/D7 (`etape2-2476563`), D6/D8 + version v0.3.0-alpha (`etape2-11925f3`), Session > Annoter sélection directe + déplacement (74badcd), photo automatique à la pose (8c0d702), Synchro audio toujours gardé + durées (c66c159) — pré-releases suivantes selon la CI, voir `docs/COMPTE_RENDU_2026-11-01.md`. P3 sur etape-3 (brouillon) : cadastre IGN D12 fait, spec captation D9 écrite (sans code) ; reste de la P3 reporté.
 
 Réserve applicable : **R1** (perte de suivi visible : flèche grisée, âge de la position ; aucune trajectoire inventée pendant une perte).
 

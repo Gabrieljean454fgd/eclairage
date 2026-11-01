@@ -53,15 +53,21 @@ class MainActivity : ComponentActivity() {
     /** Live session shown on screen, closed if Android destroys the activity (it comes back as its Site screen, « Reprendre »). */
     private var live: SessionController? = null
 
+    companion object {
+        /** Sessions being closed after an activity re-creation, by session id (process-wide: survives the activity). */
+        private val closing = java.util.concurrent.ConcurrentHashMap<String, Thread>()
+    }
+
     override fun onDestroy() {
         // Only on re-creation (night mode, language…): the restored state shows the Site screen, the old controller must not keep
-        // its journal / sensors / copy worker open. Off the main thread (flush + copy can be slow). A plain finish / process kill is
-        // unchanged: the segments are already fsynced and repaired on the next start.
+        // its journal / sensors / copy worker open. Closed off the main thread (ARCore / copy can be slow); « Reprendre » waits for
+        // this close to finish (see [closing]) so two writers never share a session. A plain finish or process kill is unchanged:
+        // the segments are already fsynced and repaired on the next start.
         val c = live
         live = null
         if (c != null && isChangingConfigurations) {
             DiagLog.i("SESSION", "Activité recréée pendant la session ${c.sessionId} : session fermée, reprise possible depuis l'écran Site")
-            Thread({ runCatching { c.close("activity_recreated") } }, "lumisite-close-session").start()
+            closing[c.sessionId] = Thread({ runCatching { c.close("activity_recreated") }; closing.remove(c.sessionId) }, "lumisite-close-session").also { it.start() }
         }
         super.onDestroy()
     }
@@ -131,7 +137,10 @@ class MainActivity : ComponentActivity() {
                             } else SiteScreen(
                                 site, repo.sessions(site.id), surveys,
                                 onNewSession = { screen = Screen.Live(SessionController(applicationContext, repo, site, Ids.new("ses"), resume = false)) },
-                                onResume = { h -> screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true)) },
+                                onResume = { h -> scope.launch {
+                                    withContext(Dispatchers.IO) { closing[h.id]?.join(10_000) }
+                                    screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
+                                } },
                                 onBack = { screen = Screen.Home },
                             )
                         }

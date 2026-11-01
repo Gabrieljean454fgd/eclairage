@@ -50,6 +50,22 @@ sealed interface Screen {
 
 @OptIn(ExperimentalComposeUiApi::class)
 class MainActivity : ComponentActivity() {
+    /** Live session shown on screen, closed if Android destroys the activity (it comes back as its Site screen, « Reprendre »). */
+    private var live: SessionController? = null
+
+    override fun onDestroy() {
+        // Only on re-creation (night mode, language…): the restored state shows the Site screen, the old controller must not keep
+        // its journal / sensors / copy worker open. Off the main thread (flush + copy can be slow). A plain finish / process kill is
+        // unchanged: the segments are already fsynced and repaired on the next start.
+        val c = live
+        live = null
+        if (c != null && isChangingConfigurations) {
+            DiagLog.i("SESSION", "Activité recréée pendant la session ${c.sessionId} : session fermée, reprise possible depuis l'écran Site")
+            Thread({ runCatching { c.close("activity_recreated") } }, "lumisite-close-session").start()
+        }
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().apply {
@@ -75,6 +91,7 @@ class MainActivity : ComponentActivity() {
                     )) { mutableStateOf<Screen>(Screen.Home) }
                     var homeKey by remember { mutableStateOf(0) }
                     LaunchedEffect(screen) {
+                        live = (screen as? Screen.Live)?.controller
                         DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau"; is Screen.SiteDetail -> "Site"
                             is Screen.Live -> "Session"; Screen.Settings -> "Réglages" })
                     }

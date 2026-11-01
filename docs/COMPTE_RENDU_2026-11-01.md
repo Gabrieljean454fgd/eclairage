@@ -33,4 +33,24 @@ Mis à jour à la fin de chaque palier. Rien n'est fusionné. Tests réalisés s
 ### 1.4 — Parcours Maestro
 - Flows inchangés dans leurs vérifications (`session_terminer_la_session`, `session_annoter` toujours vérifiés « visible »). Seul changement : attente du premier écran portée à 90 s dans 1.1 et 1.4 (lancement à froid lent sur émulateur).
 - Nouveau script CI `.github/scripts/maestro-ci.sh` et job `maestro` dans `.github/workflows/apk-etape.yml` : émulateur Pixel 7 API 34, en-tête AR simulé, application vidée avant chaque parcours, 2 essais par parcours ; la pré-release n'est publiée que si tous les parcours passent.
-- Résultats locaux etape-1 (émulateur, en-tête AR simulé) : 1.1, 1.2, 1.3, 1.4, 1.5 passés au premier essai.
+- Résultats en CI (GitHub Actions, émulateur Pixel 7 API 34, en-tête AR simulé), tous au premier essai :
+  - etape-1 `a23e71d` : 1.1, 1.2, 1.3, 1.4, 1.5 ✅ (5/5) ;
+  - etape-2 `ff0dd61` : 1.1, 1.2, 1.3, 1.4, 1.5, 2 ✅ (6/6).
+- Mêmes résultats en local sur l'émulateur Pixel 7. Vérification supplémentaire en local : Session > « Calibrer » > « Cap de visée », saisie « 123 » clavier ouvert, valeur visible, puis « ← Terminer la session », « Annoter » et « Export » visibles une fois le clavier fermé.
+
+### Pré-releases P1 (signées avec la clé de test publique, certificat SHA-256 `8830d132…746fe4`, vérifié par `apksigner verify --print-certs`)
+| Branche | Tag | APK |
+|---|---|---|
+| etape-1 | `etape1-a23e71d` | `lumisite-etape1-v113-a23e71d.apk` |
+| etape-2 | `etape2-ff0dd61` | `lumisite-etape2-v125-ff0dd61.apk` |
+
+Pré-releases intermédiaires (remplacées) : `etape1-c3c749b` (v110) avant les corrections de la relecture automatique.
+
+### À vérifier sur le Pixel 7 (P1)
+1. Session avec ARCore réel et suivi `INSUFFICIENT_LIGHT` : les 7 actions visibles sans défilement (`session_synchro`, `session_calibrer`, `session_releve`, `session_annoter`, `session_recaler`, `session_export`, `session_terminer_la_session`).
+2. Session > carte : plus aucun chevauchement entre la source de position, « Fond : … », « largeur visible », « Point à la croix » et « Centrer / Suivre ».
+3. Accueil > « Nouveau » (étape 1) ou « Nouveau relevé » (étape 2) > « Créer » : le site est listé et l'écran Site s'ouvre ; sinon, envoyer Réglages > Journal (la cause y est écrite).
+4. Les 6 parcours Maestro.
+
+### Questions ouvertes (P1)
+- La cause du point 1.3 est déduite du code et non reproduite sur le Pixel 7 : à confirmer par le parcours 1.1 sur le téléphone.

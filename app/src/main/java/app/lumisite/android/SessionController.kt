@@ -142,7 +142,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
-    val ar = ArTracker(ctx, { stamps }, ::onArFrame)
+    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also { it.onAnchors = { m -> onAnchors(m) } }
     val gnss = GnssClassifier()
     val solverSettings = SolverSettings()
     private var lastGnssFix: GpsFix? = null
@@ -435,8 +435,36 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         return cur.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }
     }
 
+    /** D6: current pose of each control point's ARCore anchor (falls back to the pose recorded at validation). */
+    private val anchorPoses = java.util.concurrent.ConcurrentHashMap<String, PoseSample>()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val objectGroups = mutableListOf<app.lumisite.core.position.AnchorGroups.Group>()
+
+    private fun observationNow(e: ControlPointEvent): LocalObservation = e.observation.copy(pose = anchorPoses[e.id] ?: e.observation.pose)
+
+    /** GL thread, at most once per second: anchor poses moved by ARCore → transform solved again if the live position moves > 10 cm. */
+    private fun onAnchors(m: Map<String, Pair<List<Double>, List<Double>>>) = mainHandler.post {
+        if (closed) return@post
+        var moved = false
+        for ((id, v) in m) {
+            if (objectGroups.any { it.id == id }) continue
+            val old = anchorPoses[id] ?: activeControlEvents().firstOrNull { it.id == id }?.observation?.pose ?: continue
+            val upd = old.copy(p = v.first, q = v.second)
+            if (PoseGeometry.plane(upd).let { (it - PoseGeometry.plane(old)).norm() } > 0.02) moved = true
+            anchorPoses[id] = upd
+        }
+        if (!moved) return@post
+        val seg = activeSegment() ?: return@post
+        val pts = activeControlEvents().mapNotNull(::toControlPoint)
+        val sol = CalibrationSolver.solve(pts, stamps.now().monotonicNs, seg.transform.rotationRad, solverSettings) ?: return@post
+        val here = trackedPose()?.let { PoseGeometry.plane(it) } ?: return@post
+        val shift = (sol.transform.apply(here) - seg.transform.apply(here)).norm()
+        DiagLog.i("POSITION", "Ancres ARCore mises à jour : décalage de la position courante " + "%.2f".format(java.util.Locale.ROOT, shift) + " m")
+        if (shift > 0.10) resolve(null, seg, note = "ancres ARCore")
+    }
+
     private fun toControlPoint(e: ControlPointEvent): ControlPoint? {
-        val pose = e.observation.pose ?: return null
+        val pose = observationNow(e).pose ?: return null
         val site = e.observation.reference.site
         return ControlPoint(e.id, e.t.monotonicNs, PoseGeometry.plane(pose), Vec2(site.e, site.n), e.kind == "RELOCALIZATION",
             e.headingDeg?.let { Angles.wrapPi(Angles.headingDegToEnuRad(it) - PoseGeometry.forwardPlaneAngle(pose)) })
@@ -458,19 +486,21 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
         record(e)
+        ar.requestAnchor(e.id, pose)
         resolve(e, before, headingCorrectionDeg, note)
     }
 
     fun removeControlPoint(id: String) {
         val before = activeSegment()
         record(ControlPointRemoved(Ids.new("ev"), stamps.now(), id))
+        ar.dropAnchor(id); anchorPoses.remove(id)
         resolve(null, before)
     }
 
     /** « Nouveau calibrage » empties both tables, « Nouveau recalage » only the relocalizations. */
     fun clearControlPoints(relocalizationsOnly: Boolean) {
         val before = activeSegment()
-        activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)) }
+        activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)); ar.dropAnchor(it.id); anchorPoses.remove(it.id) }
         resolve(null, before)
     }
 
@@ -493,11 +523,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val summary = "${pts.size} point(s), ${sol.rejected.size} rejeté(s), résidu RMS " + "%.2f".format(sol.rmsM) + " m (${sol.method})"
         _state.update { it.copy(controlSolution = sol) }
         if (trigger?.kind == "RELOCALIZATION" && before != null) {
-            val local = PoseGeometry.plane(trigger.observation.pose!!); val b = before.transform.apply(local); val a = tr.apply(local)
+            val local = PoseGeometry.plane(observationNow(trigger).pose!!); val b = before.transform.apply(local); val a = tr.apply(local)
             record(RelocalizationEvent(Ids.new("rel"), now, trigger.observation, Enu(b.x, b.y), Enu(a.x, a.y), (a - b).norm(), before.transform, tr,
                 "MULTI_POINT_WEIGHTED", headingCorrectionDeg, notes = listOfNotNull(note, summary).joinToString(" · ")), "Recalage : position déplacée de " + "%.2f".format((a - b).norm()) + " m. $summary")
         } else {
-            record(CalibrationEvent(Ids.new("cal"), now, CalibrationMethod.MULTI_POINT, evs.filter { it.id !in sol.rejected }.map { it.observation },
+            record(CalibrationEvent(Ids.new("cal"), now, CalibrationMethod.MULTI_POINT, evs.filter { it.id !in sol.rejected }.map(::observationNow),
                 headingDeg = evs.firstNotNullOfOrNull { it.headingDeg }, headingSource = evs.firstNotNullOfOrNull { it.headingSource },
                 transform = tr, scaleFixed = true, residualM = sol.rmsM, notes = "points=${pts.map { it.id }} rejetés=${sol.rejected}"), "Calibrage : $summary")
             trigger?.observation?.pose?.let { markCalibration(it, "Calibrage, point ${evs.count { e -> e.kind == "CALIBRATION" }}") }
@@ -560,6 +590,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         )
         undoStack.addLast(e.id)
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        if (manual == null && pose != null) {
+            val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
+            val c = Vec2(at[0], -at[2])
+            val g = app.lumisite.core.position.AnchorGroups.assign(objectGroups, c)
+                ?: app.lumisite.core.position.AnchorGroups.Group(Ids.new("grp"), c).also {
+                    objectGroups += it
+                    ar.requestAnchor(it.id, pose.copy(p = at, q = listOf(0.0, 0.0, 0.0, 1.0)))
+                }
+            DiagLog.i("ANCRES", "Relevé ${e.id} rattaché à l'ancre de groupe ${g.id} (${objectGroups.size} groupe(s), 8 m max)")
+        }
         return true
     }
 

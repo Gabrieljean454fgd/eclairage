@@ -112,4 +112,18 @@ Statut : partiel. Calculs testés en JVM, interface testée sur émulateur avec 
 - Flow Maestro : `.maestro/scenario_p2_calibrage_multipoints.yaml` (« Session calibrage multipoints ») : 2 points validés → 2 lignes → « Supprimer » → 1 ligne.
   - L'émulateur n'ayant pas ARCore, le parcours lance l'appli avec l'argument `simuler_pose_ar` : poses AR synthétiques sur un cercle de 6 m, APK de débogage seulement, source `SIMULATED_DEBUG` dans le journal.
   - Ce parcours vérifie l'interface et le tableau, **pas** le suivi AR réel. Aucun utilisateur ne peut l'activer sans lancer l'appli par adb ou Maestro.
-- Reste pour les sous-lots suivants : D6 (ancres ARCore, recalcul au plus une fois par seconde, ancre partagée par groupe d'objets à moins de 8 m) et D8 (glissement de 0,5 s à l'écran ; la classe `DisplayGlide` est prête et testée, mais pas encore branchée sur la carte).
+- D6 et D8 : voir le sous-lot 2 ci-dessous.
+
+### P2a — publication
+- Pré-release `etape2-e916bbc`, APK `lumisite-etape2-v128-e916bbc.apk`. CI verte (APK, parcours Maestro sur émulateur, publication). Pas de validation Pixel 7 physique ni ARCore réel.
+
+### P2b — Positionnement intérieur, sous-lot 2 : ancres ARCore (D6) et glissement d'affichage (D8)
+Statut : fait dans le code, **non vérifiable sur émulateur** (pas d'ARCore). À vérifier sur le Pixel 7.
+- **D6, points de contrôle** : chaque point validé dans Session > Calibrer ou Session > Recaler crée une Anchor ARCore à la pose du téléphone (`ArTracker.requestAnchor`, sur le fil GL). « Supprimer », « Nouveau calibrage » et « Nouveau recalage » la détachent.
+  - Au plus une fois par seconde, les poses des ancres suivies sont relues. Le solveur repart de ces poses actuelles plutôt que des poses enregistrées.
+  - Si la position courante bouge de plus de 10 cm, la transformation est recalculée et journalisée (`CalibrationEvent`, note « ancres ARCore »). Le seuil de 10 cm est mon choix, pour éviter d'écrire un événement par seconde.
+  - Chaque mise à jour des ancres écrit une ligne `POSITION` dans Réglages > Journal.
+- **D6, objets implantés** : une ancre partagée par groupe d'objets situés à moins de 8 m de son point de création (`AnchorGroups`, test JVM). Le rattachement est seulement journalisé (`ANCRES`) : les surcouches AR qui l'exploiteront font partie de la P3, reportée. Les coordonnées enregistrées des objets ne bougent pas avec ces ancres.
+- **D8** : la flèche AR de Session > carte glisse vers sa nouvelle position en 0,5 s. Au-delà de 200 m, elle saute directement (changement de repère). Ce lissage ne touche que l'affichage, jamais le journal.
+- Position figée et grisée pendant une perte de suivi AR (D1) : comportement déjà en place (la flèche grise sur la dernière pose suivie, sans extrapolation), inchangé.
+- Tests : `PositioningTest.objectsShareAnAnchorWithin8m` (15 tests au total). Le parcours `scenario_p2_calibrage_multipoints` a été rejoué avec ces changements.

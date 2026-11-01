@@ -197,3 +197,12 @@ class DisplayGlide(private val durationMs: Long = 500) {
 }
 
 internal fun rot(v: Vec2, r: Double) = Vec2(cos(r) * v.x - sin(r) * v.y, sin(r) * v.x + cos(r) * v.y)
+
+/** D6: one ARCore anchor shared by the surveyed objects lying within [maxM] (8 m) of its creation point. */
+object AnchorGroups {
+    data class Group(val id: String, val center: Vec2)
+
+    /** Nearest group within [maxM] of [p], or null when a new anchor (group) must be created. */
+    fun assign(groups: List<Group>, p: Vec2, maxM: Double = 8.0): Group? =
+        groups.map { it to (it.center - p).norm() }.filter { it.second <= maxM }.minByOrNull { it.second }?.first
+}

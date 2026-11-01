@@ -2,6 +2,7 @@ package app.lumisite.core
 
 import app.lumisite.core.geo.Similarity2D
 import app.lumisite.core.geo.Vec2
+import app.lumisite.core.position.AnchorGroups
 import app.lumisite.core.position.CalibrationSolver
 import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.DisplayGlide
@@ -17,6 +18,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PositioningTest {
@@ -141,5 +143,12 @@ class PositioningTest {
     @Test fun displayGlideIsHalfwayAfter250ms() {
         val g = DisplayGlide(); g.target(Vec2(0.0, 0.0), 0); g.target(Vec2(10.0, 0.0), 1000)
         near(assertNotNull(g.at(1250)), Vec2(5.0, 0.0), 1e-9); near(assertNotNull(g.at(2000)), Vec2(10.0, 0.0), 1e-9)
+    }
+
+    @Test fun objectsShareAnAnchorWithin8m() {
+        val g = listOf(AnchorGroups.Group("a", Vec2(0.0, 0.0)), AnchorGroups.Group("b", Vec2(20.0, 0.0)))
+        assertEquals("a", AnchorGroups.assign(g, Vec2(5.0, 3.0))?.id)
+        assertEquals("b", AnchorGroups.assign(g, Vec2(14.0, 0.0))?.id)
+        assertNull(AnchorGroups.assign(g, Vec2(10.0, 0.0)))
     }
 }

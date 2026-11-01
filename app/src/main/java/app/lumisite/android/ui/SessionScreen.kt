@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -187,10 +188,20 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     } else emptyList()
 
     val posStatus = app.lumisite.core.compute.PositionStatus.of(now, c.isCalibrated(), st.tracking, st.lastArValidMs, st.lastGps?.t?.utcEpochMs, picked != null)
+    // D8: the displayed AR position glides to its new value in ~0.5 s (display only; recorded data are never smoothed).
+    val glide = remember { androidx.compose.animation.core.Animatable(androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset.VectorConverter) }
+    var glideInit by remember { mutableStateOf(false) }
+    LaunchedEffect(st.lastArSite) {
+        st.lastArSite?.let {
+            val o = androidx.compose.ui.geometry.Offset(it.e.toFloat(), it.n.toFloat())
+            if (!glideInit || (glide.value - o).getDistance() > 200f) { glide.snapTo(o); glideInit = true }
+            else glide.animateTo(o, androidx.compose.animation.core.tween(500))
+        }
+    }
     val arrows = buildList {
         when (posStatus.source) {
             app.lumisite.core.compute.PositionStatus.Source.AR -> st.lastArSite?.let {
-                add(MapArrow(c.ltp.toLatLon(it.copy(u = 0.0)), st.lastHeadingDeg, if (posStatus.lost) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 120, 255),
+                add(MapArrow(c.ltp.toLatLon(app.lumisite.core.geo.Enu(glide.value.x.toDouble(), glide.value.y.toDouble(), 0.0)), st.lastHeadingDeg, if (posStatus.lost) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 120, 255),
                     if (posStatus.lost) "Dernière position AR valide (suivi perdu)" else "Position et orientation (AR)"))
             }
             // D1: the GNSS position is only indicative; grey when D7 says it is unusable.

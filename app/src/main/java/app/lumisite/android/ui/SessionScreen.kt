@@ -223,16 +223,20 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     }
                 } else null,
             )
-            OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.testTag("session_point_a_la_croix").align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 56.dp)) {
-                Text("Point à la croix")
+            // Right column, bottom up, no overlap: the scale (« largeur visible ») stays bottom-left, the legend top-left under half
+            // the width so it never covers Session > carte > « Fond ». Touch targets ≥ 48 dp.
+            Column(Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 24.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = { picked = mapCenter }, modifier = Modifier.heightIn(min = 48.dp).background(Color(0xCCFFFFFF)).testTag("session_point_a_la_croix")) {
+                    Text("Point à la croix")
+                }
+                OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.heightIn(min = 48.dp).background(Color(0xCCFFFFFF)).testTag("session_trajectoire_estimee_vert_non_gar")) {
+                    Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
+                }
             }
-            OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.testTag("session_trajectoire_estimee_vert_non_gar").align(Alignment.BottomEnd).padding(8.dp)) {
-                Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
-            }
-            Column(Modifier.align(Alignment.TopStart).padding(end = 120.dp)) {
+            Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.5f)) {
                 Text(posStatus.text(), Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
                     color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
-                Text("Vert : trajectoire estimée (non garantie). Gris pointillé : sans recalage. Rouge : corrections.",
+                Text("Vert : trajectoire estimée (non garantie) · gris pointillé : sans recalage · rouge : corrections",
                     Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
                 if (mode == Mode.DRAW) draw.polygonHint()?.let {
                     Text(it, Modifier.background(Color(0xE6FFF3C4)).padding(6.dp).testTag("session_annoter_polygone_aide"),
@@ -242,6 +246,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
     // Fixed header: status on the left, camera preview top-right with a fixed maximum size. Nothing is drawn over the camera.
+    val simulatedArHeader = remember {
+        app.lumisite.android.BuildConfig.DEBUG && android.provider.Settings.Global.getString(activity.contentResolver, "lumisite_simuler_entete_ar") == "1"
+    }
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -254,6 +261,13 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 if (recording) Text("● REC ARCore", color = Color(0xFFB00020), style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_ar_enregistrement"))
                 ThemeToggle(activity)
                 if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
+            }
+            if (!arReady && simulatedArHeader) {
+                // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real AR block.
+                Column(Modifier.width(200.dp).testTag("session_ar_simule")) {
+                    androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray)) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
+                    ArControls(c)
+                }
             }
             if (arReady) {
                 Column(Modifier.width(200.dp)) {
@@ -333,21 +347,29 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
 
-    // The header and the mode rows never take more than ~35 % of the height (they scroll inside it): with adjustResize the keyboard
-    // shrinks the screen, and the input panel (Calibrer > Cap de visée, Recaler, Annoter…) must keep room to show the focused field.
+    // The action bar (Terminer la session + modes Synchro…Export) is always fixed on screen, never inside a scroll. Only the status /
+    // AR block (tracking banner, camera preview, torch / measure buttons) scrolls, capped to ~25 % of the height: with ARCore active
+    // or INSUFFICIENT_LIGHT it can be tall, and with adjustResize the keyboard shrinks the screen — the input panel keeps its room.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val topMax = maxHeight * 0.35f
+        val topMax = maxHeight * 0.25f
+        val statusBlock: @Composable (Modifier) -> Unit = { m ->
+            Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
+        }
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
                 map(Modifier.weight(0.55f).fillMaxHeight())
                 Column(Modifier.weight(0.45f).fillMaxHeight().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Column(Modifier.heightIn(max = topMax).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
+                    actionBar()
+                    statusBlock(Modifier)
                     HorizontalDivider(); panel(Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.heightIn(max = topMax).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { header(); actionBar() }
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    actionBar()
+                    statusBlock(Modifier)
+                }
                 map(Modifier.fillMaxWidth().weight(0.45f))
                 panel(Modifier.weight(0.55f).padding(8.dp))
             }

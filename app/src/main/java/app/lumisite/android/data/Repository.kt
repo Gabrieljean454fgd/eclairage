@@ -33,15 +33,20 @@ import java.util.Locale
 /** Local-only storage: everything lives under the app private files dir, no network needed. */
 class Repository(private val ctx: Context) {
     private val root = ctx.filesDir
-    private val sitesDir = File(root, "sites").apply { mkdirs() }
-    private val sessionsDir = File(root, "sessions").apply { mkdirs() }
-    val exportsDir = File(root, "exports").apply { mkdirs() }
+    // Re-created on every access: the private dir can be wiped while the app runs (pm clear / « Effacer les données », as
+    // Maestro clearState does on a real phone); a directory created once at start-up would then be missing at the first write.
+    private val sitesDir get() = File(root, "sites").apply { mkdirs() }
+    private val sessionsDir get() = File(root, "sessions").apply { mkdirs() }
+    val exportsDir get() = File(root, "exports").apply { mkdirs() }
 
+    /** Atomic, fsynced write, re-read before returning: throws [java.io.IOException] with the reason instead of failing silently. */
     fun saveSite(site: Site) {
-        val f = File(sitesDir, "${site.id}.json")
-        val tmp = File(sitesDir, "${site.id}.json.tmp")
-        tmp.writeText(LumiJson.encodeToString(Site.serializer(), site))
-        tmp.renameTo(f)
+        val dir = sitesDir
+        val f = File(dir, "${site.id}.json")
+        val tmp = File(dir, "${site.id}.json.tmp")
+        java.io.FileOutputStream(tmp).use { out -> out.write(LumiJson.encodeToString(Site.serializer(), site).toByteArray()); out.fd.sync() }
+        if (!tmp.renameTo(f)) throw java.io.IOException("renommage impossible : ${tmp.path} -> ${f.name}")
+        if (site(site.id) == null) throw java.io.IOException("site ${site.id} écrit mais illisible (${f.length()} octets)")
     }
 
     fun sites(): List<Site> = sitesDir.listFiles { f -> f.name.endsWith(".json") }.orEmpty()

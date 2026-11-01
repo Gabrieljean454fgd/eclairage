@@ -127,3 +127,10 @@ Statut : fait dans le code, **non vérifiable sur émulateur** (pas d'ARCore). �
 - **D8** : la flèche AR de Session > carte glisse vers sa nouvelle position en 0,5 s. Au-delà de 200 m, elle saute directement (changement de repère). Ce lissage ne touche que l'affichage, jamais le journal.
 - Position figée et grisée pendant une perte de suivi AR (D1) : comportement déjà en place (la flèche grise sur la dernière pose suivie, sans extrapolation), inchangé.
 - Tests : `PositioningTest.objectsShareAnAnchorWithin8m` (15 tests au total). Le parcours `scenario_p2_calibrage_multipoints` a été rejoué avec ces changements.
+
+### P2c — Version affichée (prompt v4 2.2, ordre « 2.1 version à l'accueil » des décisions)
+Statut : fait, testé sur émulateur.
+- **Accueil** : le titre « LumiSite : diagnostic éclairage (prototype) » devient « LumiSite : diagnostic éclairage », avec en dessous la version `v0.3.0-alpha (build <versionCode>)` (testTag `accueil_version`).
+- **Réglages > À propos** (nouvelle section) : « LumiSite v0.3.0-alpha (build <versionCode>) » (testTag `reglages_a_propos_version`).
+- `versionName` passe de `0.2.0-v<versionCode>` à `0.3.0-alpha`. Le numéro de build est le versionCode, qui continue de croître à chaque commit. Le versionName figure aussi dans le manifeste d'export et dans le User-Agent OSM.
+- Flow Maestro : `.maestro/scenario_p2_version_accueil.yaml` (« Version visible sur Accueil et Reglages »).

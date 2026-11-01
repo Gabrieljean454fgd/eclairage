@@ -71,6 +71,10 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
         OutlinedButton(onClick = onBack, modifier = Modifier.testTag("reglages_retour")) { Text("← Accueil") }
 
         HorizontalDivider()
+        Text("À propos", style = MaterialTheme.typography.titleMedium)
+        Text("LumiSite ${appVersionLabel()}", modifier = Modifier.testTag("reglages_a_propos_version"))
+
+        HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)
         Text("Copie visible (survit à la désinstallation) : ${PublicStore.displayPath(listOf("<site>", "<session>"))}/", modifier = Modifier.testTag("reglages_stockage_chemin"))
         Text("Écriture d'abord dans l'appli (${ctx.filesDir.path}/sessions), en segments ; chaque segment terminé est copié et vérifié par empreinte SHA-256.", style = MaterialTheme.typography.bodySmall)

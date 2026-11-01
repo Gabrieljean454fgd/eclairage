@@ -93,7 +93,8 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
         }
     }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
+        Text("LumiSite : diagnostic éclairage", style = MaterialTheme.typography.headlineSmall)
+        Text(appVersionLabel(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_version"))
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -368,3 +369,6 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
         }
     }
 }
+
+/** Accueil and Réglages > À propos: « v0.3.0-alpha (build <versionCode>) ». */
+fun appVersionLabel(): String = "v${app.lumisite.android.BuildConfig.VERSION_NAME} (build ${app.lumisite.android.BuildConfig.VERSION_CODE})"

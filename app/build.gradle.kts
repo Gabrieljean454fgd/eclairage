@@ -19,7 +19,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = gitCommitCount
-        versionName = "0.2.0-v$gitCommitCount"
+        versionName = "0.3.0-alpha"
     }
 
     // PUBLIC TEST KEY (docs/SIGNATURE_APK.md): committed on purpose so that every debug APK, built locally or by CI,

@@ -168,3 +168,22 @@ Statut : fait, testé sur émulateur.
   - Sur l'appareil, la conversion pixel → WGS84 est faite par la projection osmdroid. Le test couvre la formule et la conversion vers le plan (`DragMove`, `LocalTangentPlane`).
 - Flow Maestro : `.maestro/scenario_p2_annoter_deplacer.yaml` (« Session annoter selection directe et deplacement ») : un objet est posé à la croix, puis sélectionné par appui sur la carte, glissé et validé. Les coordonnées affichées doivent différer de celles copiées avant le déplacement.
 - Reste discutable (non tranché) : le panneau Session > Relevé garde la grille complète des familles au-dessus de « Enregistrer le relevé », ce qui oblige à défiler sur un écran de la taille du Pixel 7.
+
+### P2e — Session > Relevé : photo automatique à l'implantation (complément du prompt v4)
+Statut : fait, testé sur émulateur (sans photo réelle).
+- **Session > Relevé > « Enregistrer le relevé »** : dès que l'objet est enregistré, l'appareil photo s'ouvre.
+  - C'est l'application photo du téléphone, lancée par `ActivityResultContracts.TakePicture`, la même que pour « Photo vue » / « Photo étiquette ». Je n'ai pas fait de capture CameraX intégrée : elle aurait coûté plus de crédits, et la caméra est déjà occupée par ARCore pendant la session.
+  - Au retour, le panneau Relevé n'affiche que la proposition (`session_photo_proposee`) :
+    - **« Prendre la photo »** (`session_photo_prendre`), qui devient « Autre photo » après une première photo : on peut ajouter plusieurs photos ;
+    - **« Reprendre »** (`session_photo_reprendre`) : la nouvelle photo remplace la précédente dans la fiche de l'objet. L'ancien fichier reste dans `attachments/` (journal append-only, rien n'est effacé) ;
+    - **« Passer »** (`session_photo_passer`), qui devient « Terminé » après une photo.
+  - Chaque photo est rattachée à l'objet (pièce jointe `image/jpeg`, rôle `vue`, horodatage UTC et monotone de la prise). La position est celle de l'objet.
+- **Accueil > Réglages > Relevé > « Photo automatique à l'implantation »** (`reglages_photo_automatique`) : interrupteur, activé par défaut.
+- Flow Maestro `.maestro/scenario_p2_photo_implantation.yaml` (« Session releve photo automatique a l implantation »), passé sur émulateur :
+  1. Pose d'un objet, puis vérification que l'appareil photo est au premier plan (la Session n'est plus visible).
+  2. Retour sans photo.
+  3. La proposition s'affiche, avec « Reprendre » inactif.
+  4. « Passer » la ferme.
+- Flow `.maestro/scenario_p2_version_accueil.yaml` : vérifie aussi que l'interrupteur est visible et activé par défaut.
+- **Non testé par Maestro** : la prise de vue réelle (on ne pilote pas l'application photo de l'émulateur) et l'effet de l'interrupteur désactivé. À vérifier sur le Pixel 7.
+- Flows P2d et P2e : le panneau Relevé défile jusqu'à « Enregistrer le relevé » par une boucle `repeat … while notVisible`. Le nombre de gestes nécessaire variait d'une exécution à l'autre ; aucune assertion n'est retirée.

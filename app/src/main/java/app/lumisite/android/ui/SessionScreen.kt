@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -528,6 +529,11 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var family by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Survives the activity being recreated while the camera app is in front.
+    var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // While the photo is proposed the panel shows only that (short, so it is on screen without scrolling).
+    photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
     Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
     FamilyQuickGrid(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
@@ -537,7 +543,7 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null
         val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
-        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap() } }
+        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap(); if (AutoPhoto.enabled(ctx)) photoFor = c.lastSurveyId } }
     }, modifier = Modifier.testTag("session_releve_enregistrer_le_releve")) { Text("Enregistrer le relevé") }
 }
 

@@ -9,10 +9,14 @@ name: Session annoter selection directe et deplacement
 - tapOn: { id: "session_point_a_la_croix" }
 - tapOn: { id: "session_annoter_famille_Amplificateur" }
 # Sans suivi AR (émulateur), « Position manuelle » est déjà cochée. Le panneau défile par glissement (au centre, on déplacerait la carte).
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+# Le panneau du bas défile jusqu'au bouton (la longueur de la grille des familles varie).
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
 - assertVisible: { id: "session_releve_checkbox", checked: true }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
 - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
 - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
 - tapOn: { id: "session_releve_enregistrer_le_releve" }

@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +74,14 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
         HorizontalDivider()
         Text("À propos", style = MaterialTheme.typography.titleMedium)
         Text("LumiSite ${appVersionLabel()}", modifier = Modifier.testTag("reglages_a_propos_version"))
+
+        HorizontalDivider()
+        Text("Relevé", style = MaterialTheme.typography.titleMedium)
+        var autoPhoto by remember { mutableStateOf(AutoPhoto.enabled(ctx)) }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
+            Text(" Photo automatique à l'implantation (Session > Relevé)")
+        }
 
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)

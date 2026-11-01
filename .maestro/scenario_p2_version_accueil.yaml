@@ -10,4 +10,5 @@ name: Version visible sur Accueil et Reglages
 - assertNotVisible: ".*prototype.*"
 - tapOn: { id: "accueil_reglages" }
 - assertVisible: { id: "reglages_a_propos_version" }
+- assertVisible: { id: "reglages_photo_automatique", checked: true }
 - assertVisible: "LumiSite v0\\.3\\.0-alpha \\(build [0-9]+\\)"

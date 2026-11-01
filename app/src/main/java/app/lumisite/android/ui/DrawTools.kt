@@ -1,6 +1,7 @@
 package app.lumisite.android.ui
 
 import android.Manifest
+import androidx.compose.foundation.background
 import androidx.compose.ui.platform.testTag
 import android.content.Context
 import android.content.pm.PackageManager
@@ -448,6 +449,55 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
         onDispose {
             rec?.let { r -> r.stop(); if (r.file.length() > 0) c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono) else r.file.delete() }
             rec = null
+        }
+    }
+}
+
+/** Réglages > Photo automatique à l'implantation (on by default). */
+object AutoPhoto {
+    private const val FILE = "lumisite_photo"
+    fun enabled(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("auto", true)
+    fun set(ctx: Context, on: Boolean) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean("auto", on).apply()
+}
+
+/**
+ * Session > Relevé, right after a placement: opens the camera at once, then offers
+ * « Prendre la photo » (another one), « Reprendre » (replaces the last one in the record) and « Passer ».
+ * Each photo is attached to the object (its position) with the capture time stamp.
+ */
+@Composable
+fun PhotoPrompt(c: SessionController, surveyId: String, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var id by rememberSaveable { mutableStateOf(surveyId) }
+    var last by rememberSaveable { mutableStateOf<String?>(null) }
+    var count by rememberSaveable { mutableStateOf(0) }
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    var launched by rememberSaveable { mutableStateOf(false) }
+    val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        pending?.let { p ->
+            val f = File(p.substringBeforeLast('|')); val replace = p.substringAfterLast('|').ifEmpty { null }
+            if (ok && f.exists() && f.length() > 0) {
+                val st = c.stampNow()
+                val dest = c.attachmentFile("ph", "jpg")
+                if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) {
+                    c.attach(id, dest, "image/jpeg", "vue", st.utcEpochMs, st.monotonicNs, replacePath = replace)?.let { id = it }
+                    last = c.sessionRelPath(dest); if (replace == null) count++
+                } else c.notify("Photo non enregistrée.")
+            } else f.delete()
+        }
+        pending = null
+    }
+    fun shoot(replace: String?) {
+        val f = File(File(ctx.filesDir, "capture").apply { mkdirs() }, "ph_${System.currentTimeMillis()}.jpg"); pending = "${f.absolutePath}|${replace ?: ""}"
+        runCatching { take.launch(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)) }.onFailure { pending = null; c.notify("Appareil photo indisponible : ${it.message}") }
+    }
+    LaunchedEffect(Unit) { if (!launched) { launched = true; shoot(null) } }
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(6.dp).testTag("session_photo_proposee")) {
+        Text(if (count == 0) "Photo de l'objet posé (facultative)" else "$count photo(s) rattachée(s) à l'objet", style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_photo_etat"))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button({ shoot(null) }, modifier = Modifier.testTag("session_photo_prendre")) { Text(if (count == 0) "Prendre la photo" else "Autre photo") }
+            OutlinedButton({ shoot(last) }, enabled = last != null, modifier = Modifier.testTag("session_photo_reprendre")) { Text("Reprendre") }
+            OutlinedButton(onClose, modifier = Modifier.testTag("session_photo_passer")) { Text(if (count == 0) "Passer" else "Terminé") }
         }
     }
 }

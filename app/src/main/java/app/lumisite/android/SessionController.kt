@@ -568,6 +568,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     /** Records an equipment of the catalog. Returns false (and explains why) when no position can be computed. */
+    /** Id of the last record created by [survey] (used to propose the photo right after the placement). */
+    var lastSurveyId: String? = null
+        private set
+
     fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null): Boolean {
         val fam = try { catalog.resolve(familyId) } catch (e: IllegalArgumentException) { fail(e.message ?: "Famille inconnue"); return false }
         val st = _state.value
@@ -589,6 +593,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         undoStack.addLast(e.id)
+        lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
         if (manual == null && pose != null) {
             val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
@@ -608,7 +613,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * [moveTo] sets a manual position; [familyId]/[note] change the family/comment; [delete] removes it.
      */
     /** Returns the id of the superseding record (null when nothing was recorded). */
-    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null): String? {
+    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null, replacePath: String? = null): String? {
         val events = _state.value.events
         val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return null.also { fail("Relevé introuvable.") }
         val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return null.also { fail(e.message ?: "Famille inconnue") } } }
@@ -623,7 +628,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
             dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
-            attachments = if (attach != null) old.attachments + attach else old.attachments,
+            attachments = if (attach != null) old.attachments.filterNot { it.file == replacePath } + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
         undoStack.addLast(e.id)
@@ -694,10 +699,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     fun stampNow() = stamps.now()
 
-    fun attach(surveyId: String, file: File, mediaType: String, role: String?, startUtcMs: Long? = null, monotonicNs: Long? = null) {
+    /** Returns the id of the superseding record. [replacePath] drops that attachment from the record (its file stays on disk). */
+    fun attach(surveyId: String, file: File, mediaType: String, role: String?, startUtcMs: Long? = null, monotonicNs: Long? = null, replacePath: String? = null): String? {
         val rel = file.relativeTo(repo.sessionDir(sessionId)).invariantSeparatorsPath
-        editSurvey(surveyId, attach = Attachment(rel, mediaType, sha256(file), role, startUtcMs, monotonicNs))
+        return editSurvey(surveyId, attach = Attachment(rel, mediaType, sha256(file), role, startUtcMs, monotonicNs), replacePath = replacePath)
     }
+
+    fun sessionRelPath(file: File): String = file.relativeTo(repo.sessionDir(sessionId)).invariantSeparatorsPath
 
     /** Current heading of the camera in the site frame (degrees from north, clockwise), when tracked and calibrated. */
     fun currentHeadingDeg(): Double? {

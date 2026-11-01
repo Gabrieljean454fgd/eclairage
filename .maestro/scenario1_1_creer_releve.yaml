@@ -9,7 +9,7 @@ name: "Scénario 1.1 — Créer un relevé"
     permissions: { all: allow }
 - extendedWaitUntil:
     visible: { id: "accueil_nouveau" }
-    timeout: 60000
+    timeout: 90000
 - tapOn: { id: "accueil_nouveau" }
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro bureau"

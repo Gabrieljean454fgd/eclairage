@@ -62,12 +62,17 @@ class MainActivity : ComponentActivity() {
         val systemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeBackground(systemDark)))
         DiagLog.init(applicationContext)
+        if (savedInstanceState != null) DiagLog.i("APP", "Activité recréée par Android (état restauré)")
         app.lumisite.android.capture.ArDebug.fromIntent(applicationContext, intent, BuildConfig.DEBUG)
         val repo = Repository(applicationContext)
         setContent {
             LumiTheme {
                 Surface(Modifier.semantics { testTagsAsResourceId = true }) {
-                    var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+                    // Saved across activity re-creation; a live session comes back as its site screen (the session can be resumed there).
+                    var screen by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = androidx.compose.runtime.saveable.Saver<Screen, String>(
+                        save = { when (it) { Screen.Home -> "home"; Screen.NewSite -> "new"; Screen.Settings -> "settings"; is Screen.SiteDetail -> "site:" + it.siteId; is Screen.Live -> "site:" + it.controller.site.id } },
+                        restore = { v -> when { v == "new" -> Screen.NewSite; v == "settings" -> Screen.Settings; v.startsWith("site:") -> Screen.SiteDetail(v.removePrefix("site:")); else -> Screen.Home } },
+                    )) { mutableStateOf<Screen>(Screen.Home) }
                     var homeKey by remember { mutableStateOf(0) }
                     LaunchedEffect(screen) {
                         DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau"; is Screen.SiteDetail -> "Site"
@@ -86,7 +91,12 @@ class MainActivity : ComponentActivity() {
                         Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
                             repo.stageOsmSource(f.snapshot.retrievedUtcMs, f.snapshot.endpoint, f.raw)
                         }, onSave = { site, staged ->
-                            repo.saveSite(site)
+                            try { repo.saveSite(site) } catch (e: Exception) {
+                                DiagLog.e("SITE", "Accueil > Nouveau relevé > Créer : enregistrement du site impossible", e)
+                                android.widget.Toast.makeText(this@MainActivity, "Site non enregistré : ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                return@SiteEditorScreen
+                            }
+                            DiagLog.i("SITE", "Site créé ${site.id}")
                             staged?.let { scope.launch(Dispatchers.IO) { runCatching { repo.saveOsmSource(site.id, it) } } }
                             site.bbox?.let { repo.addRecentZone(RecentZone(site.name, it)) }
                             screen = Screen.SiteDetail(site.id)
@@ -95,7 +105,13 @@ class MainActivity : ComponentActivity() {
                             val site = repo.site(s.siteId)
                             var surveys by remember(s.siteId) { mutableStateOf(emptyList<app.lumisite.core.compute.SurveyPositions.Resolved>()) }
                             LaunchedEffect(s.siteId) { surveys = site?.let { withContext(Dispatchers.IO) { repo.siteSurveys(it) } }.orEmpty() }
-                            if (site == null) screen = Screen.Home else SiteScreen(
+                            if (site == null) {
+                                LaunchedEffect(s.siteId) {
+                                    DiagLog.e("SITE", "Site ${s.siteId} introuvable dans le stockage local : retour à l'Accueil")
+                                    android.widget.Toast.makeText(this@MainActivity, "Site introuvable (voir Réglages > Journal)", android.widget.Toast.LENGTH_LONG).show()
+                                    screen = Screen.Home
+                                }
+                            } else SiteScreen(
                                 site, repo.sessions(site.id), surveys,
                                 onNewSession = { screen = Screen.Live(SessionController(applicationContext, repo, site, Ids.new("ses"), resume = false)) },
                                 onResume = { h -> screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true)) },

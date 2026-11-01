@@ -287,9 +287,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
     val actionBar: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // One FlowRow over the full width (button + 6 chips): 2 rows on a Pixel 7 (412 dp), 3 on a 360 dp phone, never one chip per row.
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
             OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
-            androidx.compose.foundation.layout.FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            run {
                 Mode.entries.filter { it != Mode.NONE }.forEach { m ->
                     FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
                         Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
@@ -351,7 +352,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     // AR block (tracking banner, camera preview, torch / measure buttons) scrolls, capped to ~25 % of the height: with ARCore active
     // or INSUFFICIENT_LIGHT it can be tall, and with adjustResize the keyboard shrinks the screen — the input panel keeps its room.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val topMax = maxHeight * 0.25f
+        // Short height (keyboard open with adjustResize, or a small phone): the status / AR block is clipped to nothing (still composed,
+        // so the camera GL view is not torn down) and the map yields room to the input panel.
+        val short = maxHeight < 480.dp
+        val topMax = if (short) 0.dp else maxHeight * 0.25f
         val statusBlock: @Composable (Modifier) -> Unit = { m ->
             Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
         }
@@ -370,8 +374,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     actionBar()
                     statusBlock(Modifier)
                 }
-                map(Modifier.fillMaxWidth().weight(0.45f))
-                panel(Modifier.weight(0.55f).padding(8.dp))
+                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.45f))
+                panel(Modifier.weight(if (short) 0.75f else 0.55f).padding(8.dp))
             }
         }
     }

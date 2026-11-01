@@ -54,3 +54,20 @@ Pré-releases intermédiaires (remplacées) : `etape1-c3c749b` (v110) avant les 
 
 ### Questions ouvertes (P1)
 - La cause du point 1.3 est déduite du code et non reproduite sur le Pixel 7 : à confirmer par le parcours 1.1 sur le téléphone.
+
+## Palier P2 — sur etape-2
+
+### P2a — Session : ergonomie (prompt v4 point 2.1 ; « 2.2 ergonomie » dans l'ordre du complément)
+Statut : fait sur émulateur, à vérifier sur Pixel 7 avec ARCore réel.
+
+Changements de libellés (ancien → nouveau) :
+- Session > grand bandeau « Suivi : initialisé (TRACKING) / initialisation… / perdu » → pastille « TRK » (vert : suivi, orange : initialisation ou dégradé, rouge : perdu, gris : arrêté ou indisponible). Toucher la pastille affiche le libellé complet et la raison (infobulle).
+- Session > texte « ARCore actif… » → pastille « AR ● » (« AR ○ » si inactif). La toucher affiche l'état détaillé.
+- Session > carte > « Source : GPS · non calibré · dernière position valide il y a 12 s » → « GPS · non calibré · 12 s ».
+- Session > « Torche : oui / non » → icône lampe 🔦 (« 🔦● » allumée) ; « Mesure A / B » → icône règle « 📏 A / 📏 B ». Les testTags `session_ar_torche_oui` et `session_ar_mesure_a` sont inchangés, et l'ancien libellé est conservé en description d'accessibilité.
+- Session > barre d'actions : déplacée tout en bas, sur une seule ligne de 7 cases (icône + libellé court, 56 dp de haut) : « Synchro », « Calibrer », « Relevé », « Annoter », « Recaler », « Export », « Terminer » (ancien « ← Terminer la session »). testTags inchangés.
+- Session > « Afficher la trajectoire sans recalage » : **supprimé**. La trajectoire affichée est toujours la meilleure estimation, recalée quand il y a des recalages. Le testTag `session_checkbox`, qui n'était utilisé par aucun parcours, disparaît avec l'option, comme demandé.
+
+Disposition en portrait : pastilles en haut, puis bloc caméra (200×150 dp) avec ses commandes à côté, puis la carte (60 % de la hauteur restante, au lieu de 45 %), le panneau, et la barre d'actions. La caméra n'est jamais recouverte. Avec le clavier ouvert en portrait, le bloc caméra est replié le temps de la saisie.
+
+Flow Maestro : `.maestro/scenario_p2_session_barre_actions.yaml` (« Session barre d'actions ») vérifie, sans défilement, la barre, les 7 actions, les pastilles AR et TRK et la carte, et que l'option supprimée n'est plus affichée. Test JVM mis à jour : `Etape2Test` (texte court de la source).

@@ -1,5 +1,8 @@
 package app.lumisite.android.ui
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
 import app.lumisite.core.survey.Details
 import app.lumisite.core.survey.Shapes
 import androidx.compose.runtime.mutableStateMapOf
@@ -101,7 +104,6 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var arReady by remember { mutableStateOf(false) }
     var arAvail by remember { mutableStateOf<ArCoreApk.Availability?>(null) }
     var perms by remember { mutableStateOf(false) }
-    var showUncorrected by remember { mutableStateOf(true) }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
     var selectedSurvey by remember { mutableStateOf<String?>(null) }
     val draw = remember { DrawState() }
@@ -203,7 +205,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Modifier.fillMaxSize(), c.site.origin, 19.0,
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
-                    trajectory = st.trajectory, uncorrected = if (showUncorrected) st.uncorrected else emptyList(),
+                    trajectory = st.trajectory, uncorrected = emptyList(),
                     lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), picked = picked,
                     follow = if (follow) currentLl else null,
                     selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
@@ -236,7 +238,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.5f)) {
                 Text(posStatus.text(), Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
                     color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
-                Text("Vert : trajectoire estimée (non garantie) · gris pointillé : sans recalage · rouge : corrections",
+                Text("Vert : trajectoire estimée (non garantie) · rouge : corrections",
                     Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
                 if (mode == Mode.DRAW) draw.polygonHint()?.let {
                     Text(it, Modifier.background(Color(0xE6FFF3C4)).padding(6.dp).testTag("session_annoter_polygone_aide"),
@@ -245,58 +247,61 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             }
         }
     }
-    // Fixed header: status on the left, camera preview top-right with a fixed maximum size. Nothing is drawn over the camera.
+    // Compact status line at the very top (prompt v4 2.1): « AR ● » and « TRK » pills (tap: details), recording indicators, theme.
+    val statusRow: @Composable () -> Unit = {
+        var showTrk by remember { mutableStateOf(false) }
+        var showAr by remember { mutableStateOf(false) }
+        val playback by c.ar.playback.collectAsState()
+        val recording by c.ar.recording.collectAsState()
+        val (trkBg, trkLabel) = trackingLabel(st.tracking)
+        Column(Modifier.fillMaxWidth().testTag("session_etat")) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
+                Pill(if (arReady) "AR ●" else "AR ○", if (arReady) Color(0xFF1B8A4B) else Color(0xFF555555), "session_etat_ar") { showAr = !showAr }
+                Pill("TRK", trkBg, "session_etat_trk") { showTrk = !showTrk }
+                if (playback) Pill("PLAYBACK", Color(0xFFB00020), "session_ar_playback")
+                if (recording) Pill("● REC ARCore", Color(0xFFB00020), "session_ar_enregistrement")
+                ThemeToggle(activity)
+            }
+            if (showTrk) Text(trkLabel + (st.trackingReason?.let { " ($it)" } ?: ""), style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_etat_trk_detail"))
+            if (showAr) Text(st.arStatus + if (arReady) " · Caméra active pour le suivi AR, aucune image ni vidéo enregistrée." else "", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+    // Camera block: preview (always shown when ARCore runs) with its aim / torch / measure controls beside it. Nothing drawn over it.
     val simulatedArHeader = remember {
         app.lumisite.android.BuildConfig.DEBUG && android.provider.Settings.Global.getString(activity.contentResolver, "lumisite_simuler_entete_ar") == "1"
     }
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TrackingBanner(st.tracking, st.trackingReason)
-                Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
-                val playback by c.ar.playback.collectAsState()
-                val recording by c.ar.recording.collectAsState()
-                if (playback) Text("PLAYBACK", color = Color.White, style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.background(Color(0xFFB00020)).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_ar_playback"))
-                if (recording) Text("● REC ARCore", color = Color(0xFFB00020), style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_ar_enregistrement"))
-                ThemeToggle(activity)
-                if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
-            }
             if (!arReady && simulatedArHeader) {
-                // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real AR block.
-                Column(Modifier.width(200.dp).testTag("session_ar_simule")) {
-                    androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray)) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
-                    ArControls(c)
-                }
+                // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real camera block.
+                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
+                ArControls(c)
             }
             if (arReady) {
-                Column(Modifier.width(200.dp)) {
                 androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp)) {
-                AndroidView(factory = { ctx ->
-                    GLSurfaceView(ctx).apply {
-                        preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
-                        setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-                        glView = this
-                    }
-                }, modifier = Modifier.width(200.dp).height(150.dp))
-                ArReticle(c)
+                    AndroidView(factory = { ctx ->
+                        GLSurfaceView(ctx).apply {
+                            preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
+                            setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                            glView = this
+                        }
+                    }, modifier = Modifier.width(200.dp).height(150.dp))
+                    ArReticle(c)
                 }
                 ArControls(c)
-                }
             }
+            if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall)
         }
     }
     val actionBar: @Composable () -> Unit = {
-        // One FlowRow over the full width (button + 6 chips): 2 rows on a Pixel 7 (412 dp), 3 on a 360 dp phone, never one chip per row.
-        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
-            OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
-            run {
-                Mode.entries.filter { it != Mode.NONE }.forEach { m ->
-                    FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
-                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
-                    }, modifier = Modifier.testTag("session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }))
-                }
+        // 7 equal cells (icon + short label, ≥ 56 dp high), one line, fixed at the bottom: never scrolled, never over the camera.
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).testTag("session_barre_actions")) {
+            listOf(Mode.SYNC to ("🔊" to "Synchro"), Mode.CALIBRATE to ("🎯" to "Calibrer"), Mode.SURVEY to ("📍" to "Relevé"), Mode.DRAW to ("✏️" to "Annoter"),
+                Mode.RELOCALIZE to ("🧭" to "Recaler"), Mode.EXPORT to ("📤" to "Export")).forEach { (m, il) ->
+                val tag = "session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }
+                ActionCell(il.first, il.second, mode == m, tag, Modifier.weight(1f)) { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }
             }
+            ActionCell("⏹", "Terminer", false, "session_terminer_la_session", Modifier.weight(1f), enabled = !closing) { finish() }
         }
     }
     val panel: @Composable (Modifier) -> Unit = { m ->
@@ -317,9 +322,6 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             )
             st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
             st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(showUncorrected, { showUncorrected = it }, modifier = Modifier.testTag("session_checkbox")); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
-            }
             surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
@@ -348,11 +350,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
 
-    // The action bar (Terminer la session + modes Synchro…Export) is always fixed on screen, never inside a scroll. Only the status /
-    // AR block (tracking banner, camera preview, torch / measure buttons) scrolls, capped to ~25 % of the height: with ARCore active
-    // or INSUFFICIENT_LIGHT it can be tall, and with adjustResize the keyboard shrinks the screen — the input panel keeps its room.
+    // Layout (prompt v4 2.1): status line on top, camera block (≤ 25 % of the height), large map, panel, action bar fixed at the bottom.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Portrait with a short height (keyboard open with adjustResize): while typing, the status / AR block is clipped to nothing
+        // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to nothing
         // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
         val short = maxHeight < 480.dp && maxWidth <= maxHeight
         val topMax = if (short) 0.dp else maxHeight * 0.25f
@@ -362,36 +362,48 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
                 map(Modifier.weight(0.55f).fillMaxHeight())
-                Column(Modifier.weight(0.45f).fillMaxHeight().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.weight(0.45f).fillMaxHeight()) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
+                    HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
                     actionBar()
-                    statusBlock(Modifier)
-                    HorizontalDivider(); panel(Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    actionBar()
-                    statusBlock(Modifier)
-                }
-                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.45f))
-                panel(Modifier.weight(if (short) 0.75f else 0.55f).padding(8.dp))
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow(); statusBlock(Modifier) }
+                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.6f))
+                panel(Modifier.weight(if (short) 0.75f else 0.4f).padding(horizontal = 8.dp, vertical = 4.dp))
+                actionBar()
             }
         }
     }
 }
 
+/** TRK pill colour (green = tracking, orange = limited, red = lost, grey = off) and the full label shown on tap. */
+private fun trackingLabel(s: TrackingState): Pair<Color, String> = when (s) {
+    TrackingState.TRACKING -> Color(0xFF1B8A4B) to "Suivi : initialisé (TRACKING)"
+    TrackingState.INITIALIZING -> Color(0xFFD08000) to "Suivi : initialisation… bougez lentement l'appareil"
+    TrackingState.DEGRADED -> Color(0xFFD08000) to "Suivi : dégradé (pause temporaire)"
+    TrackingState.LOST -> Color(0xFFB00020) to "Suivi : perdu"
+    TrackingState.STOPPED -> Color(0xFF555555) to "Suivi : arrêté"
+    TrackingState.UNAVAILABLE -> Color(0xFF555555) to "Suivi AR indisponible : positions manuelles uniquement"
+}
+
 @Composable
-private fun TrackingBanner(s: TrackingState, reason: String?) {
-    val (bg, label) = when (s) {
-        TrackingState.TRACKING -> Color(0xFF1B8A4B) to "Suivi : initialisé (TRACKING)"
-        TrackingState.INITIALIZING -> Color(0xFF8A6D1B) to "Suivi : initialisation… bougez lentement l'appareil"
-        TrackingState.DEGRADED -> Color(0xFFD08000) to "Suivi : dégradé (pause temporaire)"
-        TrackingState.LOST -> Color(0xFFB00020) to "Suivi : perdu"
-        TrackingState.STOPPED -> Color(0xFF555555) to "Suivi : arrêté"
-        TrackingState.UNAVAILABLE -> Color(0xFF555555) to "Suivi AR indisponible : positions manuelles uniquement"
+private fun Pill(text: String, bg: Color, tag: String, onClick: (() -> Unit)? = null) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
+    Text(text, Modifier.background(bg, shape).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+        .padding(horizontal = 10.dp, vertical = 4.dp).testTag(tag), color = Color.White, style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+private fun ActionCell(icon: String, label: String, selected: Boolean, tag: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(modifier.heightIn(min = 56.dp).background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+        .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).testTag(tag).padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text(icon, fontSize = 18.sp)
+        Text(label, fontSize = 10.sp, maxLines = 1, softWrap = false, color = if (enabled) Color.Unspecified else Color.Gray)
     }
-    Text(label + (reason?.let { " ($it)" } ?: ""), Modifier.fillMaxWidth().background(bg).padding(8.dp), color = Color.White)
 }
 
 @Composable

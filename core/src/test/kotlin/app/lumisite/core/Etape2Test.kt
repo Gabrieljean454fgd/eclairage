@@ -53,10 +53,10 @@ class Etape2Test {
         val ok = PositionStatus.of(10_000, true, TrackingState.TRACKING, 9_500, null, false)
         assertEquals(PositionStatus.Source.AR, ok.source); assertTrue(!ok.lost); assertEquals(500, ok.ageMs)
         val lost = PositionStatus.of(40_000, true, TrackingState.LOST, 9_500, null, false)
-        assertTrue(lost.lost); assertEquals("Source : AR · calibré · suivi perdu · dernière position valide il y a 30 s", lost.text())
+        assertTrue(lost.lost); assertEquals("AR · calibré · perdu · 30 s", lost.text())
         val gps = PositionStatus.of(10_000, false, TrackingState.UNAVAILABLE, null, 7_000, false)
-        assertEquals(PositionStatus.Source.GPS, gps.source); assertEquals("Source : GPS · non calibré · dernière position valide il y a 3 s", gps.text())
+        assertEquals(PositionStatus.Source.GPS, gps.source); assertEquals("GPS · non calibré · 3 s", gps.text())
         assertEquals(PositionStatus.Source.MANUAL, PositionStatus.of(1, false, TrackingState.UNAVAILABLE, null, null, true).source)
-        assertEquals("Source : aucune · non calibré", PositionStatus.of(1, false, TrackingState.UNAVAILABLE, null, null, false).text())
+        assertEquals("aucune · non calibré", PositionStatus.of(1, false, TrackingState.UNAVAILABLE, null, null, false).text())
     }
 }

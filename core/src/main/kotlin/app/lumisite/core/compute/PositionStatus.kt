@@ -15,10 +15,11 @@ data class PositionStatus(
     enum class Source(val label: String) { AR("AR"), GPS("GPS"), MANUAL("manuelle"), NONE("aucune") }
 
     fun text(): String = buildString {
-        append("Source : ").append(source.label)
+        // Compact on purpose (Session > carte, prompt v4 2.1): « GPS · non calibré · 12 s » = source · calibration · age of the last valid position.
+        append(source.label)
         append(" · ").append(if (calibrated) "calibré" else "non calibré")
-        if (lost) append(" · suivi perdu")
-        ageMs?.let { append(" · dernière position valide il y a ").append(age(it)) }
+        if (lost) append(" · perdu")
+        ageMs?.let { append(" · ").append(age(it)) }
     }
 
     companion object {

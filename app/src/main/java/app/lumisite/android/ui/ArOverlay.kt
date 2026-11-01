@@ -1,5 +1,9 @@
 package app.lumisite.android.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
@@ -63,16 +67,19 @@ fun ArControls(c: SessionController) {
     var a by remember { mutableStateOf<V3?>(null) }
     var measure by remember { mutableStateOf<String?>(null) }
     val (color, hint) = aimState(st.tracking, aim)
-    Column(Modifier.width(200.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.widthIn(max = 200.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("$hint · $planes plan(s) au sol", style = MaterialTheme.typography.labelSmall, color = color)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            OutlinedButton({ c.ar.setTorch(!torch) }, modifier = Modifier.testTag("session_ar_torche_oui")) { Text(if (torch) "Torche : oui" else "Torche : non", fontSize = 11.sp) }
+            // Session > Torche (lamp icon) and Session > Mesure (ruler icon), 48 dp touch targets.
+            OutlinedButton({ c.ar.setTorch(!torch) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (torch) "Torche : oui" else "Torche : non" }.testTag("session_ar_torche_oui")) {
+                Text(if (torch) "🔦●" else "🔦", fontSize = 16.sp)
+            }
             OutlinedButton({
                 val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" }?.point
                 if (p == null) measure = "Mesure : visez une cible"
                 else if (a == null) { a = p; measure = "Point A posé, visez B" }
                 else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null }
-            }, modifier = Modifier.testTag("session_ar_mesure_a")) { Text(if (a == null) "Mesure A" else "Mesure B", fontSize = 11.sp) }
+            }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (a == null) "Mesure A" else "Mesure B" }.testTag("session_ar_mesure_a")) { Text(if (a == null) "📏 A" else "📏 B", fontSize = 16.sp) }
         }
         measure?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
     }

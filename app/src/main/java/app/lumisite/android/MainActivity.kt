@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.DEBUG && intent?.extras?.get("simuler_pose_ar")?.toString() == "true") DebugFlags.simulatedPoses = true
         Configuration.getInstance().apply {
             userAgentValue = "LumiSite/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
             osmdroidBasePath = File(filesDir, "osmdroid")

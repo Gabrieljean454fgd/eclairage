@@ -21,6 +21,8 @@ class SensorRecorder(ctx: Context, private val stamps: () -> StampFactory?, priv
 
     /** Latest camera heading (deg from north) from TYPE_ROTATION_VECTOR, or null if unavailable. */
     @Volatile var cameraHeadingDeg: Double? = null; private set
+    /** Camera tilt above the horizon (deg, negative = looking down) from TYPE_ROTATION_VECTOR, or null. */
+    @Volatile var cameraTiltDeg: Double? = null; private set
     @Volatile var headingAccuracy: Int? = null; private set
 
     val recordedTypes = listOf(
@@ -60,6 +62,7 @@ class SensorRecorder(ctx: Context, private val stamps: () -> StampFactory?, priv
         // Back camera looks along device -Z. World frame of rotation vector: X east, Y north, Z up.
         val east = -rm[2]; val north = -rm[5]
         cameraHeadingDeg = (Math.toDegrees(atan2(east.toDouble(), north.toDouble())) + 360.0) % 360.0
+        cameraTiltDeg = app.lumisite.core.position.Tilt.fromRotationMatrix(rm)
         headingAccuracy = e.accuracy
     }
 

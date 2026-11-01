@@ -1,5 +1,6 @@
 package app.lumisite.android.ui
 
+import app.lumisite.android.ControlRow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
@@ -132,6 +133,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             else -> "ARCore : $a"
         })
         if (!arReady) c.markArUnavailable("AR_NOT_RUNNING")
+        if (!arReady && app.lumisite.android.DebugFlags.simulatedPoses) c.startSimulatedPoses()
     }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -191,7 +193,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 add(MapArrow(c.ltp.toLatLon(it.copy(u = 0.0)), st.lastHeadingDeg, if (posStatus.lost) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 120, 255),
                     if (posStatus.lost) "Dernière position AR valide (suivi perdu)" else "Position et orientation (AR)"))
             }
-            app.lumisite.core.compute.PositionStatus.Source.GPS -> st.lastGps?.let { add(MapArrow(LatLon(it.lat, it.lon), null, android.graphics.Color.rgb(0, 150, 136), "Position GPS")) }
+            // D1: the GNSS position is only indicative; grey when D7 says it is unusable.
+            app.lumisite.core.compute.PositionStatus.Source.GPS -> st.lastGps?.let { add(MapArrow(LatLon(it.lat, it.lon), null, if (st.gnssQuality == app.lumisite.core.position.GnssQuality.INUTILISABLE) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 150, 136), "Position GPS (${st.gnssQuality.label})")) }
             else -> {}
         }
         st.calibMark?.let { add(MapArrow(c.ltp.toLatLon(it.site.copy(u = 0.0)), it.headingDeg, android.graphics.Color.rgb(255, 140, 0), "${it.label} : position du téléphone et direction de la caméra")) }
@@ -199,6 +202,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val relocTarget = if (mode == Mode.RELOCALIZE) picked?.let { c.ltp.toEnu(it).copy(u = 0.0) } else null
     val relocPreview = if (relocTarget != null && st.currentSite != null)
         listOf(MapLine(c.ltp.toLatLon(st.currentSite!!.copy(u = 0.0)), picked!!, android.graphics.Color.rgb(255, 140, 0), "Décalage à corriger")) else emptyList()
+    val controlPts = (c.controlRows("CALIBRATION").map { it to "Calibrage" } + c.controlRows("RELOCALIZATION").map { it to "Recalage" }).map { (r, k) ->
+        MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id)
+    }
     val map: @Composable (Modifier) -> Unit = { m ->
         Box(m.testTag("session_carte")) {
             OsmMap(
@@ -206,13 +212,13 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
                     trajectory = st.trajectory, uncorrected = emptyList(),
-                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), picked = picked,
+                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw) + controlPts, picked = picked,
                     follow = if (follow) currentLl else null,
                     selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
                     preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
                 onTap = { if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) else picked = it },
-                onPointTap = { id -> if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
+                onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
                 onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
@@ -236,7 +242,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 }
             }
             Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.5f)) {
-                Text(posStatus.text(), Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
+                Text(posStatus.text() + " · GNSS " + st.gnssQuality.label, Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
                     color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
                 Text("Vert : trajectoire estimée (non garantie) · rouge : corrections",
                     Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
@@ -309,24 +315,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
                 Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
             }
-            val gps = st.lastGps
-            Text(
-                "Poses : ${st.poseCount} · IMU : ${st.imuCount} · GPS : " +
-                    (gps?.let { "%.6f, %.6f ±%s m (%s)".format(it.lat, it.lon, it.horizontalAccuracyM?.let { a -> "%.0f".format(a) } ?: "?", it.provider) } ?: "aucun fix") +
-                    " · statut ${st.gpsStatus}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                st.currentSite?.let { "Position estimée (repère site) E %.2f m, N %.2f m".format(it.e, it.n) } ?: "Position site : non calibrée",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
             st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
             surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
                 Mode.CALIBRATE -> {
-                    CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
+                    CalibratePanel(c, pickedTxt, ::refPoint)
                     st.calibMark?.let { k -> Text("Repère posé sur le plan (orange) — ${k.label} : téléphone en E %.2f, N %.2f m".format(k.site.e, k.site.n) +
                         (k.headingDeg?.let { " ; caméra vers %.0f° (depuis le nord)".format(it) } ?: ""), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_repere")) }
                 }
@@ -345,6 +339,19 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Mode.EXPORT -> ExportPanel(activity, repo, c)
                 Mode.NONE -> {}
             }
+            // Generic status after the mode panel, so the controls of the active mode stay at the top of the small panel.
+            val gps = st.lastGps
+            Text(
+                "Poses : ${st.poseCount} · IMU : ${st.imuCount} · GPS : " +
+                    (gps?.let { "%.6f, %.6f ±%s m (%s)".format(it.lat, it.lon, it.horizontalAccuracyM?.let { a -> "%.0f".format(a) } ?: "?", it.provider) } ?: "aucun fix") +
+                    " · statut ${st.gpsStatus}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                st.currentSite?.let { "Position estimée (repère site) E %.2f m, N %.2f m".format(it.e, it.n) } ?: "Position site : non calibrée",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
             HorizontalDivider()
             Text("Journal : ${events.size} événements (calibrations ${events.count { it is app.lumisite.core.model.CalibrationEvent }}, recalages ${events.count { it is RelocalizationEvent }}, relevés ${events.count { it is SurveyEvent }})", style = MaterialTheme.typography.labelSmall)
         }
@@ -407,46 +414,66 @@ private fun ActionCell(icon: String, label: String, selected: Boolean, tag: Stri
 }
 
 @Composable
-private fun CalibratePanel(c: SessionController, pickedTxt: String, hasA: Boolean, ref: (String) -> ReferencePoint?) {
-    var method by remember { mutableStateOf(0) }
-    var heading by remember { mutableStateOf("") }
-    var known by remember { mutableStateOf("") }
-    var fixScale by remember { mutableStateOf(true) }
-    Text("Calibration initiale : aligne le repère AR sur le repère du site.", style = MaterialTheme.typography.labelLarge)
-    Row { FilterChip(method == 0, { method = 0 }, { Text("1 point + cap") }, modifier = Modifier.testTag("session_calibrer_1_point_cap")); Spacer(Modifier.width(6.dp)); FilterChip(method == 1, { method = 1 }, { Text("2 points") }, modifier = Modifier.testTag("session_calibrer_2_points")) }
-    Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
-    if (method == 0) {
-        val compass = c.sensors.cameraHeadingDeg
-        Text("Placez-vous sur le point, visez avec la caméra une direction connue et saisissez son cap (° depuis le nord), ou utilisez la boussole (non fiable en intérieur).", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
-        Row {
-            OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
-        }
-        Button(onClick = {
-            val r = ref("Calibration P1"); val h = heading.replace(',', '.').toDoubleOrNull()
-            if (r != null && h == null) c.notify("Saisissez un cap de visée valide (degrés depuis le nord).")
-            if (r != null && h != null) c.calibrateOnePoint(r, h, if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL", if (compass != null) 15.0 else null)
-        }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider la calibration") }
-    } else {
-        Text("Placez-vous sur A, touchez A sur la carte, capturez. Marchez jusqu'à B (≥ 0,5 m, idéalement > 5 m), touchez B, validez.", style = MaterialTheme.typography.bodySmall)
-        if (!hasA) Button(onClick = { ref("Calibration A")?.let(c::captureCalibrationA) }, modifier = Modifier.testTag("session_calibrer_capturer_a")) { Text("Capturer A") }
-        else {
-            OutlinedTextField(known, { known = it }, label = { Text("Distance A-B mesurée (m, optionnel)") }, modifier = Modifier.testTag("session_calibrer_distance_a_b_mesuree_m"))
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(fixScale, { fixScale = it }, modifier = Modifier.testTag("session_calibrer_checkbox")); Text("Échelle fixée à 1 (AR métrique)", style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = { ref("Calibration B")?.let { c.calibrateTwoPoints(it, fixScale, known.replace(',', '.').toDoubleOrNull()) } }, modifier = Modifier.testTag("session_calibrer_capturer_b_et_valider")) { Text("Capturer B et valider") }
+private fun TiltText(c: SessionController) {
+    val st by c.state.collectAsState()
+    val pose = st.lastPose?.takeIf { st.tracking == TrackingState.TRACKING }
+    val tilt = pose?.let { app.lumisite.core.position.Tilt.fromArQuaternion(it.q.toDoubleArray()) } ?: c.sensors.cameraTiltDeg
+    Text(tilt?.let { "Inclinaison de visée (calculée, " + (if (pose != null) "pose ARCore" else "capteur de rotation") + ") : " + "%+.0f°".format(it) } ?: "Inclinaison de visée : capteurs indisponibles",
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_inclinaison"))
+}
+
+/** Session > Calibrer / Recaler > tableau: one row per point (n°, time, plan coordinates, residual, status, « Supprimer »). */
+@Composable
+private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String) {
+    val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT) }
+    Column(Modifier.fillMaxWidth().background(Color(0x11000000)).padding(4.dp).testTag(prefix + "_tableau")) {
+        Text(if (rows.isEmpty()) "Aucun point." else "N° · heure · E / N (m) · résidu · statut", style = MaterialTheme.typography.labelSmall)
+        rows.forEach { r ->
+            val site = r.e.observation.reference.site
+            Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + r.n), verticalAlignment = Alignment.CenterVertically) {
+                Text("${r.n} · ${fmt.format(java.util.Date(r.e.t.utcEpochMs))} · " + "%.1f / %.1f".format(site.e, site.n) + " · " + (r.residualM?.let { "%.2f m".format(it) } ?: "—") + " · " + r.status,
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = if (r.status == "rejeté") Color(0xFFB00020) else Color.Unspecified)
+                TextButton({ c.removeControlPoint(r.e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_supprimer_" + r.n)) { Text("Supprimer") }
+            }
         }
     }
+}
+
+@Composable
+private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String) -> ReferencePoint?) {
+    var heading by remember { mutableStateOf("") }
+    c.state.collectAsState().value
+    val rows = c.controlRows("CALIBRATION")
+    Text("Calibrage multi-points : touchez sur la carte le point où vous êtes, validez ; 1er point avec le cap de visée, puis 2e, 3e… point.", style = MaterialTheme.typography.labelLarge)
+    Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
+    TiltText(c)
+    val compass = c.sensors.cameraHeadingDeg
+    if (rows.isEmpty()) {
+        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée du 1er point (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
+        OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
+    }
+    Button(onClick = {
+        val r = ref("Calibrage ${rows.size + 1}") ?: return@Button
+        val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
+        c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
+    }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
+    ControlTable(c, rows, "session_calibrer")
+    OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
 }
 
 @Composable
 private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) -> ReferencePoint?) {
     var headingCorr by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    Text("Recalage : placez-vous sur un point connu, touchez-le sur la carte et confirmez. La trajectoire antérieure est conservée.", style = MaterialTheme.typography.labelLarge)
+    c.state.collectAsState().value
+    val rows = c.controlRows("RELOCALIZATION")
+    Text("Recalage : placez-vous sur un point connu, touchez-le sur la carte et confirmez. Chaque recalage s'ajoute aux calibrages (les plus récents pèsent plus) ; la trajectoire antérieure est conservée.", style = MaterialTheme.typography.labelLarge)
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(headingCorr, { headingCorr = it }, label = { Text("Correction de cap (°, optionnel, + = horaire)") }, modifier = Modifier.testTag("session_recaler_correction_de_cap_optionnel_hora"))
     OutlinedTextField(note, { note = it }, label = { Text("Note") }, modifier = Modifier.testTag("session_recaler_note"))
-    Button(onClick = { ref("Recalage")?.let { c.relocalize(it, headingCorr.replace(',', '.').toDoubleOrNull(), note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
+    Button(onClick = { ref("Recalage ${rows.size + 1}")?.let { c.addControlPoint("RELOCALIZATION", it, headingCorrectionDeg = headingCorr.replace(',', '.').toDoubleOrNull(), note = note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
+    ControlTable(c, rows, "session_recaler")
+    OutlinedButton({ c.clearControlPoints(relocalizationsOnly = true) }, modifier = Modifier.testTag("session_recaler_nouveau_recalage")) { Text("Nouveau recalage") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

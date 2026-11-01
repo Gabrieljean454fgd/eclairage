@@ -71,3 +71,45 @@ Changements de libellés (ancien → nouveau) :
 Disposition en portrait : pastilles en haut, puis bloc caméra (200×150 dp) avec ses commandes à côté, puis la carte (60 % de la hauteur restante, au lieu de 45 %), le panneau, et la barre d'actions. La caméra n'est jamais recouverte. Avec le clavier ouvert en portrait, le bloc caméra est replié le temps de la saisie.
 
 Flow Maestro : `.maestro/scenario_p2_session_barre_actions.yaml` (« Session barre d'actions ») vérifie, sans défilement, la barre, les 7 actions, les pastilles AR et TRK et la carte, et que l'option supprimée n'est plus affichée. Test JVM mis à jour : `Etape2Test` (texte court de la source).
+
+### P2b — Positionnement intérieur, sous-lot 1 : solveur, GNSS, tableaux (prompt v4 2.4, décisions D1–D5, D7)
+Statut : partiel. Calculs testés en JVM, interface testée sur émulateur avec des poses AR **simulées** ; rien n'est vérifié avec ARCore réel ni sur le Pixel 7.
+
+- **`core` / `app.lumisite.core.position.CalibrationSolver` (D3, D4, D5)** : transformation 2D directe (rotation + translation, échelle 1), moindres carrés pondérés de type Helmert / Umeyama sans échelle, sans bibliothèque.
+  - N = 1 : translation + cap. N ≥ 2 : rotation par moindres carrés. Si les points sont à moins de 2 m les uns des autres, la rotation précédente est gardée.
+  - Résidu calculé pour chaque point.
+  - Rejet d'un point si résidu > max(2σ ; 1,0 m), au plus 3 itérations, jamais moins de 2 points conservés. σ est calculé sur les autres points ; c'est mon interprétation de D4, car un point aberrant gonfle sinon son propre seuil. Le point rejeté reste dans le tableau, marqué « rejeté ».
+  - Poids exp(−âge / 5 min), et un nouveau segment à chaque recalage. Le dernier recalage est appliqué exactement (« Je suis ici »), marqué « ancre ». C'est ce qui garantit qu'un recalage déplace la position de la valeur attendue (test D2).
+- **`GnssClassifier` (D7)** : fiable / dégradé / inutilisable selon les satellites utilisés (`GnssStatus.usedInFix`), la moyenne C/N0 des 4 meilleurs, la précision (`Location.getAccuracy`) et l'âge du dernier fix GNSS.
+  - Hystérésis : passage à « inutilisable » après 3 s de mauvais échantillons, retour à « fiable » après 10 s de bons échantillons.
+  - Seuils réglables (`GnssThresholds`), écrits dans Réglages > Journal à chaque session, et chaque changement d'état est journalisé.
+  - Affichage : Session > carte > « AR · calibré · 3 s · GNSS inutilisable ». La flèche GPS devient grise quand le GNSS est inutilisable.
+  - D1 : le GNSS n'entre jamais dans la position AR calibrée.
+- **D2, journal** : une fois par seconde, Réglages > Journal reçoit une ligne `POSITION` avec la source (AR+calibrage / AR figée / non calibrée), le numéro de segment, l'événement actif, la rotation (°) et la translation (m), la pose AR dans le plan (x, −z) et la position sur le site.
+- **Recaler sans effet, saut à 40 m** : la cause n'est pas confirmée faute de journal du Pixel 7. Hypothèses lues dans le code :
+  1. Calibrer et Recaler exigent un suivi AR « TRACKING ». Avec `INSUFFICIENT_LIGHT` (bureau peu éclairé), ils étaient refusés avec un simple message, et la flèche restait figée sur la dernière position valide. Le message donne maintenant l'état et la raison du suivi.
+  2. L'ancien recalage gardait la rotation de la calibration 1 point. Avec un cap faux (boussole en intérieur), chaque déplacement repartait en biais, donc la position redevenait fausse juste après le recalage. Les recalages entrent maintenant dans l'estimation de la rotation.
+  3. Le point GPS qui saute de 40 m est le GPS lui-même en intérieur. Il est désormais classé « inutilisable » et grisé.
+  
+  Les lignes `POSITION` et `GNSS` du journal Pixel 7 permettront de trancher.
+- **Session > Calibrer** (libellés ancien → nouveau) :
+  - « 1 point + cap » / « 2 points », « Capturer A », « Capturer B et valider », « Distance A-B mesurée » et « Échelle fixée à 1 » sont **remplacés** par le calibrage multi-points : « Valider le point N » (testTag `session_calibrer_valider_la_calibration` conservé).
+  - Le champ « Cap de visée du 1er point (°) » (testTag `session_calibrer_cap_de_visee` conservé) n'apparaît que pour le premier point.
+  - Tableau `session_calibrer_tableau`, une ligne par point (`session_calibrer_ligne_N`) : n°, heure, E / N, résidu, statut (retenu / rejeté / ancre / en attente), bouton « Supprimer » (`session_calibrer_supprimer_N`). Bouton « Nouveau calibrage » (`session_calibrer_nouveau_calibrage`).
+  - Chaque point est marqué sur le plan (orange, « Calibrage N »).
+  - Testtags supprimés avec l'ancien mode 2 points, utilisés par aucun parcours : `session_calibrer_1_point_cap`, `session_calibrer_2_points`, `session_calibrer_capturer_a`, `session_calibrer_capturer_b_et_valider`, `session_calibrer_distance_a_b_mesuree_m`, `session_calibrer_checkbox`.
+- **Session > Recaler** : même tableau (`session_recaler_tableau`, `session_recaler_ligne_N`, `session_recaler_supprimer_N`) et bouton « Nouveau recalage » (`session_recaler_nouveau_recalage`). Points en violet sur le plan.
+  - Interprétation : « Nouveau calibrage » vide les deux tableaux, « Nouveau recalage » seulement les recalages. Un tableau vidé laisse la dernière transformation active jusqu'au point suivant.
+- **Inclinaison de visée** : affichée en lecture seule dans Session > Calibrer (« Inclinaison de visée (calculée, pose ARCore / capteur de rotation) : −23° ») par `Tilt`.
+  - **Question ouverte** : le code ne contient aucun champ « hauteur / angle de visée » à supprimer. Le seul champ de visée est « Cap de visée », que D3 exige pour N = 1 : je l'ai gardé pour le 1er point seulement.
+- **Ordre du panneau** : les commandes du mode actif passent avant les lignes d'état génériques (poses, GPS, distance), qui sont déplacées sous le mode.
+- Tests JVM : `PositioningTest` (14 tests).
+  - Solveur : 1 point avec cap, 1 point sans cap refusé, 2 points avec rotation de 90°, 6 points bruités, point aberrant rejeté mais gardé dans le tableau, jamais moins de 2 points.
+  - Recalage qui déplace la position de la valeur attendue.
+  - Trajectoire simulée de 10 min avec dérive (1°/min + 1 cm/s) et 9 recalages : erreur moyenne divisée par plus de 2.
+  - GNSS en intérieur avec une précision qui saute à 40 m → « inutilisable » ; critères D7 un par un.
+  - Inclinaison, glissement d'affichage D8.
+- Flow Maestro : `.maestro/scenario_p2_calibrage_multipoints.yaml` (« Session calibrage multipoints ») : 2 points validés → 2 lignes → « Supprimer » → 1 ligne.
+  - L'émulateur n'ayant pas ARCore, le parcours lance l'appli avec l'argument `simuler_pose_ar` : poses AR synthétiques sur un cercle de 6 m, APK de débogage seulement, source `SIMULATED_DEBUG` dans le journal.
+  - Ce parcours vérifie l'interface et le tableau, **pas** le suivi AR réel. Aucun utilisateur ne peut l'activer sans lancer l'appli par adb ou Maestro.
+- Reste pour les sous-lots suivants : D6 (ancres ARCore, recalcul au plus une fois par seconde, ancre partagée par groupe d'objets à moins de 8 m) et D8 (glissement de 0,5 s à l'écran ; la classe `DisplayGlide` est prête et testée, mais pas encore branchée sur la carte).

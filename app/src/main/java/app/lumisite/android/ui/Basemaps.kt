@@ -29,16 +29,19 @@ object MapPrefs {
     var basemap by mutableStateOf(Basemap.OSM)
     /** Esri World Imagery is offered only when the project accepts Esri's terms. */
     var esriAccepted by mutableStateOf(false)
+    /** IGN cadastre drawn over the base map (D12). */
+    var cadastre by mutableStateOf(false)
 
     fun load(ctx: Context) {
         val p = ctx.getSharedPreferences("map", Context.MODE_PRIVATE)
         esriAccepted = p.getBoolean("esri", false)
+        cadastre = p.getBoolean("cadastre", false)
         basemap = runCatching { Basemap.valueOf(p.getString("basemap", "OSM")!!) }.getOrDefault(Basemap.OSM)
         if (basemap == Basemap.ESRI && !esriAccepted) basemap = Basemap.OSM
     }
 
     fun save(ctx: Context) {
-        ctx.getSharedPreferences("map", Context.MODE_PRIVATE).edit().putBoolean("esri", esriAccepted).putString("basemap", basemap.name).apply()
+        ctx.getSharedPreferences("map", Context.MODE_PRIVATE).edit().putBoolean("esri", esriAccepted).putBoolean("cadastre", cadastre).putString("basemap", basemap.name).apply()
     }
 }
 
@@ -85,3 +88,10 @@ class SiteTileProvider(ctx: Context, src: ITileSource, cache: IFilesystemCache) 
         a: MapTileFileStorageProviderBase?, b: MapTileFileStorageProviderBase?, c: MapTileFileStorageProviderBase?,
     ): MapTileApproximater = BoundedApproximater().apply { a?.let(::addProvider); b?.let(::addProvider); c?.let(::addProvider) }
 }
+
+/** Cadastre overlay source: only the tiles looked at are cached (osmdroid default cache), never bulk-downloaded. */
+fun cadastreTileSource(): ITileSource =
+    object : OnlineTileSourceBase("IGN-CADASTRE", 0, 19, 256, ".png", arrayOf(Basemap.IGN_WMTS), Basemap.CADASTRE_ATTRIBUTION,
+        TileSourcePolicy(2, TileSourcePolicy.FLAG_NO_BULK or TileSourcePolicy.FLAG_NO_PREVENTIVE)) {
+        override fun getTileURLString(idx: Long) = Basemap.cadastreTileUrl(MapTileIndex.getZoom(idx), MapTileIndex.getX(idx), MapTileIndex.getY(idx))
+    }

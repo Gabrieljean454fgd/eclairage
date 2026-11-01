@@ -135,6 +135,14 @@ fun OsmMap(
         map.setTileSource(src)
     }
     (map.tileProvider.tileWriter as? SiteTileCache)?.bbox = siteBbox
+    val cadastreOverlay = remember {
+        org.osmdroid.views.overlay.TilesOverlay(org.osmdroid.tileprovider.MapTileProviderBasic(ctx.applicationContext, cadastreTileSource()), ctx.applicationContext)
+            .apply { loadingBackgroundColor = android.graphics.Color.TRANSPARENT; setLoadingLineColor(android.graphics.Color.TRANSPARENT) }
+    }
+    if (MapPrefs.cadastre != map.overlayManager.contains(cadastreOverlay)) {
+        if (MapPrefs.cadastre) map.overlayManager.add(0, cadastreOverlay) else map.overlayManager.remove(cadastreOverlay)
+        map.invalidate()
+    }
     DisposableEffect(Unit) {
         val l = object : MapListener {
             fun report(): Boolean {
@@ -293,6 +301,9 @@ fun OsmMap(
     })
     if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red,
         style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(androidx.compose.ui.graphics.Color.White, blurRadius = 6f)))
+    if (MapPrefs.cadastre) Text(Basemap.CADASTRE_ATTRIBUTION,
+        Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 52.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(2.dp).testTag("carte_attribution_cadastre"),
+        style = MaterialTheme.typography.labelSmall)
     widthM?.let {
         Text(if (it < 100) "largeur visible : %.1f m".format(it) else "largeur visible : %.0f m".format(it),
             Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 28.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(4.dp),
@@ -308,6 +319,10 @@ fun OsmMap(
                     enabled = ok, onClick = { MapPrefs.basemap = b; MapPrefs.save(ctx); menu = false },
                 )
             }
+            DropdownMenuItem(
+                text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.cadastre, null, modifier = Modifier.testTag("carte_cadastre")); Text("Cadastre IGN (Parcellaire Express) par-dessus") } },
+                onClick = { MapPrefs.cadastre = !MapPrefs.cadastre; MapPrefs.save(ctx); menu = false },
+            )
             DropdownMenuItem(
                 text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.esriAccepted, null, modifier = Modifier.testTag("carte_checkbox")); Text("Le projet accepte les conditions Esri") } },
                 onClick = {

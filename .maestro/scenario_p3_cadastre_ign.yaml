@@ -1,0 +1,15 @@
+# Session > carte > « Fond : … » > « Cadastre IGN (Parcellaire Express) par-dessus » : couche WMTS Géoplateforme sans clé, attribution affichée.
+appId: app.lumisite.android
+name: Session carte cadastre IGN
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "carte_fond" }
+- tapOn: "Plan IGN"
+- assertVisible: "Fond : Plan IGN"
+- tapOn: { id: "carte_fond" }
+- tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
+- assertVisible: { id: "carte_attribution_cadastre" }
+- assertVisible: "Cadastre : IGN – Parcellaire Express \\(PCI\\), Etalab 2\\.0"
+- tapOn: { id: "carte_fond" }
+- tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
+- assertNotVisible: { id: "carte_attribution_cadastre" }

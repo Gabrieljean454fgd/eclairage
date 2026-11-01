@@ -200,3 +200,17 @@ Statut : fait pour « audio toujours gardé » et pour la mesure. **L'accéléra
 - **Question ouverte (non tranchée)** : raccourcir la fenêtre, par exemple à 6 s avec une émission entre 1 et 4 s, accélérerait le bouton. En contrepartie, les appareils devraient être déclenchés presque en même temps, sinon ils ne s'entendent plus. Autre option : garder AudioRecord ouvert en continu pendant la session, mais cela occupe le micro en permanence. Aucun changement tant que ce n'est pas décidé ; les durées journalisées sur le Pixel 7 aideront à choisir.
 - Test JVM : `SyncTimingTest`, qui mesure la détection sur une fenêtre de 12 s et vérifie qu'elle retrouve le chirp injecté.
 - Flow Maestro : `.maestro/scenario_p2_synchro_audio_garde.yaml` (« Session synchro audio toujours garde »). La synchro audio réelle entre deux appareils n'est pas testable sur l'émulateur.
+
+## Priorité 3 (branche `etape-3`, PR brouillon)
+
+### P3a — Carte > fonds IGN (D12)
+Statut : fait, testé sur émulateur avec le réseau de la VM.
+- **Existant avant ce lot** : Session > carte > « Fond : … » proposait déjà « Plan IGN » (`GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2`) et « Orthophoto IGN », servis par `https://data.geopf.fr/wmts`, sans clé, avec l'attribution IGN dans le cartouche osmdroid.
+- **Ajout** : l'entrée de menu « Cadastre IGN (Parcellaire Express) par-dessus » (case `carte_cadastre`) dans le même menu.
+  - La couche `CADASTRALPARCELS.PARCELLAIRE_EXPRESS` est dessinée en PNG transparent au-dessus de n'importe quel fond.
+  - Le choix est gardé entre deux lancements.
+  - Quand la couche est active, l'attribution « Cadastre : IGN – Parcellaire Express (PCI), Etalab 2.0 » s'affiche sur la carte (`carte_attribution_cadastre`).
+- **Cache** : seules les tuiles consultées sont gardées (cache osmdroid). La politique de la source interdit le téléchargement en masse et le préchargement (`FLAG_NO_BULK | FLAG_NO_PREVENTIVE`). Les règles de cache des fonds (OSM, Plan IGN, imagerie limitée au site) sont inchangées.
+- **Vérifié** : une tuile du cadastre est servie sans clé (HTTP 200, image/png, zoom 17 sur Toulouse), et le style `normal` est bien celui par défaut d'après le GetCapabilities.
+- Test JVM : `BasemapsTest.cadastreUrlUsesGeoplateformeWithoutKey`.
+- Flow Maestro : `.maestro/scenario_p3_cadastre_ign.yaml` (« Session carte cadastre IGN »), passé sur émulateur : Plan IGN, puis cadastre activé (attribution visible), puis désactivé.

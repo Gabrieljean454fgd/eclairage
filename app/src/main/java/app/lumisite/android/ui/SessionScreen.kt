@@ -352,9 +352,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     // AR block (tracking banner, camera preview, torch / measure buttons) scrolls, capped to ~25 % of the height: with ARCore active
     // or INSUFFICIENT_LIGHT it can be tall, and with adjustResize the keyboard shrinks the screen — the input panel keeps its room.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Short height (keyboard open with adjustResize, or a small phone): the status / AR block is clipped to nothing (still composed,
-        // so the camera GL view is not torn down) and the map yields room to the input panel.
-        val short = maxHeight < 480.dp
+        // Portrait with a short height (keyboard open with adjustResize): while typing, the status / AR block is clipped to nothing
+        // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
+        val short = maxHeight < 480.dp && maxWidth <= maxHeight
         val topMax = if (short) 0.dp else maxHeight * 0.25f
         val statusBlock: @Composable (Modifier) -> Unit = { m ->
             Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }

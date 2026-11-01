@@ -55,6 +55,7 @@ sealed interface Screen {
 class MainActivity : ComponentActivity() {
     /** Live session shown on screen, closed if Android destroys the activity (it comes back as its Site screen, « Reprendre »). */
     private var live: SessionController? = null
+    private var resuming = false
 
     companion object {
         /** Sessions being closed after an activity re-creation, by session id (process-wide: survives the activity). */
@@ -140,10 +141,14 @@ class MainActivity : ComponentActivity() {
                             } else SiteScreen(
                                 site, repo.sessions(site.id), surveys,
                                 onNewSession = { screen = Screen.Live(SessionController(applicationContext, repo, site, Ids.new("ses"), resume = false)) },
-                                onResume = { h -> scope.launch {
-                                    withContext(Dispatchers.IO) { closing[h.id]?.join(10_000) }
-                                    screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
-                                } },
+                                onResume = { h -> if (!resuming) { resuming = true; scope.launch {
+                                    // One resume at a time: further taps are ignored while waiting; if the activity goes away during the
+                                    // wait, the coroutine is cancelled before any controller is created.
+                                    try {
+                                        withContext(Dispatchers.IO) { closing[h.id]?.join(10_000) }
+                                        screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
+                                    } finally { resuming = false }
+                                } } },
                                 onBack = { screen = Screen.Home },
                             )
                         }

@@ -187,3 +187,16 @@ Statut : fait, testé sur émulateur (sans photo réelle).
 - Flow `.maestro/scenario_p2_version_accueil.yaml` : vérifie aussi que l'interrupteur est visible et activé par défaut.
 - **Non testé par Maestro** : la prise de vue réelle (on ne pilote pas l'application photo de l'émulateur) et l'effet de l'interrupteur désactivé. À vérifier sur le Pixel 7.
 - Flows P2d et P2e : le panneau Relevé défile jusqu'à « Enregistrer le relevé » par une boucle `repeat … while notVisible`. Le nombre de gestes nécessaire variait d'une exécution à l'autre ; aucune assertion n'est retirée.
+
+### P2f — Session > Synchro : audio toujours gardé et diagnostic de la lenteur (prompt v4 2.3)
+Statut : fait pour « audio toujours gardé » et pour la mesure. **L'accélération n'est pas faite** : c'est une question ouverte, voir plus bas.
+- **Session > Synchro** : la case « Garder l'enregistrement audio (WAV) pour analyse » (`session_synchro_checkbox`) est supprimée, à la demande. Elle est remplacée par le texte « L'enregistrement audio (WAV) est toujours gardé dans le dossier de la session. ». Chaque « Synchroniser » écrit `sync_<code>_<horodatage>.wav` dans le dossier de session.
+- **Mesure** : chaque tour journalise ses durées par phase dans Réglages > Journal, rubrique `SYNCHRO` : `ouverture_micro`, `ecoute_fenetre`, `ecriture_wav`, `detection`. Elles s'affichent aussi sous le résultat.
+- **Cause de la lenteur** (lue dans le code et mesurée sur la JVM ; pas encore de mesure sur le Pixel 7) :
+  - Le bouton écoute une **fenêtre fixe de 12 s** (`AudioSync.WINDOW_MS`). Chaque appareil émet son chirp à un instant tiré au hasard entre 1 et 10 s, pour que plusieurs appareils déclenchés à quelques secondes d'intervalle s'entendent mutuellement. Un tour dure donc au moins 12 s, quel que soit l'appareil.
+  - La détection sur 12 s à 48 kHz prend environ 0,8 s sur la JVM de la VM de CI (test `SyncTimingTest`). Sur téléphone, elle est probablement plus longue (non mesurée). Elle tourne déjà hors du fil UI (`Dispatchers.IO`).
+  - Le WAV (≈ 1,1 Mo) s'écrit en une fois après l'écoute.
+  - L'affichage réagit immédiatement : « Écoute et émission en cours… » paraît dès l'appui, sans attendre le micro.
+- **Question ouverte (non tranchée)** : raccourcir la fenêtre, par exemple à 6 s avec une émission entre 1 et 4 s, accélérerait le bouton. En contrepartie, les appareils devraient être déclenchés presque en même temps, sinon ils ne s'entendent plus. Autre option : garder AudioRecord ouvert en continu pendant la session, mais cela occupe le micro en permanence. Aucun changement tant que ce n'est pas décidé ; les durées journalisées sur le Pixel 7 aideront à choisir.
+- Test JVM : `SyncTimingTest`, qui mesure la détection sur une fenêtre de 12 s et vérifie qu'elle retrouve le chirp injecté.
+- Flow Maestro : `.maestro/scenario_p2_synchro_audio_garde.yaml` (« Session synchro audio toujours garde »). La synchro audio réelle entre deux appareils n'est pas testable sur l'émulateur.

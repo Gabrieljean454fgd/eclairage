@@ -624,11 +624,8 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
     var secours by remember { mutableStateOf(false) }
     var cale by remember { mutableStateOf<Int?>(null) }
-    var keepWav by remember { mutableStateOf(false) }
     Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(keepWav, { keepWav = it }, modifier = Modifier.testTag("session_synchro_checkbox")); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
-    }
+    Text("L'enregistrement audio (WAV) est toujours gardé dans le dossier de la session.", style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_de_synchro_genere_facultati"))
     Button(enabled = !busy, onClick = {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
@@ -639,12 +636,13 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                     val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
                     val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
                     prefs.edit().putInt("counter", counter).apply()
-                    // Without the explicit option no WAV is written: detection works on the in-memory buffer.
-                    val wav = if (keepWav) File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav") else null
+                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
                     val r = AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
                         c.ownSyncId(), counter, wav, AudioSync.unprocessedSupported(activity))
                     val n = c.syncRound(label, r, counter); cale = n
-                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export."
+                    val phases = r.phasesMs.entries.joinToString(" · ") { "${it.key} ${it.value} ms" }
+                    app.lumisite.android.data.DiagLog.i("SYNCHRO", "Durées : $phases")
+                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export." + "\nDurées : $phases"
                 } catch (e: Exception) { "Échec audio : ${e.message}. Utilisez le top manuel (Secours)." }
             }
             busy = false

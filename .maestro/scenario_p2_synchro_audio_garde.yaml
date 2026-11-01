@@ -1,0 +1,9 @@
+# Session > Synchro : l'option « Garder l'enregistrement audio (WAV) pour analyse » est supprimée, l'audio est toujours gardé.
+appId: app.lumisite.android
+name: Session synchro audio toujours garde
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_synchro" }
+- assertVisible: "L'enregistrement audio \\(WAV\\) est toujours gardé dans le dossier de la session\\."
+- assertNotVisible: { id: "session_synchro_checkbox" }
+- assertVisible: { id: "session_synchro_synchroniser" }

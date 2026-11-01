@@ -35,10 +35,12 @@ object AudioSync {
             .getProperty(android.media.AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
 
     data class Heard(val eventMonotonicNs: Long, val detection: AudioDetection, val emitterHex: String?, val counter: Int?, val frameOk: Boolean)
-    data class Round(val heard: List<Heard>, val emitWriteNs: Long?)
+    /** [phasesMs]: duration of each phase (micro opening, listening window, WAV writing, detection). */
+    data class Round(val heard: List<Heard>, val emitWriteNs: Long?, val phasesMs: Map<String, Long> = emptyMap())
 
     @SuppressLint("MissingPermission")
     fun round(windowMs: Int, emitAfterMs: Int, ownId: Int, counter: Int, recordingFile: File?, unprocessed: Boolean): Round {
+        val t0 = SystemClock.elapsedRealtime()
         val n = RATE * windowMs / 1000
         val minBuf = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = AudioRecord(MediaRecorder.AudioSource.UNPROCESSED.takeIf { unprocessed && Build.VERSION.SDK_INT >= 24 } ?: MediaRecorder.AudioSource.MIC,
@@ -48,6 +50,7 @@ object AudioSync {
         var emitWriteNs: Long? = null
         var tsFrame: Long? = null; var tsNs: Long? = null; var tsBase: String? = null
         rec.startRecording()
+        val tOpen = SystemClock.elapsedRealtime()
         val startMono = SystemClock.elapsedRealtimeNanos()
         val emitter = Thread { Thread.sleep(emitAfterMs.toLong()); emitWriteNs = play(IdFrame.signal(ownId, counter)) }.apply { start() }
         var read = 0
@@ -64,7 +67,9 @@ object AudioSync {
         }
         rec.stop(); rec.release()
         emitter.join()
+        val tListen = SystemClock.elapsedRealtime()
         recordingFile?.let { writeWav(it, pcm, read) }
+        val tWav = SystemClock.elapsedRealtime()
         val signal = FloatArray(read) { pcm[it] / 32768f }
         val heard = MultiChirp.detectAll(signal, Chirp.generate(), RATE).map { h ->
             val d = h.detection; val f = h.frame?.takeIf { it.ok }
@@ -76,7 +81,8 @@ object AudioSync {
                 if (f?.emitterId == ownId) emitWriteNs else null, recordingFile?.name, f?.hex, f?.counter, h.frame?.ok,
             ), f?.hex, f?.counter, f != null)
         }
-        return Round(heard, emitWriteNs)
+        val tDetect = SystemClock.elapsedRealtime()
+        return Round(heard, emitWriteNs, linkedMapOf("ouverture_micro" to tOpen - t0, "ecoute_fenetre" to tListen - tOpen, "ecriture_wav" to tWav - tListen, "detection" to tDetect - tWav))
     }
 
     /** Plays the signal; returns monotonic ns when play() was called (not the acoustic emission instant). */

@@ -607,10 +607,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * Edits a record by appending a new survey event that supersedes it (journal stays append-only).
      * [moveTo] sets a manual position; [familyId]/[note] change the family/comment; [delete] removes it.
      */
-    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null) {
+    /** Returns the id of the superseding record (null when nothing was recorded). */
+    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null): String? {
         val events = _state.value.events
-        val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return fail("Relevé introuvable.")
-        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return fail(e.message ?: "Famille inconnue") } }
+        val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return null.also { fail("Relevé introuvable.") }
+        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return null.also { fail(e.message ?: "Famille inconnue") } } }
         val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
         val moved = moveTo != null
         val e = old.copy(
@@ -626,6 +627,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
         undoStack.addLast(e.id)
+        return e.id
     }
 
     private val undoStack = ArrayDeque<String>()

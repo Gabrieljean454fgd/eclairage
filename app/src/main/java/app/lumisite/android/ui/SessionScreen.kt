@@ -108,6 +108,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var perms by remember { mutableStateOf(false) }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
     var selectedSurvey by remember { mutableStateOf<String?>(null) }
+    // Session > Annoter > objet > « Déplacer » : one finger drags the symbol (the map does not move), then Valider / Annuler.
+    var movingId by remember { mutableStateOf<String?>(null) }
+    var moveGrab by remember { mutableStateOf<Enu?>(null) }
+    var moveTarget by remember { mutableStateOf<Enu?>(null) }
     val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -176,7 +180,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     }
     val surveys = SurveyPositions.resolveAll(events)
     val surveyPts = surveys.mapNotNull { r ->
-        r.site?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
+        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
     }
     val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
@@ -233,7 +237,16 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
                 onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
-                onFinger = if (mode == Mode.DRAW && draw.capturesFinger()) { phase, ll ->
+                onFinger = if (movingId != null) { phase, ll ->
+                    val p = c.ltp.toEnu(ll)
+                    val start = surveys.firstOrNull { it.event.id == movingId }?.site
+                    when (phase) {
+                        // A second drag continues from the current target.
+                        FingerPhase.DOWN -> { val t = moveTarget; moveGrab = if (t != null && start != null) Enu(p.e - (t.e - start.e), p.n - (t.n - start.n), 0.0) else p }
+                        FingerPhase.MOVE, FingerPhase.UP -> if (start != null) moveGrab?.let { g -> moveTarget = app.lumisite.core.survey.DragMove.target(start, g, p) }
+                        FingerPhase.CANCEL -> Unit
+                    }
+                } else if (mode == Mode.DRAW && draw.capturesFinger()) { phase, ll ->
                     val p = c.ltp.toEnu(ll).copy(u = 0.0)
                     when (phase) {
                         FingerPhase.DOWN, FingerPhase.MOVE -> draw.hover = p
@@ -310,6 +323,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall)
         }
     }
+    // Last message (confirmation / refusal) fixed above the action bar, so it stays visible whatever the panel scroll.
+    val messageBar: @Composable () -> Unit = {
+        st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_message")) }
+    }
     val actionBar: @Composable () -> Unit = {
         // 7 equal cells (icon + short label, ≥ 56 dp high), one line, fixed at the bottom: never scrolled, never over the camera.
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).testTag("session_barre_actions")) {
@@ -322,12 +341,19 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
     val panel: @Composable (Modifier) -> Unit = { m ->
-        Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Back to the top when the mode or the selected object changes: the object panel and the mode controls come first.
+        val panelScroll = rememberScrollState()
+        LaunchedEffect(mode, selectedSurvey) { panelScroll.scrollTo(0) }
+        Column(m.verticalScroll(panelScroll), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
                 Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
             }
-            st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-            surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
+            surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r ->
+                SelectedSurveyPanel(c, r, picked, moving = movingId == r.event.id, moveTarget = moveTarget,
+                    onMove = { start -> movingId = if (start) r.event.id else null; moveGrab = null; moveTarget = null },
+                    onReselect = { selectedSurvey = it },
+                    onDone = { selectedSurvey = null; movingId = null })
+            }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
                 Mode.CALIBRATE -> {
@@ -383,6 +409,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Column(Modifier.weight(0.45f).fillMaxHeight()) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
                     HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
+                    messageBar()
                     actionBar()
                 }
             }
@@ -391,6 +418,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow(); statusBlock(Modifier) }
                 map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.6f))
                 panel(Modifier.weight(if (short) 0.75f else 0.4f).padding(horizontal = 8.dp, vertical = 4.dp))
+                messageBar()
                 actionBar()
             }
         }
@@ -514,20 +542,35 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
 }
 
 @Composable
-private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, onDone: () -> Unit) {
+private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, moving: Boolean, moveTarget: Enu?, onMove: (Boolean) -> Unit, onReselect: (String) -> Unit, onDone: () -> Unit) {
     var note by remember(r.event.id) { mutableStateOf(r.event.note ?: "") }
     var changeFamily by remember(r.event.id) { mutableStateOf(false) }
+    var details by remember(r.event.id) { mutableStateOf(false) }
     val site = r.site
     Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Relevé sélectionné : ${r.event.kind}" + (site?.let { " · E %.2f, N %.2f m".format(it.e, it.n) } ?: "") +
-            (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        Text("Relevé sélectionné : ${r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        (if (moving) moveTarget ?: site else site)?.let { Text("E %.2f, N %.2f m".format(it.e, it.n), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_coordonnees")) }
+        if (moving) {
+            Text("Glissez le symbole avec un doigt (deux doigts : déplacer la carte), puis validez.", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(enabled = moveTarget != null, onClick = { moveTarget?.let { c.editSurvey(r.event.id, moveTo = it) }?.let(onReselect); onMove(false) }, modifier = Modifier.testTag("session_objet_valider_le_deplacement")) { Text("Valider le déplacement") }
+                OutlinedButton({ onMove(false) }, modifier = Modifier.testTag("session_objet_annuler_le_deplacement")) { Text("Annuler") }
+            }
+            return@Column
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (site != null) Button({ onMove(true) }, modifier = Modifier.testTag("session_objet_deplacer")) { Text("Déplacer") }
+            OutlinedButton({ details = !details }, modifier = Modifier.testTag("session_objet_details")) { Text(if (details) "Détails ▾" else "Détails ▸") }
+            OutlinedButton({ onDone() }, modifier = Modifier.testTag("session_objet_fermer")) { Text("Fermer") }
+        }
+        if (!details) return@Column
         AttachmentButtons(c, r.event.id)
         if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(0.1, 0.5).forEach { d ->
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d)) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d)) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d)) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
             }
         }
         OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }, modifier = Modifier.testTag("session_objet_deplacer_au_point_touche_sur")) {

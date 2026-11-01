@@ -134,3 +134,37 @@ Statut : fait, testé sur émulateur.
 - **Réglages > À propos** (nouvelle section) : « LumiSite v0.3.0-alpha (build <versionCode>) » (testTag `reglages_a_propos_version`).
 - `versionName` passe de `0.2.0-v<versionCode>` à `0.3.0-alpha`. Le numéro de build est le versionCode, qui continue de croître à chaque commit. Le versionName figure aussi dans le manifeste d'export et dans le User-Agent OSM.
 - Flow Maestro : `.maestro/scenario_p2_version_accueil.yaml` (« Version visible sur Accueil et Reglages »).
+
+### Publications P2b / P2c
+- P2b sous-lot 1 : pré-release `etape2-2476563`, APK `lumisite-etape2-v129-2476563.apk` (CI verte).
+- P2b sous-lot 2 (781a0ab) : **pas de pré-release séparée**. GitHub a annulé le build en attente quand le commit P2c a été poussé : une seule exécution en attente est gardée par branche. Son contenu est inclus dans la pré-release P2c.
+- P2c : pré-release `etape2-11925f3`, APK `lumisite-etape2-v131-11925f3.apk` (CI verte, contient aussi D6 / D8).
+
+### P2d — Session > Annoter : sélection directe et déplacement (prompt v4 2.5)
+Statut : fait, testé sur émulateur.
+- **Cause du déplacement incorrect** (lue dans le code, reproduite sur émulateur) :
+  1. L'épingle « Point choisi » se posait exactement sur l'objet (après « Point à la croix ») et captait l'appui, si bien que l'objet devenait insélectionnable.
+  2. Après une modification (N +0,1, « Déplacer au point touché… »), le relevé reçoit un nouvel identifiant (journal append-only). La sélection pointait encore l'ancien identifiant et le panneau de l'objet disparaissait.
+  3. Avec un outil de dessin actif (Poser, Polygone…), l'appui sur la carte était pris par l'outil, et « Déplacer au point touché sur la carte » ne recevait jamais de point.
+  4. Le panneau du bas gardait sa position de défilement : le panneau de l'objet sélectionné, placé en haut, restait hors de l'écran.
+- **Corrections** :
+  - L'épingle « Point choisi » laisse passer l'appui.
+  - La sélection suit le nouvel identifiant après chaque modification.
+  - Le panneau revient en haut quand on change de mode ou d'objet.
+  - Le dernier message (« Relevé … enregistré », refus, etc.) est maintenant fixé au-dessus de la barre d'actions (`session_message`) au lieu du haut du panneau défilant, où il était souvent invisible.
+- **Session > Annoter > objet sélectionné** (appui sur son symbole sur la carte, ou dans la liste « Objets du relevé », qui reste) :
+  - Le symbole passe en orange.
+  - Affichage réduit à « Relevé sélectionné : <famille> » et aux coordonnées (`session_objet_coordonnees`).
+  - Trois boutons : « Déplacer » (`session_objet_deplacer`), « Détails ▸ » (`session_objet_details`) et « Fermer » (`session_objet_fermer`).
+  - Les anciens contrôles (pièces jointes, N/E ±, « Déplacer au point touché sur la carte », commentaire, « Enregistrer », « Changer de famille », « Supprimer ») sont dans le panneau repliable « Détails ». Leurs testTags sont inchangés ; aucun parcours existant ne les utilisait.
+- **« Déplacer »** : on glisse le symbole avec un doigt, et la carte ne bouge pas (deux doigts la déplacent).
+  - Le symbole garde l'écart de prise, il ne saute pas sous le doigt.
+  - « Valider le déplacement » (`session_objet_valider_le_deplacement`) écrit un relevé modifié (`MANUAL_EDIT`), et « Annuler » (`session_objet_annuler_le_deplacement`) n'écrit rien. Un second glisser repart de la position en cours.
+  - Le bouton existe ; l'appui long n'est pas implémenté.
+- Tests JVM : `DragMoveTest`.
+  - Aller-retour écran ↔ WGS84 en projection Web Mercator (`ScreenProjection`, même formule que la carte).
+  - Un glisser de (dx, dy) pixels déplace l'objet de (dx, −dy) × mètres par pixel dans le plan, et le symbole se retrouve sous la position glissée à 0,5 px près.
+  - Sans mouvement du doigt, l'objet ne bouge pas.
+  - Sur l'appareil, la conversion pixel → WGS84 est faite par la projection osmdroid. Le test couvre la formule et la conversion vers le plan (`DragMove`, `LocalTangentPlane`).
+- Flow Maestro : `.maestro/scenario_p2_annoter_deplacer.yaml` (« Session annoter selection directe et deplacement ») : un objet est posé à la croix, puis sélectionné par appui sur la carte, glissé et validé. Les coordonnées affichées doivent différer de celles copiées avant le déplacement.
+- Reste discutable (non tranché) : le panneau Session > Relevé garde la grille complète des familles au-dessus de « Enregistrer le relevé », ce qui oblige à défiler sur un écran de la taille du Pixel 7.

@@ -283,7 +283,8 @@ fun OsmMap(
                 icon = arrowIcon(mv, a.headingDeg, a.color)
             }
         }
-        content.picked?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Point choisi" } }
+        // The picked pin never intercepts taps: an object lying under it stays directly selectable.
+        content.picked?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Point choisi"; setOnMarkerClickListener { _, _ -> false } } }
         content.current?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Position estimée"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 120, 255), 26) } }
         content.follow?.let { mv.controller.setCenter(gp(it)) }
         mv.overlays += ScaleBarOverlay(mv)

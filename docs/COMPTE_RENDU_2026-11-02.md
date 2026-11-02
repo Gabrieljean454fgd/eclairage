@@ -21,6 +21,7 @@ Tests : CI (émulateur Pixel 7, API 34) et émulateur local seulement ; aucun te
 - **Cause** (reproduite sur l'émulateur local en navigation à 3 boutons) : le sélecteur de dossier système (DocumentsUI, pas LumiSite) dessine « USE THIS FOLDER » avec son centre sur le bord haut de la barre de navigation à 3 boutons, que M1 active désormais en CI. L'appui au centre est absorbé par la barre, le sélecteur reste ouvert et `reglages_stockage_resultat` n'apparaît jamais. Ce n'est pas un défaut des marges de LumiSite.
 - **Correctif du flow** (aucune assertion retirée) : attente explicite du sélecteur, puis appui au centre ; s'il est encore affiché, nouvel appui sur la moitié haute visible du bouton. Commit `8b501cb` (etape-1), fusionné vers etape-2 (`e54c512`) puis etape-3.
 - Local : 1.4 vert en navigation à 3 boutons.
+- Régression introduite puis corrigée sur etape-3 (CI de `9b30de5`) : `scenario1_5_partager_journal` rouge, parce que le nouveau réglage « Capteurs » (fréquence IMU) avait repoussé « Partager le journal » hors de l'écran. Le réglage est déplacé en bas de Réglages, sous Journal. Les parcours 1.4, 1.5 et `scenario_p2_reglages_retour` sont verts en local.
 
 ## LOT 1 — Fiabilité (etape-3)
 

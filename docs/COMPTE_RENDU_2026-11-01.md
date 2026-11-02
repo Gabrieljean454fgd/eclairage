@@ -208,3 +208,13 @@ Statut : fait pour « audio toujours gardé » et pour la mesure. **L'accéléra
 - **Accueil > Réglages** (`scenario1_4_reimporter`, échec unique sur le run de 74badcd : `accueil_reglages` non visible après relance `clearState`) : non reproduit en local (vert), vert sur les runs CI suivants ; classé comme instabilité de l'émulateur (écran noir au lancement déjà observé), à surveiller.
 
 **Résultat CI** : 12/12 flows verts sur etape-2 (05a462e) → pré-release `etape2-05a462e`, APK `lumisite-etape2-v136-05a462e.apk` (contient P2d, P2e, P2f) ; 13/13 sur etape-3 (3f94f25, ajoute `scenario_p3_cadastre_ign`) → pré-release `etape3-3f94f25`, APK `lumisite-etape3-v141-3f94f25.apk` (ajoute D12 ; D9 = documentation). Émulateur CI uniquement : rien de vérifié sur le Pixel 7 physique ni avec ARCore réel.
+
+## Relance V4 n°1 (02/11) — retours Pixel 7 réel sur `etape2-05a462e` (Maestro 11/12)
+
+| Écran > Menu > Sous-menu | Statut | Cause / correction | Flow Maestro |
+|---|---|---|---|
+| Site (après Accueil > Nouveau relevé > Créer) — titre du site | fait | Cause : l'écran Site était toujours en deux colonnes (carte 60 % / détails 40 %) ; sur 412 dp, la colonne de droite (~165 dp moins la marge et le bouton « ← Retour ») laissait quelques dp au titre, coupé lettre par lettre. Correction : colonne unique sous 600 dp de large (carte en haut, détails sur toute la largeur), deux colonnes au-delà ; titre sur 2 lignes au maximum avec points de suspension (testTag `site_titre`). | `scenario1_1_creer_releve` : `assertVisible` du titre complet « Maestro bureau » sur `site_titre` |
+| Session > Calibrer > multi-points (« Valider le point 1 ») | fait | Cause : le mode test `simuler_pose_ar` ne démarrait les poses synthétiques que si ARCore n'avait pas démarré ; sur un Pixel réel, ARCore démarre mais reste en INSUFFICIENT_LIGHT / sans suivi, donc aucune pose et refus. Correction (APK de débogage uniquement) : avec `simuler_pose_ar`, les poses synthétiques sont utilisées et les trames ARCore réelles ignorées, qu'ARCore soit présent ou non (journal : source SIMULATED_DEBUG). Pour l'utilisateur réel, le refus est explicite : « Calibrage impossible : pose AR indisponible (état : raison) : éclairez la scène ou bougez lentement. » (même message pour Session > Recaler). | `scenario_p2_calibrage_multipoints` (inchangé) |
+| Accueil > Réglages > Retour système | fait | Cause : l'écran Réglages n'interceptait pas le Retour Android (pas de BackHandler), donc l'activité se fermait. Correction : Retour = Accueil. | nouveau `scenario_p2_reglages_retour` |
+
+Vérifié en local sur émulateur (pixel7, API 34, sans ARCore) : les trois flows ci-dessus passent. Le cas « ARCore présent mais sans suivi » n'est pas reproductible sur l'émulateur : à vérifier sur le Pixel 7 réel.

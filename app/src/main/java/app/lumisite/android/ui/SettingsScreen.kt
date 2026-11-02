@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 /** « Réglages » (stage 1): Stockage (paths, reimport) and Journal (share the diagnostic journal). */
 @Composable
 fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }

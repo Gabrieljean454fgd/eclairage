@@ -258,6 +258,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     private fun onArFrame(pose: PoseSample?, state: TrackingState, reason: String?) {
         if (closed) return
+        // Debug/CI (simuler_pose_ar): synthetic poses replace the real ARCore frames, also when ARCore runs without tracking.
+        if (simThread != null && pose?.source != "SIMULATED_DEBUG") return
         logTracking(state, reason)
         if (pose != null) {
             // 10 Hz pose recording is enough for walking trajectories; every frame is still used by ARCore.
@@ -399,6 +401,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun clearMessage() = _state.update { it.copy(message = null) }
     private fun fail(msg: String) = _state.update { it.copy(message = msg) }
 
+    private fun poseUnavailable(what: String): String {
+        val st = _state.value
+        return "$what impossible : pose AR indisponible (${st.tracking}${st.trackingReason?.let { " : $it" } ?: ""}) : éclairez la scène ou bougez lentement."
+    }
+
     private fun trackedPose(): PoseSample? = _state.value.lastPose?.takeIf { _state.value.tracking == TrackingState.TRACKING }
 
     // ------------------------------------------------------------------ user actions
@@ -481,7 +488,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun addControlPoint(kind: String, ref: ReferencePoint, headingDeg: Double? = null, headingSource: String? = null, headingCorrectionDeg: Double? = null, note: String? = null) {
         val reloc = kind == "RELOCALIZATION"
         val st = _state.value
-        val pose = trackedPose() ?: return fail((if (reloc) "Recalage" else "Calibrage") + " impossible : suivi AR non actif (${st.tracking}${st.trackingReason?.let { " : $it" } ?: ""}).")
+        val pose = trackedPose() ?: return fail(poseUnavailable(if (reloc) "Recalage" else "Calibrage"))
         val before = activeSegment()
         if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
@@ -553,7 +560,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     fun relocalize(ref: ReferencePoint, headingCorrectionDeg: Double?, note: String?) {
-        val pose = trackedPose() ?: return fail("Recalage impossible : suivi AR non actif.")
+        val pose = trackedPose() ?: return fail(poseUnavailable("Recalage"))
         val seg = activeSegment() ?: return fail("Recalage impossible : aucune calibration initiale.")
         val e = Relocalizer.relocalize(Ids.new("rel"), stamps.now(), pose, ref, seg.transform, headingCorrectionDeg, note)
         record(e, "Recalage : écart estimé/recalé = %.2f m.".format(e.deltaM))

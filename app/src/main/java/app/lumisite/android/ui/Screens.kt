@@ -340,17 +340,22 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
 fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPositions.Resolved>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val ltp = remember(site.id) { LocalTangentPlane(site.origin) }
-    Row(Modifier.fillMaxSize()) {
-        OsmMap(Modifier.weight(0.6f).fillMaxSize(), site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
+    // Site: phone portrait (< 600 dp) → single column (map on top, details full width); wider → map | details side by side.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val narrow = maxWidth < 600.dp
+        val map = @Composable { mapMod: Modifier ->
+            OsmMap(mapMod, site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
             origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef, selectedFeatureRefs = site.selectedBuildingOsmRefs.toSet(),
             rect = site.bbox ?: site.osm?.bbox,
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },
         ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)
-        Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        }
+        val details = @Composable { colMod: Modifier ->
+            Column(colMod.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onBack, modifier = Modifier.testTag("site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
-                Text(site.name, style = MaterialTheme.typography.titleLarge)
+                Text(site.name, Modifier.weight(1f).testTag("site_titre"), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
             Text("Origine %.7f, %.7f (%s)".format(site.origin.lat, site.origin.lon, site.originSource), style = MaterialTheme.typography.bodySmall)
             Text(site.osm?.let { "OSM : ${it.features.size} objets, récupérés le ${fmtTime(it.retrievedUtcMs)} (${it.license})" } ?: "Pas de données OSM (site défini manuellement)", style = MaterialTheme.typography.bodySmall)
@@ -366,6 +371,14 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
                     }
                 }
             }
+            }
+        }
+        if (narrow) Column(Modifier.fillMaxSize()) {
+            map(Modifier.fillMaxWidth().weight(0.45f))
+            details(Modifier.fillMaxWidth().weight(0.55f))
+        } else Row(Modifier.fillMaxSize()) {
+            map(Modifier.weight(0.6f).fillMaxSize())
+            details(Modifier.weight(0.4f))
         }
     }
 }

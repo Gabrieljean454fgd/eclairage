@@ -34,7 +34,7 @@ Points : 2.1 un doigt dessine, deux doigts déplacent · 2.2 polygone élastique
 
 Scénario de validation 2 (bureau de Sébastien, Toulouse) : créer un relevé avec sélection OSM ; calibrer ; marcher (la flèche et la trajectoire suivent) ; dessiner un polygone au pouce et le fermer sur le dernier point ; recaler ; exporter. Aucun blocage, textes lisibles en portrait.
 
-Statut au 01/11 (prompt v4) : P1 publié sur etape-2 (`etape2-ff0dd61`, `lumisite-etape2-v125-ff0dd61.apk`, 6/6 Maestro en CI émulateur) ; P2 (ergonomie Session, positionnement intérieur D1–D8, version, Annoter, photo à la pose, Synchro) en cours. PR brouillon.
+Statut au 01/11 (prompt v4) : P1 publié (`etape2-ff0dd61`). P2 sur etape-2 : ergonomie Session (`etape2-e916bbc`), positionnement D1–D5/D7 (`etape2-2476563`), D6/D8 + version v0.3.0-alpha (`etape2-11925f3`), Session > Annoter sélection directe + déplacement (74badcd), photo automatique à la pose (8c0d702), Synchro audio toujours gardé + durées (c66c159) — pré-releases suivantes selon la CI, voir `docs/COMPTE_RENDU_2026-11-01.md`. P3 sur etape-3 (brouillon) : cadastre IGN D12 fait, spec captation D9 écrite et journal de session écrit au format D9 (flux `captation`, relance V4 n°2), cadastre visible par-dessus tous les fonds ; reste de la P3 reporté.
 
 Réserve applicable : **R1** (perte de suivi visible : flèche grisée, âge de la position ; aucune trajectoire inventée pendant une perte).
 
@@ -79,3 +79,8 @@ Le prompt dit lui-même que ses libellés sont indicatifs. Écarts constatés da
 | Session > Relever | Session > « Relevé » > « Enregistrer le relevé » |
 | Session > Carte | pas d'onglet : la carte est toujours affichée dans l'écran Session |
 | Réglages > Stockage, Réglages > Journal | aucun écran Réglages avant l'étape 1 |
+
+## Plan v5 révisé (02/11/2026) — état sur etape-3
+- LOT 1 Fiabilité : 1.0 contrat, 1.1 reprise, 1.2 export WorkManager, 1.3 poids IMU (D15) et 1.4 formats et 1.5 conservation à la mise à jour (test `adb install -r` N → N+1 en CI) faits. Détail : `docs/COMPTE_RENDU_2026-11-02.md`.
+- LOT 2 Positionnement, LOT 3 AR utile, LOT 4 Ergonomie : non commencés.
+- Reporté : synchro multi-appareils (note `docs/SYNCHRO_CONCEPTION.md` à écrire), service de capture complet, mode profondeur.

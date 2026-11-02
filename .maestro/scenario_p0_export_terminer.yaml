@@ -1,0 +1,29 @@
+# LOT 1.2 (D14) : Session > Export > « Exporter la session », puis « Terminer la session » aussitôt :
+# l'export n'est pas coupé ; la carte de la session (écran Site > Sessions) montre « Export en cours » puis « Exportée ».
+appId: app.lumisite.android
+name: "Export continue apres terminer"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_progression" }
+    timeout: 1000
+- tapOn: { id: "session_terminer_la_session" }
+# Si l'export tourne encore, « Terminer » demande une confirmation (double appui) ; il peut déjà être fini sur une petite session.
+- runFlow:
+    when:
+      visible: { id: "session_terminer_confirmer" }
+    commands:
+      - assertVisible: "Export en cours.*"
+      - tapOn: { id: "session_terminer_confirmer" }
+- extendedWaitUntil:
+    visible: { id: "site_session_reprendre" }
+    timeout: 60000
+- extendedWaitUntil:
+    visible: { id: "site_session_etat" }
+    timeout: 10000
+- assertVisible: "Export en cours.*|Exportée"
+- extendedWaitUntil:
+    visible: "Exportée"
+    timeout: 120000

@@ -337,7 +337,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
 }
 
 @Composable
-fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPositions.Resolved>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit) {
+fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPositions.Resolved>, onNewSession: () -> Unit, onResume: (SessionHeader) -> Unit, onBack: () -> Unit, exportState: (String) -> String? = { null }) {
     BackHandler(onBack = onBack)
     val ltp = remember(site.id) { LocalTangentPlane(site.origin) }
     // Site: phone portrait (< 600 dp) → single column (map on top, details full width); wider → map | details side by side.
@@ -365,9 +365,15 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
             HorizontalDivider()
             Text("Sessions", style = MaterialTheme.typography.titleMedium)
             sessions.forEach { h ->
-                Card(Modifier.fillMaxWidth().clickable { onResume(h) }) {
+                Card(Modifier.fillMaxWidth().testTag("site_session_reprendre").clickable { onResume(h) }) {
                     Column(Modifier.padding(10.dp)) {
                         Text(h.name); Text("${h.id} · ${h.device.model} · reprendre / exporter", style = MaterialTheme.typography.bodySmall)
+                        // D14: export state of the session, refreshed every second (manifest on disk + running worker).
+                        val st by androidx.compose.runtime.produceState<String?>(null, h.id) {
+                            while (true) { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { exportState(h.id) }; kotlinx.coroutines.delay(1000) }
+                        }
+                        st?.let { Text(it, color = if (it.startsWith("Export en cours")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("site_session_etat")) }
                     }
                 }
             }

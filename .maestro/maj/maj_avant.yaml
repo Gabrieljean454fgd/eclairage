@@ -1,0 +1,36 @@
+# LOT 1.5, 1re moitié (lancée par .github/scripts/maestro-ci.sh avec la version N déjà publiée, pas par la boucle des parcours) :
+# Accueil > « Nouveau relevé » > site « Maestro bureau », Session > « Relevé » > un relevé enregistré. Pas de « Terminer » :
+# l'appli est ensuite arrêtée brutalement puis mise à jour par adb install -r.
+appId: app.lumisite.android
+name: "Mise a jour avant creer session"
+---
+- runFlow: ../scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+# Sans calibrage : position manuelle, point touché sur la carte (relative à la carte, en bande en portrait).
+- tapOn: { id: "session_carte", point: "50%,55%" }
+- repeat:
+    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,72%", end: "50%,88%", duration: 600 }
+- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      notVisible: { id: "session_terminer_la_session" }
+    commands:
+      - back
+- runFlow:
+    when:
+      visible: { id: "session_photo_passer" }
+    commands:
+      - tapOn: { id: "session_photo_passer" }
+- assertVisible: ".*Relevé « .* » enregistré.*"

@@ -20,6 +20,9 @@ import kotlinx.serialization.json.put
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
 import app.lumisite.core.export.SessionImporter
+import app.lumisite.core.export.ResumableExport
+import app.lumisite.core.export.ResumableManifest
+import app.lumisite.android.ExportWorker
 import app.lumisite.core.export.SessionManifest
 import app.lumisite.core.journal.LumiJson
 import app.lumisite.core.journal.Streams
@@ -71,26 +74,29 @@ class Repository(private val ctx: Context) {
      */
     data class ExportResult(val zip: File, val manifest: SessionManifest, val problems: List<String>, val publicPath: String?, val publicUri: Uri?)
 
-    /** Builds the export zip in a stream (progress in bytes), re-reads it to verify, then copies it to Documents/LumiSite. */
-    fun export(site: Site, sessionId: String, progress: (SessionExporter.Progress) -> Unit = {}): ExportResult {
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
-        val dir = File(exportsDir, "${sessionId}_$stamp")
-        try {
-            val manifest = SessionExporter.exportToDir(site, sessionDir(sessionId), dir, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}", progress)
-            val zip = File(exportsDir, "${dir.name}.zip")
-            progress(SessionExporter.Progress("Compression ZIP", 0, 1))
-            SessionExporter.zipDir(dir, zip)
-            dir.deleteRecursively()
-            val total = zip.length()
-            var done = 0L
-            progress(SessionExporter.Progress("Relecture", 0, total * 2))
-            val problems = SessionImporter.verify(zip) { done += it; progress(SessionExporter.Progress("Relecture", done, total * 2)) }
-            val parts = listOf(PublicStore.siteFolder(site), sessionId, "exports")
-            val copied = runCatching { publicStore.copy(zip, parts) }
-            progress(SessionExporter.Progress("Copie dans ${PublicStore.displayPath(parts)}", total * 2, total * 2))
-            copied.exceptionOrNull()?.let { DiagLog.e("EXPORT", "Copie de ${zip.name} vers ${PublicStore.displayPath(parts)}", it) }
-            return ExportResult(zip, manifest, problems, copied.getOrNull()?.displayPath, copied.getOrNull()?.uri)
-        } finally { File(exportsDir, "${dir.name}").deleteRecursively() }
+    /**
+     * D14: resumable export (exports/<export-id>/manifest.json). Entries already written and synced are never rewritten;
+     * the zip is verified (sizes + SHA-256) before its copy to Documents/LumiSite. Interruptible at any progress call.
+     */
+    fun export(site: Site, sessionId: String, progress: (ResumableExport.Progress) -> Unit = {}): ExportResult {
+        val parts = listOf(PublicStore.siteFolder(site), sessionId, "exports")
+        var copied: PublicStore.Copied? = null
+        val r = ResumableExport.run(site, sessionDir(sessionId), exportsDir, "LumiSite Android ${BuildConfig.VERSION_NAME}", System.currentTimeMillis(), progress) { zip ->
+            runCatching { publicStore.copy(zip, parts, "${sessionId}_${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())}.zip") }
+                .onFailure { DiagLog.e("EXPORT", "Copie de ${zip.name} vers ${PublicStore.displayPath(parts)}", it) }
+                .getOrNull()?.also { copied = it }?.displayPath
+        }
+        return ExportResult(r.zip, r.sessionManifest, r.problems, copied?.displayPath ?: r.manifest.copiedTo, copied?.uri)
+    }
+
+    /** Export state of a session for the cards (Accueil, Site): running (live %), finished, or started and waiting. */
+    fun exportState(sessionId: String): String? {
+        ExportWorker.live[sessionId]?.let { return "Export en cours $it %" }
+        val states = exportsDir.listFiles().orEmpty().filter { it.isDirectory && it.name.startsWith("$sessionId-") }
+            .mapNotNull { File(it, ResumableExport.MANIFEST).takeIf(File::isFile)?.let { f -> runCatching { LumiJson.decodeFromString(ResumableManifest.serializer(), f.readText()) }.getOrNull() } }
+            .sortedBy { it.createdUtcMs }
+        val last = states.lastOrNull() ?: return null
+        return if (last.state == ResumableExport.Step.TERMINE.name) "Exportée" else "Export en attente"
     }
 
     fun mirror(site: Site, sessionId: String, onEvent: (String, Throwable?) -> Unit) = publicStore.SessionMirror(site, sessionDir(sessionId), onEvent)

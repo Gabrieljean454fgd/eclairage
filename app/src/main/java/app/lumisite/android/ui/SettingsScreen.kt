@@ -83,7 +83,6 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
             androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
             Text(" Photo automatique à l'implantation (Session > Relevé)")
         }
-
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)
         Text("Copie visible (survit à la désinstallation) : ${PublicStore.displayPath(listOf("<site>", "<session>"))}/", modifier = Modifier.testTag("reglages_stockage_chemin"))
@@ -114,5 +113,16 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager le journal").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } catch (e: Throwable) { err = "Partage du journal impossible : ${e.message ?: e}"; DiagLog.e("JOURNAL", "Partage", e) }
         }) { Text("Partager le journal") }
+
+        HorizontalDivider()
+        Text("Capteurs", style = MaterialTheme.typography.titleMedium)
+        var imuHz by remember { mutableStateOf(app.lumisite.android.capture.ImuRates.motionHz(ctx)) }
+        Text("Accéléromètre et gyroscope (magnétomètre : 10 Hz), appliqué à la prochaine session :", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            app.lumisite.android.capture.ImuRates.choices.forEach { hz ->
+                androidx.compose.material3.FilterChip(imuHz == hz, { imuHz = hz; app.lumisite.android.capture.ImuRates.set(ctx, hz) }, { Text("$hz Hz") },
+                    modifier = Modifier.testTag("reglages_imu_${hz}hz"))
+            }
+        }
     }
 }

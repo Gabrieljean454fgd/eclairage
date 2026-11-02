@@ -1,0 +1,33 @@
+# LOT 1.5, 2e moitié (après adb install -r de la version N+1, sans effacer les données) : Accueil > site « Maestro bureau »
+# toujours présent, Site > « Relevés : 1 », Site > Sessions > la session se reprend et s'exporte (vérifiée).
+appId: app.lumisite.android
+name: "Mise a jour apres session lisible et exportable"
+---
+- launchApp:
+    clearState: false
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: "Maestro bureau"
+- assertVisible: { id: "site_titre", text: "Maestro bureau" }
+- assertVisible: "Relevés : 1 .*"
+- scrollUntilVisible: { element: { id: "site_session_reprendre" } }
+- tapOn: { id: "site_session_reprendre" }
+- extendedWaitUntil:
+    visible: { id: "session_terminer_la_session" }
+    timeout: 60000
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_resultat" }
+    timeout: 120000
+- assertVisible: "Exporté dans Documents/LumiSite/.*"
+# Défilement dans le panneau sous la carte (un défilement au centre de l'écran déplacerait la carte).
+- repeat:
+    while: { notVisible: ".*OK, tailles et empreintes SHA-256 vérifiées.*" }
+    times: 6
+    commands:
+      - swipe: { start: "50%,86%", end: "50%,70%", duration: 600 }
+- assertVisible: ".*OK, tailles et empreintes SHA-256 vérifiées.*"
+- assertNotVisible: { id: "session_export_erreur" }

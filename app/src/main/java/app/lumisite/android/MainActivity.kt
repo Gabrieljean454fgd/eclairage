@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
                                         screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
                                     } finally { resuming = false }
                                 } } },
-                                onBack = { screen = Screen.Home },
+                                onBack = { screen = Screen.Home }, exportState = repo::exportState,
                             )
                         }
                         is Screen.Live -> SessionScreen(this@MainActivity, repo, s.controller, onClosed = {

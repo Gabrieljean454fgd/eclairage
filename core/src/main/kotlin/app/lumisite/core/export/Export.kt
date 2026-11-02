@@ -128,11 +128,13 @@ object SessionExporter {
         Triple(Streams.GPS, "raw/gps.ndjson", "GpsFix"),
         Triple(Streams.GPS_STATUS, "raw/gps_status.ndjson", "GpsStatusSample"),
         Triple(Streams.EVENTS, "raw/events.ndjson", "SessionEvent"),
+        Triple(Streams.CAPTATION, "raw/captation.jsonl", "Captation"),
     )
 
     private fun serializerOf(type: String): KSerializer<*> = when (type) {
         "PoseSample" -> PoseSample.serializer(); "ImuSample" -> ImuSample.serializer(); "GpsFix" -> GpsFix.serializer()
         "GpsStatusSample" -> GpsStatusSample.serializer(); "SessionEvent" -> SessionEvent.serializer()
+        "Captation" -> kotlinx.serialization.json.JsonObject.serializer()
         "CorrectedPoint" -> CorrectedPoint.serializer(); "DerivedSurveyPoint" -> DerivedSurveyPoint.serializer()
         else -> error("unknown type $type")
     }

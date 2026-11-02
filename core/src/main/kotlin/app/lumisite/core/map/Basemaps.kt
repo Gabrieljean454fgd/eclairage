@@ -46,6 +46,14 @@ enum class Basemap(
         }
 
         fun esriTileUrl(z: Int, x: Int, y: Int) = "$ESRI_URL$z/$y/$x"
+
+        /** Cadastre (D12): IGN Parcellaire Express, transparent PNG drawn over any base map, no key. */
+        const val CADASTRE_LAYER = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+        const val CADASTRE_ATTRIBUTION = "Cadastre : IGN – Parcellaire Express (PCI), Etalab 2.0"
+
+        fun cadastreTileUrl(z: Int, x: Int, y: Int): String =
+            "$IGN_WMTS?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=$CADASTRE_LAYER&STYLE=normal&TILEMATRIXSET=PM_0_19" +
+                "&TILEMATRIX=$z&TILEROW=$y&TILECOL=$x&FORMAT=image/png"
     }
 }
 

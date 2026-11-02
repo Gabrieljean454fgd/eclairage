@@ -62,4 +62,12 @@ class BasemapsTest {
         kotlin.test.assertEquals(1..8, p.approximationLevels(26))
         kotlin.test.assertEquals(1..3, p.approximationLevels(3))
     }
+
+    @Test
+    fun cadastreUrlUsesGeoplateformeWithoutKey() {
+        val u = Basemap.cadastreTileUrl(17, 66061, 47744)
+        kotlin.test.assertTrue(u.startsWith("https://data.geopf.fr/wmts?"))
+        kotlin.test.assertTrue("LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS" in u && "TILEMATRIX=17&TILEROW=47744&TILECOL=66061" in u && "FORMAT=image/png" in u)
+        kotlin.test.assertFalse("apikey" in u.lowercase())
+    }
 }

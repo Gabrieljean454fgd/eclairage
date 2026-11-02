@@ -202,6 +202,29 @@ Statut : fait pour « audio toujours gardé » et pour la mesure. **L'accéléra
 - Test JVM : `SyncTimingTest`, qui mesure la détection sur une fenêtre de 12 s et vérifie qu'elle retrouve le chirp injecté.
 - Flow Maestro : `.maestro/scenario_p2_synchro_audio_garde.yaml` (« Session synchro audio toujours garde »). La synchro audio réelle entre deux appareils n'est pas testable sur l'émulateur.
 
+## Priorité 3 (branche `etape-3`, PR brouillon)
+
+### P3a — Carte > fonds IGN (D12)
+Statut : fait, testé sur émulateur avec le réseau de la VM.
+- **Existant avant ce lot** : Session > carte > « Fond : … » proposait déjà « Plan IGN » (`GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2`) et « Orthophoto IGN », servis par `https://data.geopf.fr/wmts`, sans clé, avec l'attribution IGN dans le cartouche osmdroid.
+- **Ajout** : l'entrée de menu « Cadastre IGN (Parcellaire Express) par-dessus » (case `carte_cadastre`) dans le même menu.
+  - La couche `CADASTRALPARCELS.PARCELLAIRE_EXPRESS` est dessinée en PNG transparent au-dessus de n'importe quel fond.
+  - Le choix est gardé entre deux lancements.
+  - Quand la couche est active, l'attribution « Cadastre : IGN – Parcellaire Express (PCI), Etalab 2.0 » s'affiche sur la carte (`carte_attribution_cadastre`).
+- **Cache** : seules les tuiles consultées sont gardées (cache osmdroid). La politique de la source interdit le téléchargement en masse et le préchargement (`FLAG_NO_BULK | FLAG_NO_PREVENTIVE`). Les règles de cache des fonds (OSM, Plan IGN, imagerie limitée au site) sont inchangées.
+- **Vérifié** : une tuile du cadastre est servie sans clé (HTTP 200, image/png, zoom 17 sur Toulouse), et le style `normal` est bien celui par défaut d'après le GetCapabilities.
+- Test JVM : `BasemapsTest.cadastreUrlUsesGeoplateformeWithoutKey`.
+- Flow Maestro : `.maestro/scenario_p3_cadastre_ign.yaml` (« Session carte cadastre IGN »), passé sur émulateur : Plan IGN, puis cadastre activé (attribution visible), puis désactivé.
+
+### P3b — Spec du mode captation (D9)
+Statut : spécification écrite, sans code, comme demandé : `docs/FORMAT_ECHANGE_CAPTATION.md`.
+- Format JSONL. Champs `t_mono_ns` (= `elapsedRealtimeNanos`), `clock_offset_ns`, `seq`, `device_id`, `time_base`, `type` et `v`.
+- Types de trames : IMU, pose, GNSS, chirps audio, LiDAR / scan 3D, état de liaison, coupures `gap`.
+- Synchro prévue : échange de type NTP en local, puis recalage par chirp au bureau.
+- Contrainte notée : Nearby entre Android et iOS = même Wi-Fi obligatoire.
+- **Question ouverte** (tranchée le 02/11 et faite dans la relance n°2 : journal écrit au format D9) : écrire le journal de session « dès maintenant » dans ce format n'est pas fait. La correspondance avec le journal actuel est complète (§6 de la spec). Je propose un export dérivé plutôt qu'une réécriture du stockage.
+
+
 ### Corrections CI après P2d–P2f (flows Maestro, sans assertion retirée)
 
 - **Session > Calibrer** (`scenario_p2_calibrage_multipoints`) : `session_calibrer_ligne_2` introuvable. Cause : depuis P2d, le dernier message (« Calibrage : 2 point(s)… ») est fixé au-dessus de la barre d'actions ; les glissements du flow partaient de 88 % de la hauteur, donc sur ce message, et le panneau ne défilait pas (la ligne 2 existait, sous le message). Correction : glissements courts dans le panneau jusqu'à la ligne 2, puis retour jusqu'à la ligne 1 ; les deux lignes restent vérifiées « visible », puis « Supprimer » → 1 ligne.
@@ -221,3 +244,27 @@ Statut : fait pour « audio toujours gardé » et pour la mesure. **L'accéléra
 Vérifié en local sur émulateur (pixel7, API 34, sans ARCore) : les trois flows ci-dessus passent. Le cas « ARCore présent mais sans suivi » n'est pas reproductible sur l'émulateur : à vérifier sur le Pixel 7 réel.
 
 **Résultat CI de la relance n°1** : 13/13 flows verts sur etape-2 (08f0514, dont le nouveau `scenario_p2_reglages_retour`) → pré-release `etape2-08f0514`, APK `lumisite-etape2-v138-08f0514.apk` ; etape-3 (bf65b07, + `scenario_p3_cadastre_ign`) verte → pré-release `etape3-bf65b07`, APK `lumisite-etape3-v145-bf65b07.apk`. Émulateur uniquement. Reste dans l'ordre v4 : rien (D9 était le dernier point ; le reste de la P3 est reporté). Questions ouvertes inchangées : accélération de Session > Synchro (fenêtre de 12 s, AudioRecord réutilisé) et écriture directe du journal au format D9.
+
+## Relance V4 n°2 (02/11) — retours Pixel 7 réel : `etape2-08f0514` 13/13, `etape3-bf65b07` 14/14 (branche `etape-3` seule ; `etape-2` non touchée)
+
+### Corrigé
+1. **Session > carte > « Fond : OSM standard » > « Cadastre IGN (Parcellaire Express) par-dessus »** : parcelles invisibles par-dessus OSM (tuiles en HTTP 200), visibles par-dessus Plan IGN.
+   - Cause (lue dans le code osmdroid, cohérente avec le constat) : le fournisseur de tuiles du cadastre n'était pas relié au gestionnaire de rafraîchissement de la carte. Une tuile cadastre téléchargée ne redessinait donc jamais la carte ; par-dessus Plan IGN, l'arrivée des tuiles du fond (plus lentes) provoquait des rafraîchissements qui affichaient le cadastre au passage, alors que le fond OSM, déjà en cache, n'en provoquait plus. De plus, la couche était insérée une seule fois puis effacée à chaque reconstruction des surcouches.
+   - Correctif : le fournisseur cadastre déclenche le rafraîchissement de la carte, et la couche est réinsérée juste au-dessus du fond à chaque reconstruction, quel que soit le fond (OSM, Plan IGN, Esri).
+   - Vérification : nouveau repère `carte_cadastre_tuiles_dessinees`, présent seulement quand au moins une tuile cadastre a réellement été peinte. Le flow `scenario_p3_cadastre_ign` vérifie maintenant le cas « OSM standard » puis le cas « Plan IGN » (attente du repère, captures `cadastre_sur_osm` et `cadastre_sur_plan_ign`). Vert sur émulateur et parcelles visibles à l'œil sur la capture OSM (Toulouse, Capitole). Esri non couvert par le flow (proposé seulement après acceptation des conditions Esri).
+2. **Session > carte > attribution du cadastre** : « Cadastre : IGN – … » chevauchait « largeur visible ». Les deux libellés sont maintenant empilés en bas à gauche (attribution au-dessus, puis « largeur visible », puis la ligne © OpenStreetMap), limités à la moitié gauche : ils ne recouvrent ni « Point à la croix », ni « Centrer / Suivre », ni « Fond : … », quel que soit le fond. Nouveau testTag `carte_largeur_visible`, vérifié visible dans le flow avec le cadastre actif.
+3. **Journal de session au format D9** (`docs/FORMAT_ECHANGE_CAPTATION.md` §6) : pendant la session, chaque pose, échantillon IMU, fix GNSS et statut GNSS est écrit **directement** en trame JSONL D9 (`t_mono_ns`, `clock_offset_ns` = null, `seq`, `device_id`, `time_base`, `type`, `v`) dans le flux segmenté `captation` (segments fsyncés et réparés comme les autres, R2). `seq` repart de la dernière valeur écrite après un redémarrage, sans trou. Export : `raw/captation.jsonl` ajouté dans Session > Export > Exporter la session.
+   - Compatibilité : les flux historiques restent écrits à l'identique et restent la source de la relecture, du réimport et de l'export ; une session antérieure (sans flux `captation`) se lit et s'exporte comme avant. Coût : environ 2× le volume des flux bruts.
+   - Test JVM `CaptationJournalTest` : champs D9, types (`pose`, `imu.gyro`, `imu.rotation`, `gnss`), unités, `seq` 1→4 puis 5 après reprise sans en-tête, lecture historique inchangée. Tous les tests `core` passent (dont les 10 tests export/journal existants).
+
+### Session > Synchro : non modifié (Sébastien tranchera) — gains attendus
+- Mesure actuelle : 12 s d'écoute à chaque appui, puis environ 0,8 s de détection (fenêtre de 12 s à 48 kHz).
+- **Raccourcir l'écoute** (ex. 3 s) : gain d'environ 9 s par appui, et détection environ 4× plus courte (de l'ordre de 0,2 s, proportionnelle à la fenêtre). Risque : rater le chirp de l'autre appareil s'il n'est pas émis dans la fenêtre ; il faudrait alors planifier les émissions.
+- **Garder le micro et le haut-parleur ouverts** d'un appui à l'autre : gain limité au temps d'ouverture et d'initialisation (durées par phase écrites dans le journal ; quelques dizaines à quelques centaines de ms, à confirmer sur le journal du Pixel 7) ; ne raccourcit pas les 12 s. Coût : micro actif en permanence (batterie, indicateur de confidentialité Android).
+- Les deux options se cumulent ; l'essentiel du gain vient de la longueur de la fenêtre.
+
+### Reste à vérifier sur le Pixel 7
+- Session > carte : cadastre par-dessus OSM standard et Esri World Imagery sur l'appareil réel.
+- Taille des sessions avec le flux `captation` en plus.
+
+Le reste de la P3 est reporté.

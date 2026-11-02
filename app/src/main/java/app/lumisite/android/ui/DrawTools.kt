@@ -271,7 +271,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
     val surveys = app.lumisite.core.compute.SurveyPositions.current(events)
     if (shapes.isEmpty() && surveys.isEmpty()) Text("Aucun objet sur ce relevé", style = MaterialTheme.typography.bodySmall)
     Column {
-        surveys.forEach { sv -> Text("• ${sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().clickable { onSelectSurvey(sv.id); d.selected = null }.padding(4.dp),
+        surveys.forEachIndexed { i, sv -> Text("• ${sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().testTag("session_objets_releve_" + (i + 1)).clickable { onSelectSurvey(sv.id); d.selected = null }.padding(4.dp),
             color = if (sv.id == selectedSurvey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
         shapes.forEach { sh -> Text("◇ ${sh.annotationType ?: sh.geometryType}${sh.label?.let { " · $it" } ?: ""}${sh.comment?.let { " · $it" } ?: ""}",
             Modifier.fillMaxWidth().clickable { d.selected = sh.id; d.tool = Tool.SELECT; onSelectSurvey(null) }.padding(4.dp),

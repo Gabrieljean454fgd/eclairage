@@ -1,0 +1,17 @@
+# LOT 1.2 (D14) : Session > Export > « Exporter la session » → la barre et « Préparation » apparaissent dès l'appui
+# (moins de 1 s), puis l'export aboutit (WorkManager) avec le résultat habituel.
+appId: app.lumisite.android
+name: "Export barre immediate"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_progression" }
+    timeout: 1000
+- extendedWaitUntil:
+    visible: { id: "session_export_resultat" }
+    timeout: 120000
+- assertVisible: "Exporté dans Documents/LumiSite/.*"
+- assertVisible: { id: "session_export_ouvrir" }
+- assertNotVisible: { id: "session_export_erreur" }

@@ -26,5 +26,26 @@ for f in .maestro/*.yaml; do
   done
   if [ $ok = 1 ]; then summary+="- ✅ ${name} (essai ${attempt})"$'\n'; else summary+="- ❌ ${name} (2 essais)"$'\n'; fail=1; fi
 done
+# LOT 1.5 : conservation des données à la mise à jour. Version N = dernière pré-release publiée de la même étape (même clé
+# de test), session créée, arrêt brutal, puis adb install -r de cette version N+1 : la session doit rester lisible et exportable.
+N_ETAPE=$(basename "$APK" | sed -nE 's/^lumisite-etape([0-9]+)-.*/\1/p')
+PREV_TAG=$(gh release list --limit 50 --json tagName -q ".[] | .tagName" 2>/dev/null | grep -E "^etape${N_ETAPE}-" | head -1)
+if [ -n "$PREV_TAG" ] && gh release download "$PREV_TAG" -p '*.apk' -D prev >/dev/null 2>&1; then
+  PREV_APK=$(ls prev/*.apk | head -1)
+  echo "Mise à jour : $(basename "$PREV_APK") → $(basename "$APK")"
+  ok=0
+  for attempt in 1 2; do
+    adb uninstall app.lumisite.android >/dev/null 2>&1; adb shell input keyevent KEYCODE_HOME; sleep 2
+    adb install "$PREV_APK" >/dev/null || continue
+    maestro test .maestro/maj/maj_avant.yaml --debug-output "maestro-out/maj_avant-${attempt}" > "maestro-out/maj_avant-${attempt}.log" 2>&1 || continue
+    adb shell am force-stop app.lumisite.android
+    adb install -r "$APK" > "maestro-out/maj_install-${attempt}.log" 2>&1 || continue
+    if maestro test .maestro/maj/maj_apres.yaml --debug-output "maestro-out/maj_apres-${attempt}" > "maestro-out/maj_apres-${attempt}.log" 2>&1; then ok=1; break; fi
+  done
+  if [ $ok = 1 ]; then summary+="- ✅ mise à jour $(basename "$PREV_APK") → $(basename "$APK") (essai ${attempt})"$'\n'
+  else summary+="- ❌ mise à jour $(basename "$PREV_APK") → $(basename "$APK") (2 essais)"$'\n'; fail=1; fi
+else
+  summary+="- ⚠️ mise à jour non exécutée : aucune pré-release etape${N_ETAPE} téléchargeable"$'\n'
+fi
 printf '%s' "$summary" | tee maestro-out/resume.md
 exit $fail

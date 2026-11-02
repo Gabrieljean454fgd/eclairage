@@ -1,6 +1,6 @@
 # Format d'échange — mode Captation (D9)
 
-Statut : **spécification seulement**. Il n'y a aucun code du mode captation (maître / esclave) dans l'application, et aucune implémentation iOS. Ce document sert de contrat pour un futur client Android secondaire ou iPhone / iPad (16 Pro avec LiDAR).
+Statut : **spécification du mode captation** ; le journal de session Android écrit déjà ces trames (§6). Il n'y a aucun code du mode captation (maître / esclave) dans l'application, et aucune implémentation iOS. Ce document sert de contrat pour un futur client Android secondaire ou iPhone / iPad (16 Pro avec LiDAR).
 
 ## 1. Fichier
 - Le format est JSONL : une trame JSON par ligne, en UTF-8 terminé par `\n`.
@@ -47,11 +47,9 @@ Exemple :
 - Nearby Connections (`P2P_STAR`) ne sert qu'à l'état (connexion, pertes, reprises), jamais aux données lourdes. Tout est consolidé au bureau.
 - **Entre Android et iOS**, Nearby Connections exige que les appareils soient sur **le même réseau Wi-Fi**. Le mode hors ligne (sans réseau) n'existe qu'entre appareils Android.
 
-## 6. Correspondance avec le journal Android actuel
-Le journal de session Android (`raw/*.ndjson`, `docs/SESSION_FORMAT.md`) porte déjà des horodatages `{utcEpochMs, monotonicNs, timeBaseId, sensorNs}` avec `monotonicNs = SystemClock.elapsedRealtimeNanos()`. On a donc :
-- `t_mono_ns` = `monotonicNs` ;
-- `time_base` = `timeBaseId` ;
-- `seq` = rang de la ligne dans l'ordre des segments du flux ;
-- `clock_offset_ns` = `null` (appareil unique, pas de maître).
-
-**Non fait (question ouverte)** : D9 demande que le journal de session soit écrit « dès maintenant dans ce format ». Changer le format d'écriture du journal touche tout le stockage et la compatibilité des exports 0.1 / 0.2. Je ne l'ai pas fait dans ce lot. Je propose plutôt un export `captation/<device_id>.jsonl` dérivé du journal existant, sans perte, puisque tous les champs existent déjà. À trancher.
+## 6. Journal Android : écrit dans ce format depuis v0.3.0 (relance V4 n°2)
+- Chaque session Android écrit **dès maintenant** ses trames D9 dans le flux `captation` : segments `seg/captation.<n6>.ndjson` (contenu JSONL, mêmes règles de segments fsyncés et de réparation que les autres flux, R2), exportés dans `raw/captation.jsonl` (Session > Export).
+- Types écrits par Android : `pose`, `imu.accel`, `imu.gyro`, `imu.mag`, `imu.rotation`, `imu.other` (`sensor_type`, `values`), `gnss` (`lat`, `lon`, `alt`, `acc_m`, `provider`, `fix_utc_ms`, `sats_used`, `sats_visible`, `speed_mps`, `bearing_deg` ; `null` si inconnu), `gnss.status` (`provider`, `status`, `detail`). Chaque trame IMU porte aussi `sensor_name`, `accuracy` et `sensor_ns` si connu.
+- `device_id` = identifiant d'appareil de l'en-tête de session ; `time_base` = `timeBaseId` ; `clock_offset_ns` = `null` (appareil unique, pas de maître) ; `seq` part de 1 et continue sans trou après un redémarrage (relu sur la dernière ligne).
+- Les flux historiques (`raw_poses`, `raw_imu`, `raw_gps`, `raw_gps_status`, `events`) restent écrits et restent la source de la relecture, du réimport et de l'export existants : les sessions antérieures (sans flux `captation`) se lisent comme avant. Les événements métier (relevés, calibrages…) restent dans `events.ndjson` (pas de type D9 pour eux).
+- Coût : chaque échantillon est écrit deux fois (environ 2× le volume des flux bruts). Retirer l'écriture historique est possible plus tard, une fois les lecteurs passés au format D9.

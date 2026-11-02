@@ -29,6 +29,8 @@ object Streams {
     const val IMU = "raw_imu.ndjson"
     const val GPS = "raw_gps.ndjson"
     const val GPS_STATUS = "raw_gps_status.ndjson"
+    /** D9 capture frames (docs/FORMAT_ECHANGE_CAPTATION.md), written alongside the streams above since v0.3.0. */
+    const val CAPTATION = "captation.ndjson"
 }
 
 /**
@@ -257,6 +259,8 @@ class SessionJournal(
     private val imu: SegmentedAppender
     private val gps: SegmentedAppender
     private val gpsStatus: SegmentedAppender
+    private val captationOut: SegmentedAppender
+    private val captation: CaptationWriter
     val repaired: List<Segments.Repaired>
 
     init {
@@ -276,15 +280,18 @@ class SessionJournal(
         imu = app(Streams.IMU, 500)
         gps = app(Streams.GPS, 1)
         gpsStatus = app(Streams.GPS_STATUS, 1)
+        val deviceId = runCatching { LumiJson.decodeFromString(SessionHeader.serializer(), hf.readText()).device.id }.getOrDefault("unknown")
+        captationOut = app(Streams.CAPTATION, 500)
+        captation = CaptationWriter(captationOut, deviceId, Captation.lastSeq(Segments.files(dir, Streams.CAPTATION)))
     }
 
     fun event(e: SessionEvent) { events.appendLine(LumiJson.encodeToString(SessionEvent.serializer(), e)); events.flush(sync = true) }
-    fun pose(p: PoseSample) = poses.appendLine(LumiJson.encodeToString(PoseSample.serializer(), p))
-    fun imu(s: ImuSample) = imu.appendLine(LumiJson.encodeToString(ImuSample.serializer(), s))
-    fun gps(f: GpsFix) = gps.appendLine(LumiJson.encodeToString(GpsFix.serializer(), f))
-    fun gpsStatus(s: GpsStatusSample) = gpsStatus.appendLine(LumiJson.encodeToString(GpsStatusSample.serializer(), s))
+    fun pose(p: PoseSample) { poses.appendLine(LumiJson.encodeToString(PoseSample.serializer(), p)); captation.write(p.t, "pose", Captation.pose(p)) }
+    fun imu(s: ImuSample) { imu.appendLine(LumiJson.encodeToString(ImuSample.serializer(), s)); captation.write(s.t, Captation.imuType(s.sensorType), Captation.imu(s)) }
+    fun gps(f: GpsFix) { gps.appendLine(LumiJson.encodeToString(GpsFix.serializer(), f)); captation.write(f.t, "gnss", Captation.gnss(f)) }
+    fun gpsStatus(s: GpsStatusSample) { gpsStatus.appendLine(LumiJson.encodeToString(GpsStatusSample.serializer(), s)); captation.write(s.t, "gnss.status", Captation.gnssStatus(s)) }
 
-    private val all get() = listOf(events, poses, imu, gps, gpsStatus)
+    private val all get() = listOf(events, poses, imu, gps, gpsStatus, captationOut)
     fun flushAll() { all.forEach { it.flush(sync = true) } }
     /** Closes the open segments (e.g. on pause) so that everything written so far can be copied out. */
     fun rotateAll() { all.forEach { it.rotate() } }

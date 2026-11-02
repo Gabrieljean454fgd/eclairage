@@ -1,8 +1,26 @@
-# Session > carte > « Fond : … » > « Cadastre IGN (Parcellaire Express) par-dessus » : couche WMTS Géoplateforme sans clé, attribution affichée.
+# Session > carte > « Fond : … » > « Cadastre IGN (Parcellaire Express) par-dessus » : couche WMTS Géoplateforme sans clé,
+# visible par-dessus le fond « OSM standard » puis par-dessus « Plan IGN », attribution affichée sans chevauchement.
+# carte_cadastre_tuiles_dessinees n'apparaît qu'après qu'au moins une tuile cadastre a été peinte sur la carte.
+# Esri World Imagery n'est proposé qu'après acceptation des conditions Esri : non couvert ici.
 appId: app.lumisite.android
 name: Session carte cadastre IGN
 ---
 - runFlow: scenario1_1_creer_releve.yaml
+# Cas 1 : fond OSM standard
+- assertVisible: "Fond : OSM standard"
+- tapOn: { id: "carte_fond" }
+- tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
+- assertVisible: { id: "carte_attribution_cadastre" }
+- assertVisible: "Cadastre : IGN – Parcellaire Express \\(PCI\\), Etalab 2\\.0"
+- extendedWaitUntil:
+    visible: { id: "carte_cadastre_tuiles_dessinees" }
+    timeout: 30000
+- assertVisible: { id: "carte_largeur_visible" }
+- takeScreenshot: cadastre_sur_osm
+- tapOn: { id: "carte_fond" }
+- tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
+- assertNotVisible: { id: "carte_attribution_cadastre" }
+# Cas 2 : fond Plan IGN
 - tapOn: { id: "carte_fond" }
 - tapOn: "Plan IGN"
 - assertVisible: "Fond : Plan IGN"
@@ -10,6 +28,10 @@ name: Session carte cadastre IGN
 - tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
 - assertVisible: { id: "carte_attribution_cadastre" }
 - assertVisible: "Cadastre : IGN – Parcellaire Express \\(PCI\\), Etalab 2\\.0"
+- extendedWaitUntil:
+    visible: { id: "carte_cadastre_tuiles_dessinees" }
+    timeout: 30000
+- takeScreenshot: cadastre_sur_plan_ign
 - tapOn: { id: "carte_fond" }
 - tapOn: "Cadastre IGN \\(Parcellaire Express\\) par-dessus"
 - assertNotVisible: { id: "carte_attribution_cadastre" }

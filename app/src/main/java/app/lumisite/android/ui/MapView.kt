@@ -21,7 +21,10 @@ import android.view.MotionEvent
 import android.widget.Magnifier
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -135,13 +138,19 @@ fun OsmMap(
         map.setTileSource(src)
     }
     (map.tileProvider.tileWriter as? SiteTileCache)?.bbox = siteBbox
+    var cadastreDrawn by remember { mutableStateOf(false) }
     val cadastreOverlay = remember {
-        org.osmdroid.views.overlay.TilesOverlay(org.osmdroid.tileprovider.MapTileProviderBasic(ctx.applicationContext, cadastreTileSource()), ctx.applicationContext)
-            .apply { loadingBackgroundColor = android.graphics.Color.TRANSPARENT; setLoadingLineColor(android.graphics.Color.TRANSPARENT) }
-    }
-    if (MapPrefs.cadastre != map.overlayManager.contains(cadastreOverlay)) {
-        if (MapPrefs.cadastre) map.overlayManager.add(0, cadastreOverlay) else map.overlayManager.remove(cadastreOverlay)
-        map.invalidate()
+        val provider = org.osmdroid.tileprovider.MapTileProviderBasic(ctx.applicationContext, cadastreTileSource())
+        // Without the map's handler a downloaded cadastre tile never triggers a redraw: over an already cached base map
+        // (OSM) nothing else repaints, so the parcels stayed invisible although the tiles answered HTTP 200.
+        provider.tileRequestCompleteHandlers.add(map.tileRequestCompleteHandler)
+        object : org.osmdroid.views.overlay.TilesOverlay(provider, ctx.applicationContext) {
+            // Called only for real tiles (the loading tile is transparent → null): proof that parcels were painted.
+            override fun onTileReadyToDraw(c: android.graphics.Canvas, tile: android.graphics.drawable.Drawable, r: android.graphics.Rect) {
+                super.onTileReadyToDraw(c, tile, r)
+                if (!cadastreDrawn) map.post { cadastreDrawn = MapPrefs.cadastre }
+            }
+        }.apply { loadingBackgroundColor = android.graphics.Color.TRANSPARENT; setLoadingLineColor(android.graphics.Color.TRANSPARENT) }
     }
     DisposableEffect(Unit) {
         val l = object : MapListener {
@@ -208,6 +217,8 @@ fun OsmMap(
     AndroidView(factory = { map }, modifier = Modifier.fillMaxSize(), update = { mv ->
         mv.overlayManager.tilesOverlay.setColorFilter(MapFilters.of(tone))
         mv.overlays.clear()
+        // Cadastre (D12): re-added on every rebuild, first in the list = drawn right above the base tiles, whatever the base map.
+        if (MapPrefs.cadastre) mv.overlays += cadastreOverlay
         mv.overlays += MapEventsOverlay(object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { onTap(LatLon(p.latitude, p.longitude)); return true }
             override fun longPressHelper(p: GeoPoint) = false
@@ -301,13 +312,18 @@ fun OsmMap(
     })
     if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red,
         style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(androidx.compose.ui.graphics.Color.White, blurRadius = 6f)))
-    if (MapPrefs.cadastre) Text(Basemap.CADASTRE_ATTRIBUTION,
-        Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 52.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(2.dp).testTag("carte_attribution_cadastre"),
-        style = MaterialTheme.typography.labelSmall)
-    widthM?.let {
-        Text(if (it < 100) "largeur visible : %.1f m".format(it) else "largeur visible : %.0f m".format(it),
-            Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 28.dp).background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(4.dp),
-            style = MaterialTheme.typography.labelSmall)
+    // Bottom-left stack (cadastre attribution above « largeur visible »), above the OSM copyright line, left half only:
+    // the labels never overlap each other nor the bottom-right buttons, whatever the base map.
+    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(0.5f).padding(start = 6.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // carte_cadastre_tuiles_dessinees: present only once at least one cadastre tile has been painted on the map.
+        if (MapPrefs.cadastre) Box(if (cadastreDrawn) Modifier.testTag("carte_cadastre_tuiles_dessinees") else Modifier) { Text(Basemap.CADASTRE_ATTRIBUTION,
+            Modifier.background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(2.dp).testTag("carte_attribution_cadastre"),
+            style = MaterialTheme.typography.labelSmall) }
+        widthM?.let {
+            Text(if (it < 100) "largeur visible : %.1f m".format(it) else "largeur visible : %.0f m".format(it),
+                Modifier.background(androidx.compose.ui.graphics.Color(0xCCFFFFFF)).padding(4.dp).testTag("carte_largeur_visible"),
+                style = MaterialTheme.typography.labelSmall)
+        }
     }
     Box(Modifier.align(Alignment.TopEnd).padding(6.dp)) {
         OutlinedButton(onClick = { menu = true }, modifier = Modifier.testTag("carte_fond").background(androidx.compose.ui.graphics.Color(0xCCFFFFFF))) { Text("Fond : ${basemap.label}") }
@@ -321,7 +337,7 @@ fun OsmMap(
             }
             DropdownMenuItem(
                 text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.cadastre, null, modifier = Modifier.testTag("carte_cadastre")); Text("Cadastre IGN (Parcellaire Express) par-dessus") } },
-                onClick = { MapPrefs.cadastre = !MapPrefs.cadastre; MapPrefs.save(ctx); menu = false },
+                onClick = { MapPrefs.cadastre = !MapPrefs.cadastre; MapPrefs.save(ctx); cadastreDrawn = false; menu = false },
             )
             DropdownMenuItem(
                 text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.esriAccepted, null, modifier = Modifier.testTag("carte_checkbox")); Text("Le projet accepte les conditions Esri") } },

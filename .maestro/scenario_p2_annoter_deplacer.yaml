@@ -20,6 +20,12 @@ name: Session annoter selection directe et deplacement
 - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
 - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
 - tapOn: { id: "session_releve_enregistrer_le_releve" }
+# Session > Relevé > photo automatique (activée par défaut) : l'appareil photo s'ouvre, retour sans photo, « Passer ».
+- back
+- extendedWaitUntil:
+    visible: { id: "session_photo_proposee" }
+    timeout: 15000
+- tapOn: { id: "session_photo_passer" }
 # Le message de confirmation reste affiché au-dessus de la barre d'actions.
 - assertVisible: ".*Relevé « .* » enregistré \\(position manuelle\\).*"
 - tapOn: { id: "session_annoter" }

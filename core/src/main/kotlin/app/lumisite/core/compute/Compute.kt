@@ -126,7 +126,24 @@ data class CorrectedPoint(
  * are used: ARCore does not provide a valid pose while tracking is paused.
  */
 object TrajectoryCorrector {
-    data class Segment(val fromNs: Long, val transform: Similarity2D, val eventId: String, val timeBaseId: String? = null)
+    /**
+     * [epoch] = number of [TimeBaseAdded] before the transform (one AR frame per epoch); [untilNs] = end of validity
+     * (same time base), set when a resume opens a new AR frame. Earlier segments are kept: D13, objects and poses of a
+     * previous AR frame keep the transform of their own segment.
+     */
+    data class Segment(val fromNs: Long, val transform: Similarity2D, val eventId: String, val timeBaseId: String? = null,
+                       val untilNs: Long = Long.MAX_VALUE, val epoch: Int = 0) {
+        fun covers(ns: Long) = fromNs <= ns && (untilNs == Long.MAX_VALUE || ns < untilNs)
+    }
+
+    /** Epoch (AR frame) of the live session = number of resumes. */
+    fun currentEpoch(events: List<SessionEvent>): Int = events.count { it is TimeBaseAdded }
+
+    /** Segment of the live AR frame (null after a resume until the new frame is tied to the site again). */
+    fun current(events: List<SessionEvent>): Segment? {
+        val ep = currentEpoch(events)
+        return timeline(events).lastOrNull { it.epoch == ep }
+    }
 
     /**
      * Stage 1.7: order of the time bases of a session = order of their first appearance in the journal (append order).
@@ -147,27 +164,34 @@ object TrajectoryCorrector {
 
     /**
      * Transform timeline. A [TimeBaseAdded] (session resumed: new AR frame) ends the validity of earlier
-     * transforms until a new calibration is made.
+     * transforms for later stamps, but keeps them for the stamps they cover (D13).
      */
     fun timeline(events: List<SessionEvent>): List<Segment> {
         val cmp = order(baseRanks(events))
         val sorted = events.sortedWith { a, b -> cmp.compare(a.t, b.t) }
         val out = ArrayList<Segment>()
+        var epoch = 0
         for (e in sorted) when (e) {
-            is CalibrationEvent -> out += Segment(e.t.monotonicNs, e.transform, e.id, e.t.timeBaseId)
-            is RelocalizationEvent -> if (out.isNotEmpty()) out += Segment(e.t.monotonicNs, e.transformAfter, e.id, e.t.timeBaseId)
-            is TimeBaseAdded -> out.clear()
+            is CalibrationEvent -> out += Segment(e.t.monotonicNs, e.transform, e.id, e.t.timeBaseId, epoch = epoch)
+            is RelocalizationEvent -> if (out.any { it.epoch == epoch }) out += Segment(e.t.monotonicNs, e.transformAfter, e.id, e.t.timeBaseId, epoch = epoch)
+            is TimeBaseAdded -> {
+                for (k in out.indices) {
+                    val g = out[k]
+                    if (g.untilNs == Long.MAX_VALUE && (g.timeBaseId == null || g.timeBaseId == e.t.timeBaseId)) out[k] = g.copy(untilNs = e.t.monotonicNs)
+                }
+                epoch++
+            }
             else -> {}
         }
         return out
     }
 
     /** Latest segment at or before [monotonicNs] (same time base as the timeline, i.e. the current one). */
-    fun activeAt(timeline: List<Segment>, monotonicNs: Long): Segment? = timeline.lastOrNull { it.fromNs <= monotonicNs }
+    fun activeAt(timeline: List<Segment>, monotonicNs: Long): Segment? = timeline.lastOrNull { it.covers(monotonicNs) }
 
     /** Latest segment of the same time base at or before [t]; a stamp of another base (other boot) gets none. */
     fun activeAt(timeline: List<Segment>, t: Stamp): Segment? =
-        timeline.lastOrNull { (it.timeBaseId == null || it.timeBaseId == t.timeBaseId) && it.fromNs <= t.monotonicNs }
+        timeline.lastOrNull { (it.timeBaseId == null || it.timeBaseId == t.timeBaseId) && it.covers(t.monotonicNs) }
 
     fun correct(poses: List<PoseSample>, events: List<SessionEvent>, ltp: LocalTangentPlane?): List<CorrectedPoint> {
         val out = ArrayList<CorrectedPoint>()

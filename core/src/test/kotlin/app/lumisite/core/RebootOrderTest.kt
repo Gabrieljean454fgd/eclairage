@@ -37,7 +37,10 @@ class RebootOrderTest {
         val cal1 = Calibrator.onePointHeading("cal1", p0.t, LocalObservation(p0, ReferencePoint("A", Enu(10.0, 20.0), source = "MAP_TAP")), 0.0, "MANUAL", 5.0)
         val ev = listOf(cal1) + events().drop(1)
         val tl = TrajectoryCorrector.timeline(ev)
-        assertEquals(listOf("cal2"), tl.map { it.eventId }, "the reboot ends cal1; sorting on monotonicNs alone would put cal1 last and keep it")
+        // D13: cal1 is kept for the stamps of its own boot, but the live AR frame only uses cal2. Sorting on monotonicNs alone
+        // would put cal1 last and make it the live transform.
+        assertEquals(listOf("cal1", "cal2"), tl.map { it.eventId })
+        assertEquals("cal2", TrajectoryCorrector.current(ev)!!.eventId)
         val ranks = TrajectoryCorrector.baseRanks(ev)
         assertEquals(listOf("tb-1", "tb-2"), ranks.keys.toList())
     }
@@ -47,15 +50,17 @@ class RebootOrderTest {
         val before = (0..5).map { Fixtures.pose(5_000_000_000 + it * 1_000_000_000L, it.toDouble(), 0.0) }
         val after = (0..5).map { pose2(9_000_000_000 + it * 1_000_000_000L, it.toDouble(), 0.0) }
         val traj = TrajectoryCorrector.correct(after + before, ev, null) // input order shuffled on purpose
-        assertEquals(6, traj.size, "pre-reboot poses have no transform after the reboot (cal1 ended): not projected with cal2")
-        assertTrue(traj.all { it.timeBaseId == "tb-2" })
-        assertEquals(30.0, traj.first().site.e, 1e-6)
-        assertEquals((0..5).map { 9_000_000_000 + it * 1_000_000_000L }, traj.map { it.monotonicNs })
+        // D13: pre-reboot poses keep cal1 (their own segment), post-reboot poses use cal2; never cal2 for a pre-reboot pose.
+        assertEquals(12, traj.size)
+        assertEquals(List(6) { "tb-1" } + List(6) { "tb-2" }, traj.map { it.timeBaseId })
+        assertEquals(10.0, traj.first().site.e, 1e-6)
+        assertEquals(30.0, traj[6].site.e, 1e-6)
+        assertEquals((0..5).map { 9_000_000_000 + it * 1_000_000_000L }, traj.drop(6).map { it.monotonicNs })
     }
 
     @Test fun aStampOfAnotherBootNeverUsesThisBootTransform() {
         val tl = TrajectoryCorrector.timeline(events())
-        assertNull(TrajectoryCorrector.activeAt(tl, Fixtures.stamp(99_000_000_000)))
+        assertEquals("cal1", TrajectoryCorrector.activeAt(tl, Fixtures.stamp(99_000_000_000))!!.eventId)
         assertEquals("cal2", TrajectoryCorrector.activeAt(tl, s2(10_000_000_000))!!.eventId)
     }
 

@@ -1,0 +1,116 @@
+# LOT 1.1 / D13 : Accueil > Nouveau > site > « Nouvelle session terrain » > Session > « Calibrer » (1 point) > « Relevé » × 2 >
+# « Terminer » > Site > carte de la session (reprendre) > Session : bandeau « Session reprise », les 2 relevés listés dans
+# Session > « Annoter » > Objets du relevé, et la ligne du calibrage marquée « session précédente » dans Session > « Calibrer ».
+# simuler_pose_ar (APK de débogage uniquement) fournit des poses AR synthétiques : ce parcours vérifie la reprise et l'affichage,
+# pas le suivi ARCore réel.
+appId: app.lumisite.android
+name: "Session reprise donnees affichees"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+    arguments:
+      simuler_pose_ar: true
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro reprise"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- tapOn: { id: "nouveau_site_creer" }
+- tapOn: { id: "site_nouvelle_session_terrain" }
+- assertVisible: { id: "session_terminer_la_session" }
+# Calibrage 1 point (cap 0°).
+- tapOn: { id: "session_calibrer" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_calibrer_cap_de_visee" }
+- inputText: "0"
+- hideKeyboard
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_1" }
+# Deux relevés (pose AR simulée, transformée par le calibrage).
+# « Relevé » ouvre le panneau une fois ; il reste ouvert après l'enregistrement (un 2e appui le fermerait).
+- tapOn: { id: "session_releve" }
+- repeat:
+    times: 2
+    commands:
+      - repeat:
+          while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,72%", end: "50%,88%", duration: 600 }
+      - tapOn: { id: "session_annoter_famille_Amplificateur" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+      # Le bouton est en bas du panneau, sous le dernier message : on le remonte entièrement avant l'appui au centre.
+      - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+      - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+      - tapOn: { id: "session_releve_enregistrer_le_releve" }
+      - waitForAnimationToEnd
+      # Photo automatique : l'appli photo externe passe au premier plan ; Retour la ferme (jamais quand LumiSite est visible).
+      - runFlow:
+          when:
+            notVisible: { id: "session_terminer_la_session" }
+          commands:
+            - back
+      - runFlow:
+          when:
+            visible: { id: "session_photo_passer" }
+          commands:
+            - tapOn: { id: "session_photo_passer" }
+      - assertVisible: ".*Relevé « .* » enregistré.*"
+- tapOn: { id: "session_terminer_la_session" }
+- extendedWaitUntil:
+    visible: { id: "site_session_reprendre" }
+    timeout: 60000
+- tapOn: { id: "site_session_reprendre" }
+- extendedWaitUntil:
+    visible: { id: "session_reprise_bandeau" }
+    timeout: 30000
+- assertVisible: "Session reprise : vos relevés sont affichés. Repositionnez-vous \\(2 points\\) pour continuer en AR."
+- assertVisible: "2 relevé\\(s\\), 1 point\\(s\\) de calibrage de la session précédente"
+- assertVisible: { id: "session_reprise_positionner" }
+# Les 2 relevés sont listés (et dessinés sur la carte) avant tout repositionnement.
+- tapOn: { id: "session_annoter" }
+- repeat:
+    while: { notVisible: { id: "session_objets_releve_2" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,66%", duration: 600 }
+- assertVisible: { id: "session_objets_releve_2" }
+- repeat:
+    while: { notVisible: { id: "session_objets_releve_1" } }
+    times: 4
+    commands:
+      - swipe: { start: "50%,68%", end: "50%,78%", duration: 600 }
+- assertVisible: { id: "session_objets_releve_1" }
+# Le bouton du bandeau ouvre Session > Calibrer, où la ligne de la session précédente est affichée.
+- tapOn: { id: "session_reprise_positionner" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_precedente_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,66%", duration: 600 }
+- assertVisible: ".*session précédente.*"
+- assertVisible: { id: "session_calibrer_precedente_1" }
+- takeScreenshot: reprise_session

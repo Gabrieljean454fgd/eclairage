@@ -181,7 +181,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             journal.event(resumed)
             DiagLog.i("SESSION", "Reprise de $sessionId" + if (rebooted) " après redémarrage du téléphone (nouvelle base de temps)" else "")
             // The AR session frame of a resumed session is new: previous transforms do not apply to it.
-            _state.update { it.copy(events = data.events + resumed, poseCount = data.poses.size, message = "Session reprise : nouveau repère AR, recalibrez avant de poursuivre.") }
+            _state.update { it.copy(events = data.events + resumed, poseCount = data.poses.size, message = null) }
             recompute()
         }
         // Reserve R2: segments left open by an abrupt stop were closed by SessionJournal; say so in the session journal.
@@ -273,6 +273,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
     }
 
+    // Called from the main thread (pause, AR unavailable) and from the AR/simulation threads: serialized so a state change is never lost.
+    @Synchronized
     private fun logTracking(state: TrackingState, reason: String?) {
         if (state != lastTracking) {
             lastTracking = state
@@ -307,7 +309,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     // ------------------------------------------------------------------ derived display
 
-    private fun activeSegment() = TrajectoryCorrector.activeAt(TrajectoryCorrector.timeline(_state.value.events), Long.MAX_VALUE)
+    private fun activeSegment() = TrajectoryCorrector.current(_state.value.events)
+
+    /** D13: resumed session whose earlier AR frame was tied to the site, while the new AR frame is not yet (Positionner). */
+    fun needsReposition(): Boolean { val ev = _state.value.events; return ev.any { it is TimeBaseAdded } && activeSegment() == null && TrajectoryCorrector.timeline(ev).isNotEmpty() }
+
+    /** D13: a single repositioning point after a resume gives an approximate transform (translation + heading). */
+    fun approximateReposition(): Boolean = _state.value.events.any { it is TimeBaseAdded } && activeSegment() != null && activeControlEvents().size == 1 &&
+        TrajectoryCorrector.timeline(_state.value.events).any { it.epoch < TrajectoryCorrector.currentEpoch(_state.value.events) }
 
     private fun appendLive(p: PoseSample) {
         val seg = activeSegment()
@@ -484,6 +493,18 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
     }
 
+    /** D13: control points of the earlier AR frames (shown as « session précédente », not used by the live solve). */
+    fun previousControlRows(): List<ControlRow> {
+        val evs = _state.value.events
+        val last = evs.indexOfLast { it is TimeBaseAdded }
+        if (last < 0) return emptyList()
+        val prev = evs.subList(0, last)
+        val removed = prev.filterIsInstance<ControlPointRemoved>().map { it.pointId }.toSet()
+        return prev.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }.mapIndexed { i, e ->
+            ControlRow(i + 1, e, null, if (e.kind == "RELOCALIZATION") "session précédente (recalage)" else "session précédente")
+        }
+    }
+
     /** Session > Calibrer > « Valider le point » and Session > Recaler > « Je suis ici : recaler »: one more row, transform solved again. */
     fun addControlPoint(kind: String, ref: ReferencePoint, headingDeg: Double? = null, headingSource: String? = null, headingCorrectionDeg: Double? = null, note: String? = null) {
         val reloc = kind == "RELOCALIZATION"
@@ -584,6 +605,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
+        if (manual == null && needsReposition()) { fail("Pose AR désactivée : la session reprise n'est pas repositionnée. Touchez le point sur la carte, ou repositionnez-vous (Calibrer, 2 points)."); return false }
         val aim = if (pose != null && seg != null) ar.aim.value else null
         if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit

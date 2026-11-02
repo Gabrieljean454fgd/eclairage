@@ -1,0 +1,37 @@
+# Scénario 1 : après effacement des données de l'appli (simule la réinstallation ; la vraie désinstallation reste à faire
+# sur le Xiaomi), Accueil > « Réglages » > Stockage > « Réimporter une session depuis Documents/LumiSite ».
+# Le sélecteur de dossier est celui d'Android : ses libellés dépendent de la langue et de la surcouche (MIUI/HyperOS).
+appId: app.lumisite.android
+name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
+---
+- runFlow: scenario1_3_exporter.yaml
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_reglages" }
+    timeout: 90000
+- tapOn: { id: "accueil_reglages" }
+- assertVisible: { id: "reglages_stockage_chemin" }
+- tapOn: { id: "reglages_stockage_reimporter" }
+# Le sélecteur charge la liste avant d'activer son bouton : un appui trop tôt est perdu (vu en CI, navigation à 3 boutons).
+- extendedWaitUntil:
+    visible: "(?i)utiliser ce dossier|use this folder"
+    timeout: 20000
+- waitForAnimationToEnd
+- tapOn: { text: "(?i)utiliser ce dossier|use this folder", optional: true }
+- runFlow:
+    when:
+      visible: "(?i)utiliser ce dossier|use this folder"
+    commands:
+      # En navigation à 3 boutons, le bouton du sélecteur système (DocumentsUI, pas LumiSite) a son centre sur le bord
+      # de la barre de navigation : l'appui au centre est absorbé par la barre. On touche sa moitié haute, visible.
+      - waitForAnimationToEnd
+      - tapOn: { point: "50%,93%" }
+- tapOn: { text: "(?i)autoriser|allow", optional: true }
+- extendedWaitUntil:
+    visible: { id: "reglages_stockage_resultat" }
+    timeout: 60000
+- assertVisible: ".*réimportée.*"
+- tapOn: { id: "reglages_retour" }
+- assertVisible: "Maestro bureau"

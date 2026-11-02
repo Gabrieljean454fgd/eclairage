@@ -1,0 +1,173 @@
+name: APK d'étape
+
+# À chaque push sur une branche d'étape (etape-*) et à la demande : tests JVM, APK debug signé avec la clé de TEST
+# publique (docs/SIGNATURE_APK.md), parcours Maestro de .maestro/ sur émulateur Pixel 7 (API 34), puis pré-release GitHub
+# etape<N>-<hash court>. La pré-release n'est publiée que si tous les parcours Maestro passent.
+on:
+  push:
+    branches: ["etape-*"]
+  workflow_dispatch:
+    inputs:
+      publier_sans_maestro:
+        description: "Publier la pré-release même si un parcours Maestro échoue"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      n: ${{ steps.id.outputs.n }}
+      short: ${{ steps.id.outputs.short }}
+      vc: ${{ steps.id.outputs.vc }}
+      apk: ${{ steps.id.outputs.apk }}
+      tag: ${{ steps.id.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # versionCode = nombre de commits
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Identité de l'APK
+        id: id
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          N=$(echo "$BRANCH" | sed -nE 's/^etape-?([0-9]+).*/\1/p')
+          [ -z "$N" ] && N=0
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VC=$(git rev-list --count HEAD)
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "vc=$VC" >> "$GITHUB_OUTPUT"
+          echo "apk=lumisite-etape${N}-v${VC}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
+          echo "tag=etape${N}-${SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Tests JVM et APK debug signé
+        run: ./gradlew --no-daemon -PversionCode=${{ steps.id.outputs.vc }} :core:test :app:assembleDebug
+
+      - name: Vérification de la signature (clé de test)
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.id.outputs.apk }}"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "${{ steps.id.outputs.apk }}" | tee certs.txt
+          grep -q "LumiSite TEST KEY" certs.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "${{ steps.id.outputs.apk }}" | head -1 | tee badging.txt
+
+      - name: Notes de version
+        run: |
+          N=${{ steps.id.outputs.n }}
+          {
+            echo "APK de test de l'étape $N, commit ${{ steps.id.outputs.short }} (branche \`${GITHUB_REF_NAME}\`)."
+            echo
+            echo "- Fichier : \`${{ steps.id.outputs.apk }}\`"
+            echo "- applicationId \`app.lumisite.android\`, versionCode ${{ steps.id.outputs.vc }}"
+            echo "- Signé avec la **clé de TEST publique** (docs/SIGNATURE_APK.md) : jamais pour la production."
+            echo
+            echo '```'; cat badging.txt; grep -E "certificate (DN|SHA-256)" certs.txt | head -2; echo '```'
+            echo
+            if [ -f "docs/livraisons/etape-$N.md" ]; then cat "docs/livraisons/etape-$N.md"; else echo "_Pas de liste de points livrés (docs/livraisons/etape-$N.md absent)._"; fi
+            echo
+            echo "## Derniers commits"
+            git log -15 --format='- %h %s'
+          } > notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: |
+            ${{ steps.id.outputs.apk }}
+            notes.md
+
+  maestro:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: KVM pour l'émulateur
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Installation de Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Parcours Maestro sur émulateur Pixel 7 (API 34)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: .github/scripts/maestro-ci.sh "${{ needs.apk.outputs.apk }}"
+
+      - name: Résumé
+        if: always()
+        run: |
+          echo "## Parcours Maestro (émulateur Pixel 7, API 34)" >> "$GITHUB_STEP_SUMMARY"
+          cat maestro-out/resume.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "_pas de résumé_" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maestro-rapports
+          path: maestro-out/
+
+  release:
+    needs: [apk, maestro]
+    if: ${{ always() && needs.apk.result == 'success' && (needs.maestro.result == 'success' || inputs.publier_sans_maestro) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+
+      - name: Pré-release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAESTRO: ${{ needs.maestro.result }}
+        run: |
+          TAG=${{ needs.apk.outputs.tag }}
+          APK=${{ needs.apk.outputs.apk }}
+          { echo "Parcours Maestro en CI (émulateur Pixel 7, API 34) : **${MAESTRO}** — détail dans l'onglet Actions."; echo; cat notes.md; } > notes-final.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+            gh release edit "$TAG" --notes-file notes-final.md
+          else
+            gh release create "$TAG" "$APK" --prerelease --target "$GITHUB_SHA" \
+              --title "Étape ${{ needs.apk.outputs.n }} — ${{ needs.apk.outputs.short }} (versionCode ${{ needs.apk.outputs.vc }})" --notes-file notes-final.md
+          fi

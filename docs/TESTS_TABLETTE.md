@@ -136,3 +136,29 @@ Chaque ligne renvoie à son lot. Une case n'est cochée qu'après vérification 
 | 11 | Outil de bureau `tools/session2dxf` : 10 tests pytest (aller-retour synthétique 293 INSERT aux 25 noms, positions < 1 mm, rotations, échelles ; 2 appareils / 10 doublons → 10 fusions + 1 conflit ; alias → un seul bloc « bloc secours » ; session vide ; ligne tronquée ; ATTRIB ID ; polyligne fermée ; sans position exclu ; sha256 ; GEODATA supprimé ; recalage xref). Pas d'appareil concerné. | Aller-retour sur le vrai `eclairage03.dxf` et le gabarit de Sébastien ; ouverture AutoCAD + visionneur libre ; conversion DWG ODA. |
 | 12 | Bureau : 6 tests pytest voix (extraction ; « spot dichroïque MR16, 50 watts » → bon spot 10 visites synthétiques sur 10 (critère ≥ 8) ; « à choisir » / « objet non relevé ? » ; seules les validations vont dans les ATTRIB ; réattribuer / corriger ; 3 chirps retrouvés à l'échantillon dans un WAV et un FLAC de 12 s). Appli iOS non développée. | Visite test de 30 min téléphone + iPad (appli iOS à écrire) ; Whisper réel sur un enregistrement de terrain. |
 | 13 | Tests JVM `ZonesTest` (4) : convexe, concave, cloître avec cour, hors zone → null, zones imbriquées → la plus profonde, polygone qui se recoupe → rejeté, relecture d'une forme 0.1. `:core:test :app:assembleDebug` OK. | Tracer une zone en forme de 8 → message de refus ; tracer église / chœur et vérifier l'export Feature `zone`. Revue 30/10 : `ZoneEventTest` (événement `zone` 0.2 et zones 0.1 relues, anneaux fermés extérieur CCW / trous CW, `zone_id` calculé dans la Feature et `derived/`, contacts colinéaires et trous invalides refusés) vert sur JVM. **À tester sur le 13T Pro** : tracé refusé conservé à l'écran, message d'erreur. |
+
+## Scénario de validation 1 (étape 1 « Protéger ») — Xiaomi 13T Pro
+
+Préparation : désinstaller une dernière fois l'APK lot 13 (signature différente). Vérifier le certificat de l'APK
+d'étape (`docs/SIGNATURE_APK.md`). APK N et N+1 : deux pré-releases `etape1-<hash>` successives.
+
+1. Installer N. Accueil > « Nouveau » : nom, coordonnées, « Utiliser ces coordonnées », « Créer sans contours OSM ».
+   Site > « Nouvelle session terrain ». Session > « Relevé » : 3 points (« Enregistrer le relevé »), une photo
+   (Session > « Annoter » ou l'objet sélectionné > « Capture »). Session > « Export » > « Exporter la session ».
+   Attendu : barre de progression, puis « Exporté dans Documents/LumiSite/<site>_<id>/<session>/exports/<zip> »,
+   « Ouvrir » et « Partager » fonctionnent. Dans l'appli Fichiers : `Documents/LumiSite/<site>_<id>/<session>/` contient
+   `session_header.json`, `site.json`, `seg/*.ndjson`, `attachments/`, `copies.json`.
+2. « ← Terminer la session ». Installer N+1 par-dessus (`adb install -r`, ou depuis le fichier). Attendu : le site,
+   la session, les 3 points et la photo sont toujours là.
+3. Désinstaller. Réinstaller N+1. Accueil > « Réglages » > Stockage > « Réimporter une session depuis Documents/LumiSite » ;
+   dans le sélecteur Android, choisir le dossier `LumiSite` puis « Utiliser ce dossier » / « Autoriser ».
+   Attendu : « <session> : réimportée, toutes les empreintes vérifiées » ; retour à l'Accueil : le site est revenu,
+   la session s'ouvre (Site > la session) avec ses points et sa photo.
+4. Accueil > « Réglages » > Journal > « Partager le journal ». Attendu : un fichier texte avec les lignes
+   `date | écran | catégorie | message`, dont les écrans visités, l'export, la pause et le réimport.
+
+Variante R2 (arrêt brutal) : pendant une session, forcer l'arrêt (Paramètres > Applis > LumiSite > Forcer l'arrêt),
+rouvrir la session (Site > la session). Attendu : message de reprise ; le journal de session contient un `stream_state`
+`REPAIRED` par flux ouvert ; l'export signale au plus une ligne illisible par flux, aucune donnée inventée.
+
+Statut : non exécuté (aucun Xiaomi dans l'environnement de Devin). Parcours Maestro : `.maestro/scenario1_*.yaml`.

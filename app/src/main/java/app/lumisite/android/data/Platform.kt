@@ -42,3 +42,11 @@ object DeviceInfo {
         )
     }
 }
+
+/** Stage 1.7: identity of the current phone boot, so that monotonic clocks of two boots are never compared. */
+object BootInfo {
+    fun bootId(): String? = runCatching { java.io.File("/proc/sys/kernel/random/boot_id").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+    fun bootCount(ctx: Context): Int? = runCatching {
+        android.provider.Settings.Global.getInt(ctx.contentResolver, android.provider.Settings.Global.BOOT_COUNT)
+    }.getOrNull()
+}

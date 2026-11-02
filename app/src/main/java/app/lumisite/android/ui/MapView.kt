@@ -1,6 +1,7 @@
 package app.lumisite.android.ui
 
 import android.graphics.Color
+import androidx.compose.ui.platform.testTag
 import android.graphics.Paint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -242,7 +243,7 @@ fun OsmMap(
             style = MaterialTheme.typography.labelSmall)
     }
     Box(Modifier.align(Alignment.TopEnd).padding(6.dp)) {
-        OutlinedButton(onClick = { menu = true }, modifier = Modifier.background(androidx.compose.ui.graphics.Color(0xCCFFFFFF))) { Text("Fond : ${basemap.label}") }
+        OutlinedButton(onClick = { menu = true }, modifier = Modifier.testTag("carte_fond").background(androidx.compose.ui.graphics.Color(0xCCFFFFFF))) { Text("Fond : ${basemap.label}") }
         DropdownMenu(menu, { menu = false }) {
             Basemap.entries.forEach { b ->
                 val ok = b != Basemap.ESRI || MapPrefs.esriAccepted
@@ -252,7 +253,7 @@ fun OsmMap(
                 )
             }
             DropdownMenuItem(
-                text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.esriAccepted, null); Text("Le projet accepte les conditions Esri") } },
+                text = { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(MapPrefs.esriAccepted, null, modifier = Modifier.testTag("carte_checkbox")); Text("Le projet accepte les conditions Esri") } },
                 onClick = {
                     MapPrefs.esriAccepted = !MapPrefs.esriAccepted
                     if (!MapPrefs.esriAccepted && MapPrefs.basemap == Basemap.ESRI) MapPrefs.basemap = Basemap.OSM

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stage 1.4, Android 11 and below (Auto Backup, 25 MB cap). Same content as data_extraction_rules.xml. -->
+<full-backup-content>
+    <include domain="file" path="sites/" />
+    <include domain="file" path="sessions/" />
+    <include domain="file" path="diag/" />
+    <include domain="sharedpref" path="." />
+    <exclude domain="file" path="exports/" />
+    <exclude domain="file" path="osmdroid/" />
+</full-backup-content>

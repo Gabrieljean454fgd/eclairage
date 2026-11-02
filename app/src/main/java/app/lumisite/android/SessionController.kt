@@ -24,6 +24,9 @@ import app.lumisite.core.geo.CrsInfo
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.journal.SessionJournal
+import app.lumisite.core.model.StreamStateEvent
+import app.lumisite.android.data.DiagLog
+import app.lumisite.android.data.BootInfo
 import app.lumisite.core.export.sha256
 import app.lumisite.core.survey.Shapes
 import app.lumisite.core.model.Attachment
@@ -107,10 +110,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
     val ar = ArTracker(ctx, { stamps }, ::onArFrame)
+    /** Stage 1.2: finished segments and attachments are copied to Documents/LumiSite/<site>/<session>/ as they come. */
+    private val mirror = repo.mirror(site, sessionId) { msg, e -> DiagLog.e("COPIE", msg, e) }
+    val mirrorDir get() = mirror.displayDir
 
     init {
         val tbRef = TimeBase(Ids.new("tb"), DeviceInfo.deviceId(ctx), TimeBase.ANDROID_ELAPSED_REALTIME, AndroidClock.utcEpochMs(), AndroidClock.monotonicNs(),
-            notes = "SystemClock.elapsedRealtimeNanos(); UTC from System.currentTimeMillis() captured at the same instant")
+            notes = "SystemClock.elapsedRealtimeNanos(); UTC from System.currentTimeMillis() captured at the same instant",
+            bootId = BootInfo.bootId(), bootCount = BootInfo.bootCount(ctx))
         stamps = StampFactory(AndroidClock, tbRef)
         val dir = repo.sessionDir(sessionId)
         if (!resume) {
@@ -120,7 +127,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
                 createdUtcMs = AndroidClock.utcEpochMs(), device = DeviceInfo.describe(ctx, arSupport), timeBases = listOf(tbRef),
                 localFrame = CrsInfo("AR_SESSION", "ARCORE_WORLD", "ARCore session world frame: right-handed, +Y up (gravity), metres; origin = device pose at AR session start. Horizontal plane mapping: (x, -z)."),
             )
-            journal = SessionJournal(dir, header)
+            journal = SessionJournal(dir, header, onSegmentClosed = { mirror.enqueue(it) })
             val started = SessionStarted(Ids.new("ev"), stamps.now())
             journal.event(started)
             _state.update { it.copy(events = listOf(started)) }
@@ -128,18 +135,43 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             val data = SessionReader.read(dir, includeImu = false)
             header = data.header
             poses += data.poses
-            journal = SessionJournal(dir)
-            val resumed = TimeBaseAdded(Ids.new("ev"), stamps.now(), tbRef, "session resumed")
+            journal = SessionJournal(dir, onSegmentClosed = { mirror.enqueue(it) })
+            val previousBoot = (data.header.timeBases + data.events.filterIsInstance<TimeBaseAdded>().map { it.timeBase }).lastOrNull()?.bootId
+            val rebooted = previousBoot != null && tbRef.bootId != null && previousBoot != tbRef.bootId
+            val resumed = TimeBaseAdded(Ids.new("ev"), stamps.now(), tbRef, if (rebooted) "session resumed after PHONE_REBOOT" else "session resumed")
             journal.event(resumed)
+            DiagLog.i("SESSION", "Reprise de $sessionId" + if (rebooted) " après redémarrage du téléphone (nouvelle base de temps)" else "")
             // The AR session frame of a resumed session is new: previous transforms do not apply to it.
             _state.update { it.copy(events = data.events + resumed, poseCount = data.poses.size, message = "Session reprise : nouveau repère AR, recalibrez avant de poursuivre.") }
             recompute()
         }
+        // Reserve R2: segments left open by an abrupt stop were closed by SessionJournal; say so in the session journal.
+        journal.repaired.forEach { r ->
+            val e = StreamStateEvent(Ids.new("ev"), stamps.now(), r.stream.removeSuffix(".ndjson"), "REPAIRED", "ABRUPT_STOP",
+                "${r.file.name} fermé à la reprise (${r.bytes} octets${if (r.truncatedTail) ", dernière ligne tronquée conservée et signalée" else ""})")
+            journal.event(e); _state.update { it.copy(events = it.events + e) }
+            DiagLog.i("FLUX", "Segment réparé après arrêt brutal : ${r.file.name}")
+        }
+        mirror.syncAll()
     }
+
+    private var paused = false
+
+    private fun streamState(streams: List<String>, state: String, reason: String) {
+        if (closed) return
+        val evs = streams.map { StreamStateEvent(Ids.new("ev"), stamps.now(), it, state, reason) }
+        evs.forEach(journal::event)
+        _state.update { it.copy(events = it.events + evs) }
+        DiagLog.i("FLUX", "${streams.joinToString()} : $state ($reason)")
+    }
+
+    /** Closes the open segments and copies everything final to Documents/LumiSite (export, pause, end of session). */
+    fun mirrorNow() { if (!closed) runCatching { journal.rotateAll() }; mirror.syncAll(); mirror.drain(); DiagLog.mirrorNow() }
 
     // ------------------------------------------------------------------ capture lifecycle
 
     fun startCapture(hasLocation: Boolean) {
+        if (paused) { paused = false; streamState(listOf("imu", "gps", "arcore"), "RESUMED", "APP_RESUMED") }
         sensors.start()
         if (hasLocation) gps.start() else onGpsStatus(GpsStatusSample(stamps.now(), "gps", "NO_PERMISSION"))
     }
@@ -150,7 +182,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (closed) return
         runCatching { sensors.stop() }; runCatching { gps.stop() }; ar.pause()
         logTracking(TrackingState.STOPPED, "APP_PAUSED")
+        if (!paused) { paused = true; streamState(listOf("imu", "gps", "arcore"), "STOPPED", "APP_PAUSED") }
         journal.flushAll()
+        runCatching { journal.rotateAll() }
+        mirror.syncAll()
+        DiagLog.memory("pause de session"); DiagLog.mirrorNow()
     }
 
     /**
@@ -166,6 +202,9 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
         runCatching { journal.close() }
         runCatching { featuresWriter?.close() }
+        mirror.close()
+        DiagLog.i("SESSION", "Fin de la session $sessionId ($reason), copie dans ${mirror.displayDir}")
+        DiagLog.mirrorNow()
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }

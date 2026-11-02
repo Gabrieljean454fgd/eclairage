@@ -33,6 +33,12 @@ data class TimeBase(
     val referenceUtcEpochMs: Long,
     val referenceMonotonicNs: Long,
     val notes: String? = null,
+    /**
+     * Stage 1.7: identity of the phone boot this monotonic clock belongs to (Android: /proc/sys/kernel/random/boot_id,
+     * or Settings.Global.BOOT_COUNT). Two time bases with different boot ids can never be compared on monotonicNs.
+     */
+    val bootId: String? = null,
+    val bootCount: Int? = null,
 ) {
     /**
      * Derived UTC for a monotonic value of this base, assuming no drift between the two clocks since the

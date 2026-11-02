@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stage 1.4 (decision: everything may go to the cloud backup, client media included). Android 12+.
+  Complementary safety net only: the Android cloud backup is capped at 25 MB per app (larger data = backup skipped).
+  The primary protection is the visible copy in Documents/LumiSite (stage 1.2). See docs/SAUVEGARDE_ANDROID.md.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="sites/" />
+        <include domain="file" path="sessions/" />
+        <include domain="file" path="diag/" />
+        <include domain="sharedpref" path="." />
+        <exclude domain="file" path="exports/" />
+        <exclude domain="file" path="osmdroid/" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="sites/" />
+        <include domain="file" path="sessions/" />
+        <include domain="file" path="diag/" />
+        <include domain="sharedpref" path="." />
+        <exclude domain="file" path="exports/" />
+        <exclude domain="file" path="osmdroid/" />
+    </device-transfer>
+</data-extraction-rules>

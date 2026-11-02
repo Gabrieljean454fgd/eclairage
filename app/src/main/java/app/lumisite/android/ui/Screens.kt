@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +31,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
 import app.lumisite.android.data.OsmClient
@@ -66,7 +69,7 @@ import java.util.Locale
 fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
 
 @Composable
-fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
+fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSettings: () -> Unit = {}) {
     val sites = remember { repo.sites() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -93,7 +96,10 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
         Text("LumiSite : diagnostic éclairage (prototype)", style = MaterialTheme.typography.headlineSmall)
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onNew) { Text("Nouveau") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau")) { Text("Nouveau") }
+            OutlinedButton(onClick = onSettings, modifier = Modifier.testTag("accueil_reglages")) { Text("Réglages") }
+        }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -102,7 +108,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit) {
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            TextButton(enabled = exporting == null, onClick = { exportProject(s) }) { Text(if (exporting == s.id) "Export…" else "⇪ Exporter") }
+                            TextButton(enabled = exporting == null, onClick = { exportProject(s) }, modifier = Modifier.testTag("accueil_site_exporter")) { Text(if (exporting == s.id) "Export…" else "⇪ Exporter") }
                         }
                         Text("%.6f, %.6f · %s · OSM : %s".format(s.origin.lat, s.origin.lon, s.originSource,
                             s.osm?.let { "${it.features.size} objets" } ?: "aucune donnée"), style = MaterialTheme.typography.bodySmall)
@@ -117,6 +123,7 @@ private enum class TapMode { ORIGIN, CORNERS }
 
 @Composable
 fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
+    val focusManager = LocalFocusManager.current
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -206,12 +213,16 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         }
     }
 
-    Row(Modifier.fillMaxSize()) {
+    // imePadding + adjustResize: the keyboard never hides the focused field; the form scrolls (verticalScroll).
+    // Portrait: map on top, form below and scrollable (a swipe in the middle of the screen scrolls the form, not the map).
+    // imePadding + adjustResize: the keyboard never hides the focused field.
+    val mapView: @Composable (Modifier) -> Unit = { m ->
         OsmMap(
-            Modifier.weight(0.6f).fillMaxSize(), center, zoom,
+            m, center, zoom,
             MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRef = selected, rect = rect, picked = cornerA),
             recenterKey = recenter,
             onTap = {
+                focusManager.clearFocus()
                 if (tapMode == TapMode.CORNERS) {
                     val a0 = cornerA
                     if (a0 == null) cornerA = it else { setRect(Bboxes.fromCorners(a0, it)); cornerA = null; tapMode = TapMode.ORIGIN }
@@ -219,20 +230,22 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             },
             onFeatureTap = { f -> selected = if (selected == f.ref) null else f.ref },
         )
-        Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }
+    val form: @Composable (Modifier) -> Unit = { m ->
+        Column(m.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onCancel) { Text("← Retour") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
                 Text("Nouveau site", style = MaterialTheme.typography.titleLarge)
             }
             OutlinedTextField(
-                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
                 isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
             )
             HorizontalDivider()
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
-                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { lastSearched = ""; doSearch() }),
             )
             results.forEach { r ->
@@ -242,40 +255,40 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
-                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
                 val la = latText.replace(',', '.').toDoubleOrNull(); val lo = lonText.replace(',', '.').toDoubleOrNull()
                 if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) status = "Coordonnées invalides." else { setOrigin(LatLon(la, lo), "COORDINATES"); zoom = 18.0 }
-            }) { Text("Utiliser ces coordonnées") }
+            }, modifier = Modifier.testTag("nouveau_site_utiliser_ces_coordonnees")) { Text("Utiliser ces coordonnées") }
             Text(origin?.let { "Origine : %.7f, %.7f (%s)".format(it.lat, it.lon, originSource) } ?: "Origine non définie", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Text("2. Rectangle du site (conservé même sans OSM)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { tapMode = TapMode.CORNERS; cornerA = null }) {
+                OutlinedButton(onClick = { tapMode = TapMode.CORNERS; cornerA = null }, modifier = Modifier.testTag("nouveau_site_touchez_le_1er_coin")) {
                     Text(if (tapMode == TapMode.CORNERS) (if (cornerA == null) "Touchez le 1er coin…" else "Touchez le 2e coin…") else "Deux coins sur la carte")
                 }
-                OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.width(110.dp), singleLine = true)
-                OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }) { Text("Autour de l'origine") }
+                OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.testTag("nouveau_site_demi_cote_m").width(110.dp), singleLine = true)
+                OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }, modifier = Modifier.testTag("nouveau_site_autour_de_l_origine")) { Text("Autour de l'origine") }
             }
             if (recentZones.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
-                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }) }
+                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
             }
             rect?.let { b -> Text("Rectangle : %.5f degré carré%s".format(Bboxes.areaDeg2(b), if (tooLarge) " — trop grand (max %.2f)".format(OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall) }
             HorizontalDivider()
             Text("3. (Optionnel) Contours OSM du rectangle (API OSM v0.6)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && rect != null, onClick = { fetch(split = false) }) { Text("Récupérer") }
+                Button(enabled = !busy && rect != null, onClick = { fetch(split = false) }, modifier = Modifier.testTag("nouveau_site_recuperer")) { Text("Récupérer") }
                 if (tooLarge || failure == OsmGuard.Failure.TOO_MANY_NODES || failure == OsmGuard.Failure.BBOX_TOO_LARGE)
-                    OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }) { Text("Réduire") }
+                    OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }, modifier = Modifier.testTag("nouveau_site_reduire")) { Text("Réduire") }
                 if (failure == OsmGuard.Failure.TOO_MANY_NODES)
-                    OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }) { Text("Découper et fusionner") }
+                    OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }, modifier = Modifier.testTag("nouveau_site_decouper_et_fusionner")) { Text("Découper et fusionner") }
             }
-            TextButton(onClick = { showUrls = !showUrls }) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
-            if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            TextButton(onClick = { showUrls = !showUrls }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6")) { Text(if (showUrls) "Masquer l'URL du service" else "URL du service OSM…") }
+            if (showUrls) OutlinedTextField(apiUrl, { apiUrl = it }, label = { Text("API OSM v0.6") }, modifier = Modifier.testTag("nouveau_site_api_osm_v0_6_2").fillMaxWidth(), singleLine = true)
             selected?.let { Text("Bâtiment sélectionné : $it", style = MaterialTheme.typography.bodySmall) }
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             HorizontalDivider()
@@ -292,11 +305,15 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                         ),
                         osm = osm, selectedBuildingOsmRef = selected, bbox = rect ?: osm?.bbox,
                     ), staged)
-                }) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
+                }, modifier = Modifier.testTag("nouveau_site_creer")) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = onCancel) { Text("Annuler") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.testTag("nouveau_site_annuler")) { Text("Annuler") }
             }
         }
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        if (maxHeight > maxWidth) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); form(Modifier.fillMaxWidth().weight(0.62f)) }
+        else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); form(Modifier.weight(0.4f)) }
     }
 }
 
@@ -312,7 +329,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
         ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)
         Column(Modifier.weight(0.4f).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onBack) { Text("← Retour") }
+                OutlinedButton(onClick = onBack, modifier = Modifier.testTag("site_retour")) { Text("← Retour") }
                 Spacer(Modifier.width(8.dp))
                 Text(site.name, style = MaterialTheme.typography.titleLarge)
             }
@@ -320,7 +337,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
             Text(site.osm?.let { "OSM : ${it.features.size} objets, récupérés le ${fmtTime(it.retrievedUtcMs)} (${it.license})" } ?: "Pas de données OSM (site défini manuellement)", style = MaterialTheme.typography.bodySmall)
             Text("Plans importés : ${site.plans.size} (import prévu dans une tranche ultérieure)", style = MaterialTheme.typography.bodySmall)
             Text("Relevés : ${surveys.size} (${surveys.count { it.site == null }} sans position)", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onNewSession) { Text("Nouvelle session terrain") }
+            Button(onClick = onNewSession, modifier = Modifier.testTag("site_nouvelle_session_terrain")) { Text("Nouvelle session terrain") }
             HorizontalDivider()
             Text("Sessions", style = MaterialTheme.typography.titleMedium)
             sessions.forEach { h ->

@@ -1,0 +1,14 @@
+# Scénario 1 : Session > « Export » > « Exporter la session » → « Exporté dans Documents/LumiSite/… », boutons Ouvrir et Partager.
+appId: app.lumisite.android
+name: "Scénario 1.3 — Session, Export"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_resultat" }
+    timeout: 120000
+- assertVisible: "Exporté dans Documents/LumiSite/.*"
+- assertVisible: { id: "session_export_ouvrir" }
+- assertVisible: { id: "session_export_partager" }
+- assertNotVisible: { id: "session_export_erreur" }

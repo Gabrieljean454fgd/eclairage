@@ -25,12 +25,16 @@ Scénario de validation 1 (Xiaomi 13T Pro) :
 3. Désinstaller, réinstaller, puis Réimporter : la session revient depuis `Documents/LumiSite`.
 4. Partager le journal.
 
+Statut au 01/11 (prompt v4, palier P1) : corrections Pixel 7 publiées (`etape1-a23e71d`, `lumisite-etape1-v113-a23e71d.apk`), parcours 1.1–1.5 verts en CI émulateur ; validation sur Pixel 7 physique / ARCore réel à faire. Détail : `docs/COMPTE_RENDU_2026-11-01.md`.
+
 Réserve applicable : **R2** (segment en cours lors d'un arrêt brutal ; réimport après désinstallation testé sur le vrai téléphone), **R1** (arrêts et reprises écrits, jamais comblés).
 
 ## Étape 2 — Rendre utilisable
 Points : 2.1 un doigt dessine, deux doigts déplacent · 2.2 polygone élastique fermé sur le dernier point · 2.3 note vocale conservée · 2.4 icônes avec infobulle · 2.5 portrait, 48 dp, WindowInsets, icône de thème visible · 2.6 bouton Créer actif, validation à l'appui · 2.7 rectangle OSM élastique · 2.8 flèche, trajectoire, source, calibration, âge de la position · 2.9 repère posé à la calibration · 2.10 décalage visible avant recalage.
 
 Scénario de validation 2 (bureau de Sébastien, Toulouse) : créer un relevé avec sélection OSM ; calibrer ; marcher (la flèche et la trajectoire suivent) ; dessiner un polygone au pouce et le fermer sur le dernier point ; recaler ; exporter. Aucun blocage, textes lisibles en portrait.
+
+Statut au 01/11 (prompt v4) : P1 publié sur etape-2 (`etape2-ff0dd61`, `lumisite-etape2-v125-ff0dd61.apk`, 6/6 Maestro en CI émulateur) ; P2 (ergonomie Session, positionnement intérieur D1–D8, version, Annoter, photo à la pose, Synchro) en cours. PR brouillon.
 
 Réserve applicable : **R1** (perte de suivi visible : flèche grisée, âge de la position ; aucune trajectoire inventée pendant une perte).
 

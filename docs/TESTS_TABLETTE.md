@@ -162,3 +162,18 @@ rouvrir la session (Site > la session). Attendu : message de reprise ; le journa
 `REPAIRED` par flux ouvert ; l'export signale au plus une ligne illisible par flux, aucune donnée inventée.
 
 Statut : non exécuté (aucun Xiaomi dans l'environnement de Devin). Parcours Maestro : `.maestro/scenario1_*.yaml`.
+
+## Scénario de validation 2 (étape 2, BROUILLON — seulement après validation du scénario 1)
+
+Bureau de Sébastien (Toulouse), Xiaomi en portrait :
+1. Accueil > « Nouveau relevé » : toucher « Créer… » sans origine → message rouge « Il manque l'origine du site… ». Rechercher l'adresse,
+   « Tracer le rectangle », appuyer-glisser un doigt : le rectangle suit le doigt ; au lâcher, les contours OSM arrivent et les bâtiments du
+   rectangle sont surlignés (orange) ; toucher un bâtiment le retire/l'ajoute. « Créer le site ».
+2. Site > « Nouvelle session terrain » > « Calibrer » : à « Valider la calibration », un repère orange (flèche) apparaît sur le plan.
+3. Marcher : la flèche bleue et la trajectoire verte suivent ; le bandeau dit « Source : AR · calibré · dernière position valide il y a < 1 s ».
+   Masquer la caméra : flèche grise, bandeau rouge « suivi perdu », l'âge augmente.
+4. Session > « Annoter » > « Polygone » : un doigt pose les sommets (aperçu orange qui suit le doigt), deux doigts déplacent la carte ;
+   toucher à nouveau le dernier sommet ferme le polygone.
+5. Session > « Recaler » : toucher le point réel → « Décalage à corriger : … m » et trait orange avant « Je suis ici : recaler ».
+6. Session > « Export » > « Exporter la session ». Attendu : aucun blocage, textes lisibles en portrait, rien sous l'encoche.
+Statut : non exécuté. Parcours Maestro : `.maestro/scenario2_releve_sans_blocage.yaml` (sans ARCore : points 2-3 non couverts).

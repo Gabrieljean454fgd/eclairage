@@ -1,6 +1,7 @@
 package app.lumisite.android.ui
 
 import android.Manifest
+import androidx.compose.foundation.background
 import androidx.compose.ui.platform.testTag
 import android.content.Context
 import android.content.pm.PackageManager
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,6 +38,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,19 +68,20 @@ import app.lumisite.core.model.ShapeStyle
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.survey.Details
 import app.lumisite.core.survey.Shapes
+import app.lumisite.core.survey.Sketch
 import java.io.File
 import kotlin.math.hypot
 
 /** Annotation toolbar (fiche F). Material icons (Apache-2.0) + French word; no Xodo/PDFTron resource is used. */
 enum class Tool(val icon: ImageVector, val label: String) {
-    MOVE(Icons.Default.LocationOn, "Se déplacer"),
+    MOVE(ToolIcons.Move, "Se déplacer"),
     PLACE(Icons.Default.Place, "Poser"),
-    SHAPE(Icons.Default.Create, "Forme"),
-    LINE(Icons.Default.ArrowForward, "Ligne"),
-    POLYGON(Icons.Default.Star, "Polygone"),
+    SHAPE(ToolIcons.Rectangle, "Forme"),
+    LINE(ToolIcons.Line, "Ligne"),
+    POLYGON(ToolIcons.Polygon, "Polygone"),
     ANNOTATION(Icons.Default.Warning, "Annotation"),
-    COMMENT(Icons.Default.Edit, "Commentaire"),
-    SELECT(Icons.Default.Done, "Sélection"),
+    COMMENT(ToolIcons.Comment, "Commentaire"),
+    SELECT(ToolIcons.Select, "Sélection"),
 }
 
 val NAMED_COLORS = linkedMapOf(
@@ -92,6 +96,11 @@ private val PRESETS = listOf(Preset("Défaut", "rouge", null, 3f), Preset("Câbl
 class DrawState {
     var tool by mutableStateOf(Tool.MOVE)
     val pts = mutableStateListOf<Enu>()
+
+    /** Polygon guidance, shown over the map (the tool panel below may be scrolled out of view in portrait). */
+    fun polygonHint(): String? = if (tool != Tool.POLYGON) null
+        else if (pts.size < 3) "${pts.size} sommet(s). Un doigt pose un sommet (l'aperçu suit le doigt), deux doigts déplacent la carte."
+        else "${pts.size} sommets. Touchez à nouveau le dernier sommet pour fermer."
     var shapeKind by mutableStateOf("rectangle")
     var arrow by mutableStateOf(false)
     var zone by mutableStateOf(false)
@@ -106,9 +115,22 @@ class DrawState {
     var family by mutableStateOf<String?>(null)
     var selected by mutableStateOf<String?>(null)
     var pendingSwitch by mutableStateOf<Tool?>(null)
+    /** Finger position while drawing (elastic preview), null when no finger is down. */
+    var hover by mutableStateOf<Enu?>(null)
+    /** Touch tolerance in metres at the current zoom (Sketch.toleranceM). */
+    var tolM = 0.5
 
     fun style() = ShapeStyle(stroke, fill, width, opacity)
     fun consumesTap() = tool in setOf(Tool.PLACE, Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION, Tool.SELECT)
+    /** Drawing tools: one finger draws, two fingers move the map (stage 2.1). SELECT keeps taps on map objects. */
+    fun capturesFinger() = tool in setOf(Tool.PLACE, Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION)
+
+    fun preview(): List<Enu> = when (tool) {
+        Tool.POLYGON -> Sketch.polygonPreview(pts, hover)
+        Tool.LINE -> Sketch.linePreview(pts, hover)
+        Tool.SHAPE -> if (shapeKind == "rectangle") Sketch.rectanglePreview(pts.firstOrNull(), hover) else Sketch.linePreview(pts, hover)
+        else -> emptyList()
+    }
 
     /** Changing tool ends the current drawing, with confirmation if points are placed. */
     fun request(t: Tool) { if (pts.isNotEmpty() && t != tool) pendingSwitch = t else { tool = t; pts.clear() } }
@@ -131,7 +153,12 @@ class DrawState {
                     else commit(c, "shape", "circle", listOf(pts[0]), hypot(pts[1].e - pts[0].e, pts[1].n - pts[0].n))
                 }
             }
-            Tool.LINE, Tool.POLYGON -> pts.add(p)
+            Tool.LINE -> pts.add(p)
+            Tool.POLYGON -> when (Sketch.polygonTap(pts, p, tolM)) {
+                Sketch.PolygonTap.ADD -> pts.add(p)
+                Sketch.PolygonTap.CLOSE -> commit(c, if (zone) "zone" else "shape", "polygon", pts.toList())
+                Sketch.PolygonTap.IGNORE -> c.notify("Il faut au moins 3 sommets pour fermer le polygone.")
+            }
             Tool.ANNOTATION -> commit(c, "annotation", "point", listOf(p), annotation = annotationType)
             Tool.SELECT -> selected = Shapes.nearest(c.currentShapes(), p)?.id
             else -> {}
@@ -158,15 +185,31 @@ fun shapePoints(c: SessionController, shapes: List<ShapeEvent>, d: DrawState): L
             if (s.id == d.selected) android.graphics.Color.rgb(255, 0, 255) else NAMED_COLORS[s.style.stroke] ?: android.graphics.Color.RED, "shape:${s.id}")
     } + d.pts.mapIndexed { i, p -> MapPoint(c.ltp.toLatLon(p), "Point ${i + 1} du tracé", android.graphics.Color.DKGRAY) }
 
+/** Toolbar button (stage 2.4): telling icon, 48 dp touch target, tooltip on long press, label read by accessibility/tests. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolButton(label: String, icon: ImageVector, selected: Boolean, tag: String, onClick: () -> Unit) {
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = androidx.compose.material3.rememberTooltipState(),
+    ) {
+        androidx.compose.material3.FilledTonalIconToggleButton(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(48.dp).testTag(tag)) {
+            Icon(icon, contentDescription = label)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: String?, onSelectSurvey: (String?) -> Unit) {
     val events = c.state.collectAsState().value.events
     val shapes = Shapes.current(events)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Tool.entries.forEach { t -> FilterChip(d.tool == t, { d.request(t) }, { Text(t.label) }, leadingIcon = { Icon(t.icon, null) }, modifier = Modifier.testTag("session_annoter_" + t.name.lowercase())) }
-        AssistChip({ d.pts.clear(); c.undo() }, { Text("Annuler") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, modifier = Modifier.testTag("session_annoter_annuler"))
+        Tool.entries.forEach { t -> ToolButton(t.label, t.icon, d.tool == t, "session_annoter_" + t.name.lowercase()) { d.request(t) } }
+        ToolButton("Annuler la dernière action", Icons.Default.Refresh, false, "session_annoter_annuler") { d.pts.clear(); c.undo() }
     }
+    Text("Outil : ${d.tool.label}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_annoter_outil_actif"))
     d.pendingSwitch?.let { t ->
         AlertDialog(
             onDismissRequest = { d.pendingSwitch = null },
@@ -199,9 +242,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         }
         Tool.POLYGON -> {
             FilterChip(d.zone, { d.zone = !d.zone }, { Text("Zone") }, modifier = Modifier.testTag("session_annoter_zone"))
-            Text("${d.pts.size} point(s). Touchez les sommets, puis « Fermer ».", style = MaterialTheme.typography.bodySmall)
             labels()
-            Button(enabled = d.pts.size >= 3, onClick = { d.commit(c, if (d.zone) "zone" else "shape", "polygon", d.pts.toList()) }, modifier = Modifier.testTag("session_annoter_fermer_le_polygone")) { Text("Fermer le polygone") }
         }
         Tool.ANNOTATION -> {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -408,6 +449,55 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
         onDispose {
             rec?.let { r -> r.stop(); if (r.file.length() > 0) c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono) else r.file.delete() }
             rec = null
+        }
+    }
+}
+
+/** Réglages > Photo automatique à l'implantation (on by default). */
+object AutoPhoto {
+    private const val FILE = "lumisite_photo"
+    fun enabled(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("auto", true)
+    fun set(ctx: Context, on: Boolean) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean("auto", on).apply()
+}
+
+/**
+ * Session > Relevé, right after a placement: opens the camera at once, then offers
+ * « Prendre la photo » (another one), « Reprendre » (replaces the last one in the record) and « Passer ».
+ * Each photo is attached to the object (its position) with the capture time stamp.
+ */
+@Composable
+fun PhotoPrompt(c: SessionController, surveyId: String, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var id by rememberSaveable { mutableStateOf(surveyId) }
+    var last by rememberSaveable { mutableStateOf<String?>(null) }
+    var count by rememberSaveable { mutableStateOf(0) }
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    var launched by rememberSaveable { mutableStateOf(false) }
+    val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        pending?.let { p ->
+            val f = File(p.substringBeforeLast('|')); val replace = p.substringAfterLast('|').ifEmpty { null }
+            if (ok && f.exists() && f.length() > 0) {
+                val st = c.stampNow()
+                val dest = c.attachmentFile("ph", "jpg")
+                if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) {
+                    c.attach(id, dest, "image/jpeg", "vue", st.utcEpochMs, st.monotonicNs, replacePath = replace)?.let { id = it }
+                    last = c.sessionRelPath(dest); if (replace == null) count++
+                } else c.notify("Photo non enregistrée.")
+            } else f.delete()
+        }
+        pending = null
+    }
+    fun shoot(replace: String?) {
+        val f = File(File(ctx.filesDir, "capture").apply { mkdirs() }, "ph_${System.currentTimeMillis()}.jpg"); pending = "${f.absolutePath}|${replace ?: ""}"
+        runCatching { take.launch(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)) }.onFailure { pending = null; c.notify("Appareil photo indisponible : ${it.message}") }
+    }
+    LaunchedEffect(Unit) { if (!launched) { launched = true; shoot(null) } }
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(6.dp).testTag("session_photo_proposee")) {
+        Text(if (count == 0) "Photo de l'objet posé (facultative)" else "$count photo(s) rattachée(s) à l'objet", style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_photo_etat"))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button({ shoot(null) }, modifier = Modifier.testTag("session_photo_prendre")) { Text(if (count == 0) "Prendre la photo" else "Autre photo") }
+            OutlinedButton({ shoot(last) }, enabled = last != null, modifier = Modifier.testTag("session_photo_reprendre")) { Text("Reprendre") }
+            OutlinedButton(onClose, modifier = Modifier.testTag("session_photo_passer")) { Text(if (count == 0) "Passer" else "Terminé") }
         }
     }
 }

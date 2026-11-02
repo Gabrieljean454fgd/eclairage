@@ -21,7 +21,9 @@ class GpsRecorder(
     private val onStatus: (GpsStatusSample) -> Unit,
 ) : LocationListener {
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    @Volatile private var satUsed: Int? = null
+    @Volatile var satUsed: Int? = null; private set
+    /** C/N0 (dB-Hz) of the satellites used in the fix (GnssStatus.usedInFix), for the D7 classification. */
+    @Volatile var cn0Used: List<Double> = emptyList(); private set
     @Volatile private var satVisible: Int? = null
     private var gnssCallback: GnssStatus.Callback? = null
 
@@ -41,6 +43,7 @@ class GpsRecorder(
                 override fun onSatelliteStatusChanged(status: GnssStatus) {
                     satVisible = status.satelliteCount
                     satUsed = (0 until status.satelliteCount).count { status.usedInFix(it) }
+                    cn0Used = (0 until status.satelliteCount).filter { status.usedInFix(it) }.map { status.getCn0DbHz(it).toDouble() }
                 }
             }
             try { lm.registerGnssStatusCallback(cb, android.os.Handler(Looper.getMainLooper())); gnssCallback = cb } catch (_: Exception) {}

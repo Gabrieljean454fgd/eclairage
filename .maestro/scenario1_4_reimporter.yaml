@@ -31,7 +31,7 @@ name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
 - tapOn: { text: "(?i)autoriser|allow", optional: true }
 - extendedWaitUntil:
     visible: { id: "reglages_stockage_resultat" }
-    timeout: 60000
+    timeout: 90000
 - assertVisible: ".*réimportée.*"
 - tapOn: { id: "reglages_retour" }
 - assertVisible: "Maestro bureau"

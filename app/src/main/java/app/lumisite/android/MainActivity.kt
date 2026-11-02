@@ -33,6 +33,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import org.osmdroid.config.Configuration
@@ -77,6 +80,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.DEBUG && intent?.extras?.get("simuler_pose_ar")?.toString() == "true") DebugFlags.simulatedPoses = true
         Configuration.getInstance().apply {
             userAgentValue = "LumiSite/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
             osmdroidBasePath = File(filesDir, "osmdroid")
@@ -95,7 +99,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             LumiTheme {
-                Surface(Modifier.semantics { testTagsAsResourceId = true }) {
+                Surface(Modifier.semantics { testTagsAsResourceId = true }) { androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     // Saved across activity re-creation; a live session comes back as its site screen (the session can be resumed there).
                     var screen by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = androidx.compose.runtime.saveable.Saver<Screen, String>(
                         save = { when (it) { Screen.Home -> "home"; Screen.NewSite -> "new"; Screen.Settings -> "settings"; is Screen.SiteDetail -> "site:" + it.siteId; is Screen.Live -> "site:" + it.controller.site.id } },
@@ -104,7 +108,7 @@ class MainActivity : ComponentActivity() {
                     var homeKey by remember { mutableStateOf(0) }
                     LaunchedEffect(screen) {
                         live = (screen as? Screen.Live)?.controller
-                        DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau"; is Screen.SiteDetail -> "Site"
+                        DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau relevé"; is Screen.SiteDetail -> "Site"
                             is Screen.Live -> "Session"; Screen.Settings -> "Réglages" })
                     }
                     val scope = rememberCoroutineScope()
@@ -112,7 +116,7 @@ class MainActivity : ComponentActivity() {
                     androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                     if (screen !is Screen.Live) androidx.compose.foundation.layout.Row(
                         Modifier.fillMaxWidth().statusBarsPadding(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
-                    ) { ThemeToggle(this@MainActivity) }
+                    ) { ThemeToggle(this@MainActivity, Modifier.padding(end = 4.dp)) }
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (val s = screen) {
                         Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }) }
@@ -161,7 +165,7 @@ class MainActivity : ComponentActivity() {
                     }
                     // On the live screen the toggle sits in the header, next to the camera preview (never drawn over it).
                     }
-                }
+                } }
             }
         }
     }

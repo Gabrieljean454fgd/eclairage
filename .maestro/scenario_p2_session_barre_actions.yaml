@@ -1,0 +1,18 @@
+# Prompt v4 2.1 : Session > barre d'actions du bas (« Synchro », « Calibrer », « Relevé », « Annoter », « Recaler », « Export »,
+# « Terminer ») et pastilles « AR » / « TRK » en haut. Les 7 actions doivent être visibles sans aucun défilement.
+appId: app.lumisite.android
+name: "Session barre d'actions"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- assertVisible: { id: "session_barre_actions" }
+- assertVisible: { id: "session_synchro" }
+- assertVisible: { id: "session_calibrer" }
+- assertVisible: { id: "session_releve" }
+- assertVisible: { id: "session_annoter" }
+- assertVisible: { id: "session_recaler" }
+- assertVisible: { id: "session_export" }
+- assertVisible: { id: "session_terminer_la_session" }
+- assertVisible: { id: "session_etat_ar" }
+- assertVisible: { id: "session_etat_trk" }
+- assertVisible: { id: "session_carte" }
+- assertNotVisible: "Afficher la trajectoire sans recalage"

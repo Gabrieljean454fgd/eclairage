@@ -1,0 +1,42 @@
+# Session > Relevé : un objet posé en position manuelle au centre de la carte (« Point à la croix »), puis
+# Session > Annoter : sélection directe de l'objet en le touchant sur la carte, Session > Annoter > objet > « Déplacer »,
+# glisser au doigt (la carte ne bouge pas), « Valider le déplacement » ; les coordonnées affichées ont changé.
+appId: app.lumisite.android
+name: Session annoter selection directe et deplacement
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_annoter_famille_Amplificateur" }
+# Sans suivi AR (émulateur), « Position manuelle » est déjà cochée. Le panneau défile par glissement (au centre, on déplacerait la carte).
+# Le panneau du bas défile jusqu'au bouton (la longueur de la grille des familles varie).
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+- assertVisible: { id: "session_releve_checkbox", checked: true }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+# Session > Relevé > photo automatique (activée par défaut) : l'appareil photo s'ouvre, retour sans photo, « Passer ».
+- back
+- extendedWaitUntil:
+    visible: { id: "session_photo_proposee" }
+    timeout: 15000
+- tapOn: { id: "session_photo_passer" }
+# Le message de confirmation reste affiché au-dessus de la barre d'actions.
+- assertVisible: ".*Relevé « .* » enregistré \\(position manuelle\\).*"
+- tapOn: { id: "session_annoter" }
+# L'objet est au centre de la carte (point de la croix), sous l'épingle « Point choisi » qui laisse passer l'appui.
+- tapOn: { id: "session_carte", point: "50%,50%" }
+- assertVisible: { id: "session_objet_coordonnees" }
+- copyTextFrom: { id: "session_objet_coordonnees" }
+- tapOn: { id: "session_objet_deplacer" }
+- swipe: { from: { id: "session_carte" }, start: "50%,50%", end: "70%,62%", duration: 1500 }
+- assertVisible: { id: "session_objet_valider_le_deplacement", enabled: true }
+- tapOn: { id: "session_objet_valider_le_deplacement" }
+- assertVisible: { id: "session_objet_coordonnees" }
+- assertNotVisible: ${maestro.copiedText}
+- assertVisible: { id: "session_objet_deplacer" }

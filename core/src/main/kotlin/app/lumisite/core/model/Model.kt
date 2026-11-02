@@ -25,6 +25,8 @@ data class Site(
     val osm: OsmSnapshot? = null,
     /** Optional building chosen among OSM features (may be absent: OSM is often incomplete). */
     val selectedBuildingOsmRef: String? = null,
+    /** All buildings selected (stage 2.7: the rectangle pre-selects them, taps add/remove). First = [selectedBuildingOsmRef]. */
+    val selectedBuildingOsmRefs: List<String> = emptyList(),
     /** Site rectangle chosen by the user, kept even when the site was created without OSM data. */
     val bbox: BBox? = null,
     /** Reserved for imported architectural plans (none in this slice). */
@@ -233,7 +235,7 @@ data class LocalObservation(
     val reference: ReferencePoint,
 )
 
-enum class CalibrationMethod { ONE_POINT_HEADING, TWO_POINTS, TWO_POINTS_KNOWN_DISTANCE }
+enum class CalibrationMethod { ONE_POINT_HEADING, TWO_POINTS, TWO_POINTS_KNOWN_DISTANCE, MULTI_POINT }
 
 @Serializable
 @SerialName("calibration")
@@ -273,6 +275,31 @@ data class RelocalizationEvent(
     val headingCorrectionDeg: Double? = null,
     val source: String = "USER_MANUAL",
     val notes: String? = null,
+) : SessionEvent
+
+/**
+ * Session > Calibrer / Recaler (decisions D3–D5): one row of the calibration or relocalization table. The transform solved
+ * from all the points is recorded next to it as a [CalibrationEvent] (MULTI_POINT) or a [RelocalizationEvent].
+ */
+@Serializable
+@SerialName("control_point")
+data class ControlPointEvent(
+    override val id: String,
+    override val t: Stamp,
+    /** "CALIBRATION" | "RELOCALIZATION" */
+    val kind: String,
+    val observation: LocalObservation,
+    val headingDeg: Double? = null,
+    val headingSource: String? = null,
+) : SessionEvent
+
+/** « Supprimer » on a row of the table: the point is ignored from now on (the journal keeps it). */
+@Serializable
+@SerialName("control_point_removed")
+data class ControlPointRemoved(
+    override val id: String,
+    override val t: Stamp,
+    val pointId: String,
 ) : SessionEvent
 
 enum class SyncMethod { MANUAL_TAP, AUDIO_CHIRP }

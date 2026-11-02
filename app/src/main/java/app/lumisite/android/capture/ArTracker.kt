@@ -74,6 +74,32 @@ class ArTracker(
     private var planes: List<Plane> = emptyList()
     private var frameNo = 0L
 
+    /** D6: ARCore anchors (control points, object groups), created / detached on the GL thread, poses reported at most once per second. */
+    private val anchorAdds = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, PoseSample>>()
+    private val anchorDrops = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private val anchors = HashMap<String, com.google.ar.core.Anchor>()
+    private var lastAnchorReportMs = 0L
+    @Volatile var onAnchors: ((Map<String, Pair<List<Double>, List<Double>>>) -> Unit)? = null
+    fun requestAnchor(id: String, pose: PoseSample) { anchorAdds += id to pose }
+    fun dropAnchor(id: String) { anchorDrops += id }
+
+    private fun updateAnchors(s: Session, nowMs: Long) {
+        while (true) {
+            val (id, p) = anchorAdds.poll() ?: break
+            runCatching {
+                anchors[id] = s.createAnchor(Pose(p.p.map { it.toFloat() }.toFloatArray(), p.q.map { it.toFloat() }.toFloatArray()))
+            }.onFailure { setError("ancre $id : ${it.message}") }
+        }
+        while (true) { val id = anchorDrops.poll() ?: break; anchors.remove(id)?.let { a -> runCatching { a.detach() } } }
+        if (anchors.isEmpty() || nowMs - lastAnchorReportMs < 1_000) return
+        lastAnchorReportMs = nowMs
+        val out = anchors.filterValues { it.trackingState == com.google.ar.core.TrackingState.TRACKING }.mapValues { (_, a) ->
+            val q = a.pose
+            listOf(q.tx().toDouble(), q.ty().toDouble(), q.tz().toDouble()) to listOf(q.qx().toDouble(), q.qy().toDouble(), q.qz().toDouble(), q.qw().toDouble())
+        }
+        if (out.isNotEmpty()) onAnchors?.invoke(out)
+    }
+
     /** Torch on/off, applied from the caller thread (never session.configure() inside onDrawFrame). Off on pause. */
     fun setTorch(on: Boolean) {
         val s = session ?: return
@@ -231,6 +257,7 @@ class ArTracker(
         } else null
         runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
         if (state == TrackingState.TRACKING) runCatching { planeRenderer.draw(cam, planes) }
+        runCatching { updateAnchors(s, nowMs) }
         onFrame(pose, state, reason)
     }
 }

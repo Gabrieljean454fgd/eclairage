@@ -1,5 +1,9 @@
 package app.lumisite.android.ui
 
+import app.lumisite.android.ControlRow
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
 import app.lumisite.core.survey.Details
 import app.lumisite.core.survey.Shapes
 import androidx.compose.runtime.mutableStateMapOf
@@ -41,12 +45,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -101,11 +107,16 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var arReady by remember { mutableStateOf(false) }
     var arAvail by remember { mutableStateOf<ArCoreApk.Availability?>(null) }
     var perms by remember { mutableStateOf(false) }
-    var showUncorrected by remember { mutableStateOf(true) }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
     var selectedSurvey by remember { mutableStateOf<String?>(null) }
+    // Session > Annoter > objet > « Déplacer » : one finger drags the symbol (the map does not move), then Valider / Annuler.
+    var movingId by remember { mutableStateOf<String?>(null) }
+    var moveGrab by remember { mutableStateOf<Enu?>(null) }
+    var moveTarget by remember { mutableStateOf<Enu?>(null) }
     val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms = true }
     fun granted(p: String) = ContextCompat.checkSelfPermission(activity, p) == PackageManager.PERMISSION_GRANTED
@@ -128,6 +139,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             else -> "ARCore : $a"
         })
         if (!arReady) c.markArUnavailable("AR_NOT_RUNNING")
+        if (app.lumisite.android.DebugFlags.simulatedPoses) c.startSimulatedPoses()
     }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -169,7 +181,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     }
     val surveys = SurveyPositions.resolveAll(events)
     val surveyPts = surveys.mapNotNull { r ->
-        r.site?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
+        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
     }
     val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
@@ -180,20 +192,69 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         listOf(c.ltp.toLatLon(o.copy(u = 0.0)), at(heading - 25, 3.0), at(heading, 3.5), at(heading + 25, 3.0))
     } else emptyList()
 
+    val posStatus = app.lumisite.core.compute.PositionStatus.of(now, c.isCalibrated(), st.tracking, st.lastArValidMs, st.lastGps?.t?.utcEpochMs, picked != null)
+    // D8: the displayed AR position glides to its new value in ~0.5 s (display only; recorded data are never smoothed).
+    val glide = remember { androidx.compose.animation.core.Animatable(androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset.VectorConverter) }
+    var glideInit by remember { mutableStateOf(false) }
+    LaunchedEffect(st.lastArSite) {
+        st.lastArSite?.let {
+            val o = androidx.compose.ui.geometry.Offset(it.e.toFloat(), it.n.toFloat())
+            if (!glideInit || (glide.value - o).getDistance() > 200f) { glide.snapTo(o); glideInit = true }
+            else glide.animateTo(o, androidx.compose.animation.core.tween(500))
+        }
+    }
+    val arrows = buildList {
+        when (posStatus.source) {
+            app.lumisite.core.compute.PositionStatus.Source.AR -> st.lastArSite?.let {
+                add(MapArrow(c.ltp.toLatLon(app.lumisite.core.geo.Enu(glide.value.x.toDouble(), glide.value.y.toDouble(), 0.0)), st.lastHeadingDeg, if (posStatus.lost) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 120, 255),
+                    if (posStatus.lost) "Dernière position AR valide (suivi perdu)" else "Position et orientation (AR)"))
+            }
+            // D1: the GNSS position is only indicative; grey when D7 says it is unusable.
+            app.lumisite.core.compute.PositionStatus.Source.GPS -> st.lastGps?.let { add(MapArrow(LatLon(it.lat, it.lon), null, if (st.gnssQuality == app.lumisite.core.position.GnssQuality.INUTILISABLE) android.graphics.Color.GRAY else android.graphics.Color.rgb(0, 150, 136), "Position GPS (${st.gnssQuality.label})")) }
+            else -> {}
+        }
+        st.calibMark?.let { add(MapArrow(c.ltp.toLatLon(it.site.copy(u = 0.0)), it.headingDeg, android.graphics.Color.rgb(255, 140, 0), "${it.label} : position du téléphone et direction de la caméra")) }
+    }
+    val relocTarget = if (mode == Mode.RELOCALIZE) picked?.let { c.ltp.toEnu(it).copy(u = 0.0) } else null
+    val relocPreview = if (relocTarget != null && st.currentSite != null)
+        listOf(MapLine(c.ltp.toLatLon(st.currentSite!!.copy(u = 0.0)), picked!!, android.graphics.Color.rgb(255, 140, 0), "Décalage à corriger")) else emptyList()
+    val controlPts = (c.controlRows("CALIBRATION").map { it to "Calibrage" } + c.controlRows("RELOCALIZATION").map { it to "Recalage" }).map { (r, k) ->
+        MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id)
+    }
     val map: @Composable (Modifier) -> Unit = { m ->
-        Box(m) {
+        Box(m.testTag("session_carte")) {
             OsmMap(
                 Modifier.fillMaxSize(), c.site.origin, 19.0,
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
-                    trajectory = st.trajectory, uncorrected = if (showUncorrected) st.uncorrected else emptyList(),
-                    lines = relocLines + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw), current = currentLl, picked = picked,
-                    headingSector = sector, follow = if (follow) currentLl else null,
+                    trajectory = st.trajectory, uncorrected = emptyList(),
+                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw) + controlPts, picked = picked,
+                    follow = if (follow) currentLl else null,
+                    selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
+                    preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
                 onTap = { if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) else picked = it },
-                onPointTap = { id -> if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
+                onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
+                onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
+                onFinger = if (movingId != null) { phase, ll ->
+                    val p = c.ltp.toEnu(ll)
+                    val start = surveys.firstOrNull { it.event.id == movingId }?.site
+                    when (phase) {
+                        // A second drag continues from the current target.
+                        FingerPhase.DOWN -> { val t = moveTarget; moveGrab = if (t != null && start != null) Enu(p.e - (t.e - start.e), p.n - (t.n - start.n), 0.0) else p }
+                        FingerPhase.MOVE, FingerPhase.UP -> if (start != null) moveGrab?.let { g -> moveTarget = app.lumisite.core.survey.DragMove.target(start, g, p) }
+                        FingerPhase.CANCEL -> Unit
+                    }
+                } else if (mode == Mode.DRAW && draw.capturesFinger()) { phase, ll ->
+                    val p = c.ltp.toEnu(ll).copy(u = 0.0)
+                    when (phase) {
+                        FingerPhase.DOWN, FingerPhase.MOVE -> draw.hover = p
+                        FingerPhase.UP -> { draw.hover = null; draw.onTap(c, p) }
+                        FingerPhase.CANCEL -> draw.hover = null
+                    }
+                } else null,
             )
             // Right column, bottom up, no overlap: the scale (« largeur visible ») stays bottom-left, the legend top-left under half
             // the width so it never covers Session > carte > « Fond ». Touch targets ≥ 48 dp.
@@ -205,71 +266,118 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
                 }
             }
-            Text(
-                "Vert : trajectoire estimée (non garantie) · gris pointillé : sans recalage · rouge : corrections",
-                Modifier.align(Alignment.TopStart).fillMaxWidth(0.45f).padding(4.dp).background(Color(0xCCFFFFFF)).padding(4.dp), style = MaterialTheme.typography.labelSmall,
-            )
+            Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.5f)) {
+                Text(posStatus.text() + " · GNSS " + st.gnssQuality.label, Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
+                    color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
+                Text("Vert : trajectoire estimée (non garantie) · rouge : corrections",
+                    Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
+                if (mode == Mode.DRAW) draw.polygonHint()?.let {
+                    Text(it, Modifier.background(Color(0xE6FFF3C4)).padding(6.dp).testTag("session_annoter_polygone_aide"),
+                        color = Color.Black, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     }
-    // Fixed header: status on the left, camera preview top-right with a fixed maximum size. Nothing is drawn over the camera.
+    // Compact status line at the very top (prompt v4 2.1): « AR ● » and « TRK » pills (tap: details), recording indicators, theme.
+    val statusRow: @Composable () -> Unit = {
+        var showTrk by remember { mutableStateOf(false) }
+        var showAr by remember { mutableStateOf(false) }
+        val playback by c.ar.playback.collectAsState()
+        val recording by c.ar.recording.collectAsState()
+        val (trkBg, trkLabel) = trackingLabel(st.tracking)
+        Column(Modifier.fillMaxWidth().testTag("session_etat")) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
+                Pill(if (arReady) "AR ●" else "AR ○", if (arReady) Color(0xFF1B8A4B) else Color(0xFF555555), "session_etat_ar") { showAr = !showAr }
+                Pill("TRK", trkBg, "session_etat_trk") { showTrk = !showTrk }
+                if (playback) Pill("PLAYBACK", Color(0xFFB00020), "session_ar_playback")
+                if (recording) Pill("● REC ARCore", Color(0xFFB00020), "session_ar_enregistrement")
+                ThemeToggle(activity)
+            }
+            if (showTrk) Text(trkLabel + (st.trackingReason?.let { " ($it)" } ?: ""), style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_etat_trk_detail"))
+            if (showAr) Text(st.arStatus + if (arReady) " · Caméra active pour le suivi AR, aucune image ni vidéo enregistrée." else "", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+    // Camera block: preview (always shown when ARCore runs) with its aim / torch / measure controls beside it. Nothing drawn over it.
     val simulatedArHeader = remember {
         app.lumisite.android.BuildConfig.DEBUG && android.provider.Settings.Global.getString(activity.contentResolver, "lumisite_simuler_entete_ar") == "1"
     }
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TrackingBanner(st.tracking, st.trackingReason)
-                Text(st.arStatus, style = MaterialTheme.typography.bodySmall)
-                val playback by c.ar.playback.collectAsState()
-                val recording by c.ar.recording.collectAsState()
-                if (playback) Text("PLAYBACK", color = Color.White, style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.background(Color(0xFFB00020)).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_ar_playback"))
-                if (recording) Text("● REC ARCore", color = Color(0xFFB00020), style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_ar_enregistrement"))
-                ThemeToggle(activity)
-                if (arReady) Text("● Caméra active pour le suivi AR. Aucune image ni vidéo n'est enregistrée.", color = Color(0xFFB00020), style = MaterialTheme.typography.labelSmall)
-            }
             if (!arReady && simulatedArHeader) {
-                // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real AR block.
-                Column(Modifier.width(200.dp).testTag("session_ar_simule")) {
-                    androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray)) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
-                    ArControls(c)
-                }
+                // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real camera block.
+                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
+                ArControls(c)
             }
             if (arReady) {
-                Column(Modifier.width(200.dp)) {
                 androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp)) {
-                AndroidView(factory = { ctx ->
-                    GLSurfaceView(ctx).apply {
-                        preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
-                        setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-                        glView = this
-                    }
-                }, modifier = Modifier.width(200.dp).height(150.dp))
-                ArReticle(c)
+                    AndroidView(factory = { ctx ->
+                        GLSurfaceView(ctx).apply {
+                            preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
+                            setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                            glView = this
+                        }
+                    }, modifier = Modifier.width(200.dp).height(150.dp))
+                    ArReticle(c)
                 }
                 ArControls(c)
-                }
             }
+            if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall)
         }
     }
+    // Last message (confirmation / refusal) fixed above the action bar, so it stays visible whatever the panel scroll.
+    val messageBar: @Composable () -> Unit = {
+        st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_message")) }
+    }
     val actionBar: @Composable () -> Unit = {
-        // One FlowRow over the full width (button + 6 chips): 2 rows on a Pixel 7 (412 dp), 3 on a 360 dp phone, never one chip per row.
-        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
-            OutlinedButton(enabled = !closing, onClick = { finish() }, modifier = Modifier.testTag("session_terminer_la_session")) { Text("← Terminer la session") }
-            run {
-                Mode.entries.filter { it != Mode.NONE }.forEach { m ->
-                    FilterChip(selected = mode == m, onClick = { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }, label = {
-                        Text(when (m) { Mode.CALIBRATE -> "Calibrer"; Mode.RELOCALIZE -> "Recaler"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.SYNC -> "Synchro"; Mode.EXPORT -> "Export"; else -> "" })
-                    }, modifier = Modifier.testTag("session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }))
-                }
+        // 7 equal cells (icon + short label, ≥ 56 dp high), one line, fixed at the bottom: never scrolled, never over the camera.
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).testTag("session_barre_actions")) {
+            listOf(Mode.SYNC to ("🔊" to "Synchro"), Mode.CALIBRATE to ("🎯" to "Calibrer"), Mode.SURVEY to ("📍" to "Relevé"), Mode.DRAW to ("✏️" to "Annoter"),
+                Mode.RELOCALIZE to ("🧭" to "Recaler"), Mode.EXPORT to ("📤" to "Export")).forEach { (m, il) ->
+                val tag = "session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }
+                ActionCell(il.first, il.second, mode == m, tag, Modifier.weight(1f)) { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }
             }
+            ActionCell("⏹", "Terminer", false, "session_terminer_la_session", Modifier.weight(1f), enabled = !closing) { finish() }
         }
     }
     val panel: @Composable (Modifier) -> Unit = { m ->
-        Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Back to the top when the mode or the selected object changes: the object panel and the mode controls come first.
+        val panelScroll = rememberScrollState()
+        LaunchedEffect(mode, selectedSurvey) { panelScroll.scrollTo(0) }
+        Column(m.verticalScroll(panelScroll), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
                 Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
             }
+            surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r ->
+                SelectedSurveyPanel(c, r, picked, moving = movingId == r.event.id, moveTarget = moveTarget,
+                    onMove = { start -> movingId = if (start) r.event.id else null; moveGrab = null; moveTarget = null },
+                    onReselect = { selectedSurvey = it },
+                    onDone = { selectedSurvey = null; movingId = null })
+            }
+            val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
+            when (mode) {
+                Mode.CALIBRATE -> {
+                    CalibratePanel(c, pickedTxt, ::refPoint)
+                    st.calibMark?.let { k -> Text("Repère posé sur le plan (orange) — ${k.label} : téléphone en E %.2f, N %.2f m".format(k.site.e, k.site.n) +
+                        (k.headingDeg?.let { " ; caméra vers %.0f° (depuis le nord)".format(it) } ?: ""), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_repere")) }
+                }
+                Mode.RELOCALIZE -> {
+                    val est = st.currentSite
+                    Text(when {
+                        relocTarget == null -> "Touchez la carte au point où vous êtes : le décalage s'affichera avant de valider."
+                        est == null -> "Décalage inconnu : suivi AR ou calibration manquant."
+                        else -> "Décalage à corriger (orange) : %.2f m (E %+.2f m, N %+.2f m)".format(kotlin.math.hypot(relocTarget.e - est.e, relocTarget.n - est.n), relocTarget.e - est.e, relocTarget.n - est.n)
+                    }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("session_recaler_decalage"))
+                    RelocPanel(c, pickedTxt, ::refPoint)
+                }
+                Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint)
+                Mode.DRAW -> DrawPanel(c, draw, mapCenter?.let { c.ltp.toEnu(it).copy(u = 0.0) }, selectedSurvey) { selectedSurvey = it }
+                Mode.SYNC -> SyncPanel(activity, c)
+                Mode.EXPORT -> ExportPanel(activity, repo, c)
+                Mode.NONE -> {}
+            }
+            // Generic status after the mode panel, so the controls of the active mode stay at the top of the small panel.
             val gps = st.lastGps
             Text(
                 "Poses : ${st.poseCount} · IMU : ${st.imuCount} · GPS : " +
@@ -282,31 +390,14 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 style = MaterialTheme.typography.bodySmall,
             )
             st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
-            st.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(showUncorrected, { showUncorrected = it }, modifier = Modifier.testTag("session_checkbox")); Text("Afficher la trajectoire sans recalage", style = MaterialTheme.typography.bodySmall)
-            }
-            surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r -> SelectedSurveyPanel(c, r, picked, onDone = { selectedSurvey = null }) }
-            val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
-            when (mode) {
-                Mode.CALIBRATE -> CalibratePanel(c, pickedTxt, st.pendingCalibrationA != null, ::refPoint)
-                Mode.RELOCALIZE -> RelocPanel(c, pickedTxt, ::refPoint)
-                Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint)
-                Mode.DRAW -> DrawPanel(c, draw, mapCenter?.let { c.ltp.toEnu(it).copy(u = 0.0) }, selectedSurvey) { selectedSurvey = it }
-                Mode.SYNC -> SyncPanel(activity, c)
-                Mode.EXPORT -> ExportPanel(activity, repo, c)
-                Mode.NONE -> {}
-            }
             HorizontalDivider()
             Text("Journal : ${events.size} événements (calibrations ${events.count { it is app.lumisite.core.model.CalibrationEvent }}, recalages ${events.count { it is RelocalizationEvent }}, relevés ${events.count { it is SurveyEvent }})", style = MaterialTheme.typography.labelSmall)
         }
     }
 
-    // The action bar (Terminer la session + modes Synchro…Export) is always fixed on screen, never inside a scroll. Only the status /
-    // AR block (tracking banner, camera preview, torch / measure buttons) scrolls, capped to ~25 % of the height: with ARCore active
-    // or INSUFFICIENT_LIGHT it can be tall, and with adjustResize the keyboard shrinks the screen — the input panel keeps its room.
+    // Layout (prompt v4 2.1): status line on top, camera block (≤ 25 % of the height), large map, panel, action bar fixed at the bottom.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Portrait with a short height (keyboard open with adjustResize): while typing, the status / AR block is clipped to nothing
+        // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to nothing
         // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
         val short = maxHeight < 480.dp && maxWidth <= maxHeight
         val topMax = if (short) 0.dp else maxHeight * 0.25f
@@ -316,79 +407,113 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
                 map(Modifier.weight(0.55f).fillMaxHeight())
-                Column(Modifier.weight(0.45f).fillMaxHeight().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.weight(0.45f).fillMaxHeight()) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
+                    HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
+                    messageBar()
                     actionBar()
-                    statusBlock(Modifier)
-                    HorizontalDivider(); panel(Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    actionBar()
-                    statusBlock(Modifier)
-                }
-                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.45f))
-                panel(Modifier.weight(if (short) 0.75f else 0.55f).padding(8.dp))
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow(); statusBlock(Modifier) }
+                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.6f))
+                panel(Modifier.weight(if (short) 0.75f else 0.4f).padding(horizontal = 8.dp, vertical = 4.dp))
+                messageBar()
+                actionBar()
+            }
+        }
+    }
+}
+
+/** TRK pill colour (green = tracking, orange = limited, red = lost, grey = off) and the full label shown on tap. */
+private fun trackingLabel(s: TrackingState): Pair<Color, String> = when (s) {
+    TrackingState.TRACKING -> Color(0xFF1B8A4B) to "Suivi : initialisé (TRACKING)"
+    TrackingState.INITIALIZING -> Color(0xFFD08000) to "Suivi : initialisation… bougez lentement l'appareil"
+    TrackingState.DEGRADED -> Color(0xFFD08000) to "Suivi : dégradé (pause temporaire)"
+    TrackingState.LOST -> Color(0xFFB00020) to "Suivi : perdu"
+    TrackingState.STOPPED -> Color(0xFF555555) to "Suivi : arrêté"
+    TrackingState.UNAVAILABLE -> Color(0xFF555555) to "Suivi AR indisponible : positions manuelles uniquement"
+}
+
+@Composable
+private fun Pill(text: String, bg: Color, tag: String, onClick: (() -> Unit)? = null) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
+    Text(text, Modifier.background(bg, shape).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+        .padding(horizontal = 10.dp, vertical = 4.dp).testTag(tag), color = Color.White, style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+private fun ActionCell(icon: String, label: String, selected: Boolean, tag: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(modifier.heightIn(min = 56.dp).background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+        .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).testTag(tag).padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text(icon, fontSize = 18.sp)
+        Text(label, fontSize = 10.sp, maxLines = 1, softWrap = false, color = if (enabled) Color.Unspecified else Color.Gray)
+    }
+}
+
+@Composable
+private fun TiltText(c: SessionController) {
+    val st by c.state.collectAsState()
+    val pose = st.lastPose?.takeIf { st.tracking == TrackingState.TRACKING }
+    val tilt = pose?.let { app.lumisite.core.position.Tilt.fromArQuaternion(it.q.toDoubleArray()) } ?: c.sensors.cameraTiltDeg
+    Text(tilt?.let { "Inclinaison de visée (calculée, " + (if (pose != null) "pose ARCore" else "capteur de rotation") + ") : " + "%+.0f°".format(it) } ?: "Inclinaison de visée : capteurs indisponibles",
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_inclinaison"))
+}
+
+/** Session > Calibrer / Recaler > tableau: one row per point (n°, time, plan coordinates, residual, status, « Supprimer »). */
+@Composable
+private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String) {
+    val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT) }
+    Column(Modifier.fillMaxWidth().background(Color(0x11000000)).padding(4.dp).testTag(prefix + "_tableau")) {
+        Text(if (rows.isEmpty()) "Aucun point." else "N° · heure · E / N (m) · résidu · statut", style = MaterialTheme.typography.labelSmall)
+        rows.forEach { r ->
+            val site = r.e.observation.reference.site
+            Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + r.n), verticalAlignment = Alignment.CenterVertically) {
+                Text("${r.n} · ${fmt.format(java.util.Date(r.e.t.utcEpochMs))} · " + "%.1f / %.1f".format(site.e, site.n) + " · " + (r.residualM?.let { "%.2f m".format(it) } ?: "—") + " · " + r.status,
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = if (r.status == "rejeté") Color(0xFFB00020) else Color.Unspecified)
+                TextButton({ c.removeControlPoint(r.e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_supprimer_" + r.n)) { Text("Supprimer") }
             }
         }
     }
 }
 
 @Composable
-private fun TrackingBanner(s: TrackingState, reason: String?) {
-    val (bg, label) = when (s) {
-        TrackingState.TRACKING -> Color(0xFF1B8A4B) to "Suivi : initialisé (TRACKING)"
-        TrackingState.INITIALIZING -> Color(0xFF8A6D1B) to "Suivi : initialisation… bougez lentement l'appareil"
-        TrackingState.DEGRADED -> Color(0xFFD08000) to "Suivi : dégradé (pause temporaire)"
-        TrackingState.LOST -> Color(0xFFB00020) to "Suivi : perdu"
-        TrackingState.STOPPED -> Color(0xFF555555) to "Suivi : arrêté"
-        TrackingState.UNAVAILABLE -> Color(0xFF555555) to "Suivi AR indisponible : positions manuelles uniquement"
-    }
-    Text(label + (reason?.let { " ($it)" } ?: ""), Modifier.fillMaxWidth().background(bg).padding(8.dp), color = Color.White)
-}
-
-@Composable
-private fun CalibratePanel(c: SessionController, pickedTxt: String, hasA: Boolean, ref: (String) -> ReferencePoint?) {
-    var method by remember { mutableStateOf(0) }
+private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String) -> ReferencePoint?) {
     var heading by remember { mutableStateOf("") }
-    var known by remember { mutableStateOf("") }
-    var fixScale by remember { mutableStateOf(true) }
-    Text("Calibration initiale : aligne le repère AR sur le repère du site.", style = MaterialTheme.typography.labelLarge)
-    Row { FilterChip(method == 0, { method = 0 }, { Text("1 point + cap") }, modifier = Modifier.testTag("session_calibrer_1_point_cap")); Spacer(Modifier.width(6.dp)); FilterChip(method == 1, { method = 1 }, { Text("2 points") }, modifier = Modifier.testTag("session_calibrer_2_points")) }
+    c.state.collectAsState().value
+    val rows = c.controlRows("CALIBRATION")
+    Text("Calibrage multi-points : touchez sur la carte le point où vous êtes, validez ; 1er point avec le cap de visée, puis 2e, 3e… point.", style = MaterialTheme.typography.labelLarge)
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
-    if (method == 0) {
-        val compass = c.sensors.cameraHeadingDeg
-        Text("Placez-vous sur le point, visez avec la caméra une direction connue et saisissez son cap (° depuis le nord), ou utilisez la boussole (non fiable en intérieur).", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
-        Row {
-            OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
-        }
-        Button(onClick = {
-            val r = ref("Calibration P1"); val h = heading.replace(',', '.').toDoubleOrNull()
-            if (r != null && h == null) c.notify("Saisissez un cap de visée valide (degrés depuis le nord).")
-            if (r != null && h != null) c.calibrateOnePoint(r, h, if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL", if (compass != null) 15.0 else null)
-        }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider la calibration") }
-    } else {
-        Text("Placez-vous sur A, touchez A sur la carte, capturez. Marchez jusqu'à B (≥ 0,5 m, idéalement > 5 m), touchez B, validez.", style = MaterialTheme.typography.bodySmall)
-        if (!hasA) Button(onClick = { ref("Calibration A")?.let(c::captureCalibrationA) }, modifier = Modifier.testTag("session_calibrer_capturer_a")) { Text("Capturer A") }
-        else {
-            OutlinedTextField(known, { known = it }, label = { Text("Distance A-B mesurée (m, optionnel)") }, modifier = Modifier.testTag("session_calibrer_distance_a_b_mesuree_m"))
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(fixScale, { fixScale = it }, modifier = Modifier.testTag("session_calibrer_checkbox")); Text("Échelle fixée à 1 (AR métrique)", style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = { ref("Calibration B")?.let { c.calibrateTwoPoints(it, fixScale, known.replace(',', '.').toDoubleOrNull()) } }, modifier = Modifier.testTag("session_calibrer_capturer_b_et_valider")) { Text("Capturer B et valider") }
-        }
+    TiltText(c)
+    val compass = c.sensors.cameraHeadingDeg
+    if (rows.isEmpty()) {
+        OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée du 1er point (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
+        OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
     }
+    Button(onClick = {
+        val r = ref("Calibrage ${rows.size + 1}") ?: return@Button
+        val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
+        c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
+    }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
+    ControlTable(c, rows, "session_calibrer")
+    OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
 }
 
 @Composable
 private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) -> ReferencePoint?) {
     var headingCorr by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    Text("Recalage : placez-vous sur un point connu, touchez-le sur la carte et confirmez. La trajectoire antérieure est conservée.", style = MaterialTheme.typography.labelLarge)
+    c.state.collectAsState().value
+    val rows = c.controlRows("RELOCALIZATION")
+    Text("Recalage : placez-vous sur un point connu, touchez-le sur la carte et confirmez. Chaque recalage s'ajoute aux calibrages (les plus récents pèsent plus) ; la trajectoire antérieure est conservée.", style = MaterialTheme.typography.labelLarge)
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(headingCorr, { headingCorr = it }, label = { Text("Correction de cap (°, optionnel, + = horaire)") }, modifier = Modifier.testTag("session_recaler_correction_de_cap_optionnel_hora"))
     OutlinedTextField(note, { note = it }, label = { Text("Note") }, modifier = Modifier.testTag("session_recaler_note"))
-    Button(onClick = { ref("Recalage")?.let { c.relocalize(it, headingCorr.replace(',', '.').toDoubleOrNull(), note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
+    Button(onClick = { ref("Recalage ${rows.size + 1}")?.let { c.addControlPoint("RELOCALIZATION", it, headingCorrectionDeg = headingCorr.replace(',', '.').toDoubleOrNull(), note = note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
+    ControlTable(c, rows, "session_recaler")
+    OutlinedButton({ c.clearControlPoints(relocalizationsOnly = true) }, modifier = Modifier.testTag("session_recaler_nouveau_recalage")) { Text("Nouveau recalage") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -404,6 +529,11 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var family by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Survives the activity being recreated while the camera app is in front.
+    var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // While the photo is proposed the panel shows only that (short, so it is on screen without scrolling).
+    photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
     Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
     FamilyQuickGrid(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
@@ -413,25 +543,40 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null
         val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
-        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap() } }
+        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap(); if (AutoPhoto.enabled(ctx)) photoFor = c.lastSurveyId } }
     }, modifier = Modifier.testTag("session_releve_enregistrer_le_releve")) { Text("Enregistrer le relevé") }
 }
 
 @Composable
-private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, onDone: () -> Unit) {
+private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, moving: Boolean, moveTarget: Enu?, onMove: (Boolean) -> Unit, onReselect: (String) -> Unit, onDone: () -> Unit) {
     var note by remember(r.event.id) { mutableStateOf(r.event.note ?: "") }
     var changeFamily by remember(r.event.id) { mutableStateOf(false) }
+    var details by remember(r.event.id) { mutableStateOf(false) }
     val site = r.site
     Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Relevé sélectionné : ${r.event.kind}" + (site?.let { " · E %.2f, N %.2f m".format(it.e, it.n) } ?: "") +
-            (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        Text("Relevé sélectionné : ${r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        (if (moving) moveTarget ?: site else site)?.let { Text("E %.2f, N %.2f m".format(it.e, it.n), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_coordonnees")) }
+        if (moving) {
+            Text("Glissez le symbole avec un doigt (deux doigts : déplacer la carte), puis validez.", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(enabled = moveTarget != null, onClick = { moveTarget?.let { c.editSurvey(r.event.id, moveTo = it) }?.let(onReselect); onMove(false) }, modifier = Modifier.testTag("session_objet_valider_le_deplacement")) { Text("Valider le déplacement") }
+                OutlinedButton({ onMove(false) }, modifier = Modifier.testTag("session_objet_annuler_le_deplacement")) { Text("Annuler") }
+            }
+            return@Column
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (site != null) Button({ onMove(true) }, modifier = Modifier.testTag("session_objet_deplacer")) { Text("Déplacer") }
+            OutlinedButton({ details = !details }, modifier = Modifier.testTag("session_objet_details")) { Text(if (details) "Détails ▾" else "Détails ▸") }
+            OutlinedButton({ onDone() }, modifier = Modifier.testTag("session_objet_fermer")) { Text("Fermer") }
+        }
+        if (!details) return@Column
         AttachmentButtons(c, r.event.id)
         if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(0.1, 0.5).forEach { d ->
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d)) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d)) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d)) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d)) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
+                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
             }
         }
         OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }, modifier = Modifier.testTag("session_objet_deplacer_au_point_touche_sur")) {
@@ -479,11 +624,8 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
     var secours by remember { mutableStateOf(false) }
     var cale by remember { mutableStateOf<Int?>(null) }
-    var keepWav by remember { mutableStateOf(false) }
     Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(keepWav, { keepWav = it }, modifier = Modifier.testTag("session_synchro_checkbox")); Text("Garder l'enregistrement audio (WAV) pour analyse", style = MaterialTheme.typography.bodySmall)
-    }
+    Text("L'enregistrement audio (WAV) est toujours gardé dans le dossier de la session.", style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_de_synchro_genere_facultati"))
     Button(enabled = !busy, onClick = {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
@@ -494,12 +636,13 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                     val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
                     val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
                     prefs.edit().putInt("counter", counter).apply()
-                    // Without the explicit option no WAV is written: detection works on the in-memory buffer.
-                    val wav = if (keepWav) File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav") else null
+                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
                     val r = AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
                         c.ownSyncId(), counter, wav, AudioSync.unprocessedSupported(activity))
                     val n = c.syncRound(label, r, counter); cale = n
-                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export."
+                    val phases = r.phasesMs.entries.joinToString(" · ") { "${it.key} ${it.value} ms" }
+                    app.lumisite.android.data.DiagLog.i("SYNCHRO", "Durées : $phases")
+                    "${r.heard.size} chirp(s) entendu(s), ${r.heard.count { it.frameOk }} identifié(s)." + if (n < 2) " Aucun autre appareil entendu : rapprochez les appareils, vérifiez le micro, ou utilisez le top manuel (Secours)." else " Calage confirmé seulement si l'autre appareil m'a aussi entendu : vérifiez en important son export." + "\nDurées : $phases"
                 } catch (e: Exception) { "Échec audio : ${e.message}. Utilisez le top manuel (Secours)." }
             }
             busy = false

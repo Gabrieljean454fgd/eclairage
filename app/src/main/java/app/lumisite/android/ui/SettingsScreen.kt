@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +40,7 @@ import kotlinx.coroutines.withContext
 /** « Réglages » (stage 1): Stockage (paths, reimport) and Journal (share the diagnostic journal). */
 @Composable
 fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -69,6 +71,18 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Réglages", style = MaterialTheme.typography.headlineSmall)
         OutlinedButton(onClick = onBack, modifier = Modifier.testTag("reglages_retour")) { Text("← Accueil") }
+
+        HorizontalDivider()
+        Text("À propos", style = MaterialTheme.typography.titleMedium)
+        Text("LumiSite ${appVersionLabel()}", modifier = Modifier.testTag("reglages_a_propos_version"))
+
+        HorizontalDivider()
+        Text("Relevé", style = MaterialTheme.typography.titleMedium)
+        var autoPhoto by remember { mutableStateOf(AutoPhoto.enabled(ctx)) }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
+            Text(" Photo automatique à l'implantation (Session > Relevé)")
+        }
 
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)

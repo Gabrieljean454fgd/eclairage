@@ -1,0 +1,14 @@
+# Accueil > version, puis Accueil > Réglages > À propos (prompt v4 2.2).
+# Le texte « (prototype) » est remplacé par « v0.3.0-alpha (build <versionCode>) ».
+appId: app.lumisite.android
+name: Version visible sur Accueil et Reglages
+---
+- launchApp:
+    clearState: true
+- assertVisible: { id: "accueil_version" }
+- assertVisible: "v0\\.3\\.0-alpha \\(build [0-9]+\\)"
+- assertNotVisible: ".*prototype.*"
+- tapOn: { id: "accueil_reglages" }
+- assertVisible: { id: "reglages_a_propos_version" }
+- assertVisible: { id: "reglages_photo_automatique", checked: true }
+- assertVisible: "LumiSite v0\\.3\\.0-alpha \\(build [0-9]+\\)"

@@ -1,5 +1,18 @@
 package app.lumisite.android
 
+import app.lumisite.core.model.ControlPointRemoved
+import app.lumisite.core.model.ControlPointEvent
+import app.lumisite.core.model.CalibrationMethod
+import app.lumisite.core.geo.Similarity2D
+import app.lumisite.core.geo.Angles
+import app.lumisite.core.geo.Vec2
+import app.lumisite.core.position.SolverSettings
+import app.lumisite.core.position.Solution
+import app.lumisite.core.position.GnssQuality
+import app.lumisite.core.position.GnssObservation
+import app.lumisite.core.position.GnssClassifier
+import app.lumisite.core.position.ControlPoint
+import app.lumisite.core.position.CalibrationSolver
 import android.content.Context
 import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.GpsRecorder
@@ -82,7 +95,27 @@ data class LiveState(
     val distanceSinceFixM: Double? = null,
     val pendingCalibrationA: LocalObservation? = null,
     val message: String? = null,
+    /** Last valid AR position (TRACKING + calibrated), its wall time and the camera heading then (stage 2.8). */
+    val lastArSite: Enu? = null,
+    val lastArValidMs: Long? = null,
+    val lastHeadingDeg: Double? = null,
+    /** Marker left on the plan by Calibrer / Capturer A (stage 2.9). */
+    val calibMark: CalibMark? = null,
+    /** D7 classification of the GNSS and why (shown, journaled; never injected into the AR position). */
+    val gnssQuality: GnssQuality = GnssQuality.INUTILISABLE,
+    val gnssReasons: List<String> = emptyList(),
+    /** D3–D5: last solution of the calibration / relocalization tables (residual and status of every row). */
+    val controlSolution: Solution? = null,
 )
+
+/** One row of Session > Calibrer / Recaler > tableau. */
+data class ControlRow(val n: Int, val e: ControlPointEvent, val residualM: Double?, val status: String)
+
+/** Debug/CI only: synthetic AR poses (Maestro launchApp argument simuler_pose_ar = true; the emulator has no ARCore). */
+object DebugFlags { @Volatile var simulatedPoses = false }
+
+/** Phone position (site frame) and camera direction at the moment of a calibration. */
+data class CalibMark(val site: Enu, val headingDeg: Double?, val label: String)
 
 /**
  * Orchestrates capture for one field session: journal (append-only, local), AR poses, IMU, GPS, and the
@@ -109,7 +142,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
-    val ar = ArTracker(ctx, { stamps }, ::onArFrame)
+    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also { it.onAnchors = { m -> onAnchors(m) } }
+    val gnss = GnssClassifier()
+    val solverSettings = SolverSettings()
+    private var lastGnssFix: GpsFix? = null
+    private var lastPosLogMs = 0L
+    private val tick = android.os.Handler(android.os.Looper.getMainLooper())
+    private val gnssTick = object : Runnable { override fun run() { if (closed) return; updateGnss(); tick.postDelayed(this, 1000L) } }
     /** Stage 1.2: finished segments and attachments are copied to Documents/LumiSite/<site>/<session>/ as they come. */
     private val mirror = repo.mirror(site, sessionId) { msg, e -> DiagLog.e("COPIE", msg, e) }
     val mirrorDir get() = mirror.displayDir
@@ -153,6 +192,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             DiagLog.i("FLUX", "Segment réparé après arrêt brutal : ${r.file.name}")
         }
         mirror.syncAll()
+        DiagLog.i("GNSS", "Seuils D7 : ${gnss.thresholds} ; solveur D3-D5 : $solverSettings")
     }
 
     private var paused = false
@@ -173,6 +213,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun startCapture(hasLocation: Boolean) {
         if (paused) { paused = false; streamState(listOf("imu", "gps", "arcore"), "RESUMED", "APP_RESUMED") }
         sensors.start()
+        tick.removeCallbacks(gnssTick); tick.post(gnssTick)
         if (hasLocation) gps.start() else onGpsStatus(GpsStatusSample(stamps.now(), "gps", "NO_PERMISSION"))
     }
 
@@ -181,6 +222,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun pauseCapture() {
         if (closed) return
         runCatching { sensors.stop() }; runCatching { gps.stop() }; ar.pause()
+        tick.removeCallbacks(gnssTick)
         logTracking(TrackingState.STOPPED, "APP_PAUSED")
         if (!paused) { paused = true; streamState(listOf("imu", "gps", "arcore"), "STOPPED", "APP_PAUSED") }
         journal.flushAll()
@@ -196,6 +238,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun close(reason: String = "user") {
         if (closed) return
         ar.rendering = false
+        tick.removeCallbacks(gnssTick)
         runCatching { pauseCapture() }
         closed = true
         ar.close()
@@ -215,6 +258,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     private fun onArFrame(pose: PoseSample?, state: TrackingState, reason: String?) {
         if (closed) return
+        // Debug/CI (simuler_pose_ar): synthetic poses replace the real ARCore frames, also when ARCore runs without tracking.
+        if (simThread != null && pose?.source != "SIMULATED_DEBUG") return
         logTracking(state, reason)
         if (pose != null) {
             // 10 Hz pose recording is enough for walking trajectories; every frame is still used by ARCore.
@@ -243,7 +288,21 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
     }
 
-    private fun onGps(f: GpsFix) { if (closed) return; journal.gps(f); _state.update { it.copy(lastGps = f) } }
+    private fun onGps(f: GpsFix) { if (closed) return; journal.gps(f); if (f.provider == "gps") lastGnssFix = f; _state.update { it.copy(lastGps = f) } }
+
+    /** D7, once per second: satellites used, C/N0 of the 4 best, accuracy, age of the last GNSS fix; changes are journaled. */
+    private fun updateGnss() {
+        val f = lastGnssFix
+        val age = f?.let { (AndroidClock.monotonicNs() - (it.t.sensorNs ?: it.t.monotonicNs)) / 1_000_000 }
+        val obs = GnssObservation(gps.satUsed, gps.cn0Used, f?.horizontalAccuracyM?.toDouble(), age)
+        if (gnss.update(System.currentTimeMillis(), obs)) {
+            val why = gnss.reasons.joinToString().ifEmpty { "critères D7 respectés" }
+            DiagLog.i("GNSS", "GNSS ${gnss.quality.label} ($why) ; satellites=${obs.satellitesUsed} C/N0=${obs.cn0UsedDbHz.sortedDescending().take(4)} précision=${obs.accuracyM} âge=${obs.fixAgeMs} ms")
+            val ev = StreamStateEvent(Ids.new("ev"), stamps.now(), "gnss", gnss.quality.name, why)
+            journal.event(ev); _state.update { it.copy(events = it.events + ev) }
+        }
+        _state.update { it.copy(gnssQuality = gnss.quality, gnssReasons = gnss.reasons) }
+    }
     private fun onGpsStatus(s: GpsStatusSample) { if (closed) return; journal.gpsStatus(s); _state.update { it.copy(gpsStatus = it.gpsStatus + (s.provider to s.status)) } }
 
     // ------------------------------------------------------------------ derived display
@@ -253,6 +312,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private fun appendLive(p: PoseSample) {
         val seg = activeSegment()
         val cur = seg?.transform?.apply(PoseGeometry.plane(p))?.let { Enu(it.x, it.y, PoseGeometry.height(p)) }
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastPosLogMs >= 1000L) {
+            // D2: source, active transform and segment number, once per second (ARCore plane = (x, -z) in metres, rotation in degrees).
+            lastPosLogMs = nowMs
+            val tl = TrajectoryCorrector.timeline(_state.value.events)
+            val src = when { seg == null -> "non calibrée (GNSS ${gnss.quality.label}, indicatif)"; p.tracking == TrackingState.TRACKING -> "AR+calibrage"; else -> "AR figée (${p.tracking})" }
+            DiagLog.i("POSITION", "source=$src segment=${seg?.let { s -> tl.indexOfLast { it.eventId == s.eventId } + 1 } ?: 0}/${tl.size} evt=${seg?.eventId} " +
+                (seg?.transform?.let { t -> "rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(t.rotationRad)) + "° t=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, t.tx, t.ty) + ") m " } ?: "") +
+                "plan_ar=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, p.p[0], -p.p[2]) + ") m" + (cur?.let { " site=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, it.e, it.n) + ") m" } ?: ""))
+        }
         _state.update { st ->
             var traj = st.trajectory
             if (cur != null && seg != null) {
@@ -261,8 +330,26 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
                 val gap = last == null || p.t.monotonicNs - last.monotonicNs > 1_000_000_000L
                 traj = if (gap) traj + listOf(listOf(pt)) else traj.dropLast(1) + listOf(traj.last() + pt)
             }
-            st.copy(poseCount = st.poseCount + 1, imuCount = imuCount, currentSite = cur, distanceSinceFixM = distanceSinceFix(traj, seg?.fromNs))
+            val valid = cur != null && seg != null && p.tracking == TrackingState.TRACKING
+            st.copy(poseCount = st.poseCount + 1, imuCount = imuCount, currentSite = cur, distanceSinceFixM = distanceSinceFix(traj, seg?.fromNs),
+                lastArSite = if (valid) cur else st.lastArSite, lastArValidMs = if (valid) System.currentTimeMillis() else st.lastArValidMs,
+                lastHeadingDeg = if (valid) headingOf(p, seg!!) else st.lastHeadingDeg)
         }
+    }
+
+    private fun headingOf(p: PoseSample, seg: TrajectoryCorrector.Segment): Double {
+        val enuRad = PoseGeometry.forwardPlaneAngle(p) + seg.transform.rotationRad
+        return ((90.0 - Math.toDegrees(enuRad)) % 360.0 + 360.0) % 360.0
+    }
+
+    fun isCalibrated() = activeSegment() != null
+
+    /** After a calibration: where the phone is on the plan and where the camera looks (from the new transform). */
+    private fun markCalibration(pose: PoseSample, label: String) {
+        val seg = activeSegment() ?: return
+        val xy = seg.transform.apply(PoseGeometry.plane(pose))
+        val site = Enu(xy.x, xy.y, 0.0)
+        _state.update { it.copy(calibMark = CalibMark(site, headingOf(pose, seg), label), lastArSite = site, lastArValidMs = System.currentTimeMillis(), lastHeadingDeg = headingOf(pose, seg)) }
     }
 
     private fun distanceSinceFix(traj: List<List<CorrectedPoint>>, fromNs: Long?): Double? {
@@ -314,6 +401,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun clearMessage() = _state.update { it.copy(message = null) }
     private fun fail(msg: String) = _state.update { it.copy(message = msg) }
 
+    private fun poseUnavailable(what: String): String {
+        val st = _state.value
+        return "$what impossible : pose AR indisponible (${st.tracking}${st.trackingReason?.let { " : $it" } ?: ""}) : éclairez la scène ou bougez lentement."
+    }
+
     private fun trackedPose(): PoseSample? = _state.value.lastPose?.takeIf { _state.value.tracking == TrackingState.TRACKING }
 
     // ------------------------------------------------------------------ user actions
@@ -322,11 +414,12 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = trackedPose() ?: return fail("Calibration impossible : suivi AR non actif.")
         val e = Calibrator.onePointHeading(Ids.new("cal"), stamps.now(), LocalObservation(pose, ref), headingDeg, headingSource, uncertaintyDeg)
         record(e, "Calibration enregistrée (1 point + cap %.0f°).".format(headingDeg))
+        markCalibration(pose, "Calibration (1 point + cap)")
     }
 
     fun captureCalibrationA(ref: ReferencePoint) {
         val pose = trackedPose() ?: return fail("Point A impossible : suivi AR non actif.")
-        _state.update { it.copy(pendingCalibrationA = LocalObservation(pose, ref), message = "Point A capturé. Marchez jusqu'au point B.") }
+        _state.update { it.copy(pendingCalibrationA = LocalObservation(pose, ref), message = "Point A capturé. Marchez jusqu'au point B.", calibMark = CalibMark(ref.site, null, "Calibration : point A")) }
     }
 
     fun calibrateTwoPoints(refB: ReferencePoint, fixScale: Boolean, knownDistanceM: Double?) {
@@ -336,11 +429,138 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             val e = Calibrator.twoPoints(Ids.new("cal"), stamps.now(), a, LocalObservation(pose, refB), fixScale, knownDistanceM)
             _state.update { it.copy(pendingCalibrationA = null) }
             record(e, "Calibration 2 points : échelle carte/AR mesurée %.3f, résidu %.2f m.".format(e.measuredScale, e.residualM))
+            markCalibration(pose, "Calibration (2 points), point B")
         } catch (ex: IllegalArgumentException) { fail(ex.message ?: "Erreur") }
     }
 
+    // ------------------------------------------------------------------ calibration / relocalization tables (D3–D5)
+
+    private fun activeControlEvents(): List<ControlPointEvent> {
+        val evs = _state.value.events
+        val cur = evs.subList(evs.indexOfLast { it is TimeBaseAdded } + 1, evs.size)
+        val removed = cur.filterIsInstance<ControlPointRemoved>().map { it.pointId }.toSet()
+        return cur.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }
+    }
+
+    /** D6: current pose of each control point's ARCore anchor (falls back to the pose recorded at validation). */
+    private val anchorPoses = java.util.concurrent.ConcurrentHashMap<String, PoseSample>()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val objectGroups = mutableListOf<app.lumisite.core.position.AnchorGroups.Group>()
+
+    private fun observationNow(e: ControlPointEvent): LocalObservation = e.observation.copy(pose = anchorPoses[e.id] ?: e.observation.pose)
+
+    /** GL thread, at most once per second: anchor poses moved by ARCore → transform solved again if the live position moves > 10 cm. */
+    private fun onAnchors(m: Map<String, Pair<List<Double>, List<Double>>>) = mainHandler.post {
+        if (closed) return@post
+        var moved = false
+        for ((id, v) in m) {
+            if (objectGroups.any { it.id == id }) continue
+            val old = anchorPoses[id] ?: activeControlEvents().firstOrNull { it.id == id }?.observation?.pose ?: continue
+            val upd = old.copy(p = v.first, q = v.second)
+            if (PoseGeometry.plane(upd).let { (it - PoseGeometry.plane(old)).norm() } > 0.02) moved = true
+            anchorPoses[id] = upd
+        }
+        if (!moved) return@post
+        val seg = activeSegment() ?: return@post
+        val pts = activeControlEvents().mapNotNull(::toControlPoint)
+        val sol = CalibrationSolver.solve(pts, stamps.now().monotonicNs, seg.transform.rotationRad, solverSettings) ?: return@post
+        val here = trackedPose()?.let { PoseGeometry.plane(it) } ?: return@post
+        val shift = (sol.transform.apply(here) - seg.transform.apply(here)).norm()
+        DiagLog.i("POSITION", "Ancres ARCore mises à jour : décalage de la position courante " + "%.2f".format(java.util.Locale.ROOT, shift) + " m")
+        if (shift > 0.10) resolve(null, seg, note = "ancres ARCore")
+    }
+
+    private fun toControlPoint(e: ControlPointEvent): ControlPoint? {
+        val pose = observationNow(e).pose ?: return null
+        val site = e.observation.reference.site
+        return ControlPoint(e.id, e.t.monotonicNs, PoseGeometry.plane(pose), Vec2(site.e, site.n), e.kind == "RELOCALIZATION",
+            e.headingDeg?.let { Angles.wrapPi(Angles.headingDegToEnuRad(it) - PoseGeometry.forwardPlaneAngle(pose)) })
+    }
+
+    fun controlRows(kind: String): List<ControlRow> {
+        val sol = _state.value.controlSolution
+        return activeControlEvents().filter { it.kind == kind }.mapIndexed { i, e ->
+            ControlRow(i + 1, e, sol?.residualsM?.get(e.id), when { sol == null -> "en attente"; e.id in sol.rejected -> "rejeté"; e.id == sol.anchorId -> "ancre"; else -> "retenu" })
+        }
+    }
+
+    /** Session > Calibrer > « Valider le point » and Session > Recaler > « Je suis ici : recaler »: one more row, transform solved again. */
+    fun addControlPoint(kind: String, ref: ReferencePoint, headingDeg: Double? = null, headingSource: String? = null, headingCorrectionDeg: Double? = null, note: String? = null) {
+        val reloc = kind == "RELOCALIZATION"
+        val st = _state.value
+        val pose = trackedPose() ?: return fail(poseUnavailable(if (reloc) "Recalage" else "Calibrage"))
+        val before = activeSegment()
+        if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
+        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
+        record(e)
+        ar.requestAnchor(e.id, pose)
+        resolve(e, before, headingCorrectionDeg, note)
+    }
+
+    fun removeControlPoint(id: String) {
+        val before = activeSegment()
+        record(ControlPointRemoved(Ids.new("ev"), stamps.now(), id))
+        ar.dropAnchor(id); anchorPoses.remove(id)
+        resolve(null, before)
+    }
+
+    /** « Nouveau calibrage » empties both tables, « Nouveau recalage » only the relocalizations. */
+    fun clearControlPoints(relocalizationsOnly: Boolean) {
+        val before = activeSegment()
+        activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)); ar.dropAnchor(it.id); anchorPoses.remove(it.id) }
+        resolve(null, before)
+    }
+
+    private fun resolve(trigger: ControlPointEvent?, before: TrajectoryCorrector.Segment?, headingCorrectionDeg: Double? = null, note: String? = null) {
+        val evs = activeControlEvents()
+        val pts = evs.mapNotNull(::toControlPoint)
+        val now = stamps.now()
+        if (pts.isEmpty()) {
+            _state.update { it.copy(controlSolution = null, message = if (before != null) "Tableau vide : la transformation précédente reste active jusqu'au prochain point." else null) }
+            return
+        }
+        val sol = CalibrationSolver.solve(pts, now.monotonicNs, before?.transform?.rotationRad, solverSettings)
+        if (sol == null) {
+            _state.update { it.copy(controlSolution = null, message = "Point enregistré. Ajoutez un 2e point à plus de 2 m, ou saisissez le cap de visée du 1er point, pour calibrer.") }
+            return
+        }
+        var tr = sol.transform
+        val anchor = pts.firstOrNull { it.id == sol.anchorId }
+        if (headingCorrectionDeg != null && anchor != null) tr = Similarity2D.fromPointAndRotation(anchor.local, anchor.target, tr.rotationRad - Math.toRadians(headingCorrectionDeg))
+        val summary = "${pts.size} point(s), ${sol.rejected.size} rejeté(s), résidu RMS " + "%.2f".format(sol.rmsM) + " m (${sol.method})"
+        _state.update { it.copy(controlSolution = sol) }
+        if (trigger?.kind == "RELOCALIZATION" && before != null) {
+            val local = PoseGeometry.plane(observationNow(trigger).pose!!); val b = before.transform.apply(local); val a = tr.apply(local)
+            record(RelocalizationEvent(Ids.new("rel"), now, trigger.observation, Enu(b.x, b.y), Enu(a.x, a.y), (a - b).norm(), before.transform, tr,
+                "MULTI_POINT_WEIGHTED", headingCorrectionDeg, notes = listOfNotNull(note, summary).joinToString(" · ")), "Recalage : position déplacée de " + "%.2f".format((a - b).norm()) + " m. $summary")
+        } else {
+            record(CalibrationEvent(Ids.new("cal"), now, CalibrationMethod.MULTI_POINT, evs.filter { it.id !in sol.rejected }.map(::observationNow),
+                headingDeg = evs.firstNotNullOfOrNull { it.headingDeg }, headingSource = evs.firstNotNullOfOrNull { it.headingSource },
+                transform = tr, scaleFixed = true, residualM = sol.rmsM, notes = "points=${pts.map { it.id }} rejetés=${sol.rejected}"), "Calibrage : $summary")
+            trigger?.observation?.pose?.let { markCalibration(it, "Calibrage, point ${evs.count { e -> e.kind == "CALIBRATION" }}") }
+        }
+        DiagLog.i("POSITION", "Transformation recalculée : $summary rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(tr.rotationRad)) + "° t=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, tr.tx, tr.ty) + ")")
+    }
+
+    private var simThread: Thread? = null
+
+    /** Debug/CI only ([DebugFlags.simulatedPoses]): TRACKING poses walking a 6 m circle at 0.6 m/s, source SIMULATED_DEBUG in the journal. */
+    fun startSimulatedPoses() {
+        if (simThread != null || !app.lumisite.android.BuildConfig.DEBUG) return
+        DiagLog.i("SESSION", "Poses AR SIMULÉES (débogage) : aucune mesure réelle")
+        simThread = Thread({
+            val t0 = AndroidClock.monotonicNs()
+            while (!closed) {
+                val a = (AndroidClock.monotonicNs() - t0) / 1e9 * 0.1
+                onArFrame(PoseSample(stamps.now(), listOf(6 * kotlin.math.cos(a) - 6, 0.0, -6 * kotlin.math.sin(a)), listOf(0.0, kotlin.math.sin(a / 2), 0.0, kotlin.math.cos(a / 2)),
+                    TrackingState.TRACKING, source = "SIMULATED_DEBUG"), TrackingState.TRACKING, null)
+                Thread.sleep(100)
+            }
+        }, "lumisite-poses-simulees").apply { isDaemon = true; start() }
+    }
+
     fun relocalize(ref: ReferencePoint, headingCorrectionDeg: Double?, note: String?) {
-        val pose = trackedPose() ?: return fail("Recalage impossible : suivi AR non actif.")
+        val pose = trackedPose() ?: return fail(poseUnavailable("Recalage"))
         val seg = activeSegment() ?: return fail("Recalage impossible : aucune calibration initiale.")
         val e = Relocalizer.relocalize(Ids.new("rel"), stamps.now(), pose, ref, seg.transform, headingCorrectionDeg, note)
         record(e, "Recalage : écart estimé/recalé = %.2f m.".format(e.deltaM))
@@ -355,6 +575,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     /** Records an equipment of the catalog. Returns false (and explains why) when no position can be computed. */
+    /** Id of the last record created by [survey] (used to propose the photo right after the placement). */
+    var lastSurveyId: String? = null
+        private set
+
     fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null): Boolean {
         val fam = try { catalog.resolve(familyId) } catch (e: IllegalArgumentException) { fail(e.message ?: "Famille inconnue"); return false }
         val st = _state.value
@@ -376,7 +600,18 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         undoStack.addLast(e.id)
+        lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        if (manual == null && pose != null) {
+            val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
+            val c = Vec2(at[0], -at[2])
+            val g = app.lumisite.core.position.AnchorGroups.assign(objectGroups, c)
+                ?: app.lumisite.core.position.AnchorGroups.Group(Ids.new("grp"), c).also {
+                    objectGroups += it
+                    ar.requestAnchor(it.id, pose.copy(p = at, q = listOf(0.0, 0.0, 0.0, 1.0)))
+                }
+            DiagLog.i("ANCRES", "Relevé ${e.id} rattaché à l'ancre de groupe ${g.id} (${objectGroups.size} groupe(s), 8 m max)")
+        }
         return true
     }
 
@@ -384,10 +619,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * Edits a record by appending a new survey event that supersedes it (journal stays append-only).
      * [moveTo] sets a manual position; [familyId]/[note] change the family/comment; [delete] removes it.
      */
-    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null) {
+    /** Returns the id of the superseding record (null when nothing was recorded). */
+    fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null, replacePath: String? = null): String? {
         val events = _state.value.events
-        val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return fail("Relevé introuvable.")
-        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return fail(e.message ?: "Famille inconnue") } }
+        val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return null.also { fail("Relevé introuvable.") }
+        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return null.also { fail(e.message ?: "Famille inconnue") } } }
         val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
         val moved = moveTo != null
         val e = old.copy(
@@ -399,10 +635,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
             dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
-            attachments = if (attach != null) old.attachments + attach else old.attachments,
+            attachments = if (attach != null) old.attachments.filterNot { it.file == replacePath } + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
         undoStack.addLast(e.id)
+        return e.id
     }
 
     private val undoStack = ArrayDeque<String>()
@@ -469,10 +706,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     fun stampNow() = stamps.now()
 
-    fun attach(surveyId: String, file: File, mediaType: String, role: String?, startUtcMs: Long? = null, monotonicNs: Long? = null) {
+    /** Returns the id of the superseding record. [replacePath] drops that attachment from the record (its file stays on disk). */
+    fun attach(surveyId: String, file: File, mediaType: String, role: String?, startUtcMs: Long? = null, monotonicNs: Long? = null, replacePath: String? = null): String? {
         val rel = file.relativeTo(repo.sessionDir(sessionId)).invariantSeparatorsPath
-        editSurvey(surveyId, attach = Attachment(rel, mediaType, sha256(file), role, startUtcMs, monotonicNs))
+        return editSurvey(surveyId, attach = Attachment(rel, mediaType, sha256(file), role, startUtcMs, monotonicNs), replacePath = replacePath)
     }
+
+    fun sessionRelPath(file: File): String = file.relativeTo(repo.sessionDir(sessionId)).invariantSeparatorsPath
 
     /** Current heading of the camera in the site frame (degrees from north, clockwise), when tracked and calibrated. */
     fun currentHeadingDeg(): Double? {

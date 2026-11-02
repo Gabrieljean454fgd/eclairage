@@ -242,3 +242,5 @@ Statut : spécification écrite, sans code, comme demandé : `docs/FORMAT_ECHANG
 | Accueil > Réglages > Retour système | fait | Cause : l'écran Réglages n'interceptait pas le Retour Android (pas de BackHandler), donc l'activité se fermait. Correction : Retour = Accueil. | nouveau `scenario_p2_reglages_retour` |
 
 Vérifié en local sur émulateur (pixel7, API 34, sans ARCore) : les trois flows ci-dessus passent. Le cas « ARCore présent mais sans suivi » n'est pas reproductible sur l'émulateur : à vérifier sur le Pixel 7 réel.
+
+**Résultat CI de la relance n°1** : 13/13 flows verts sur etape-2 (08f0514, dont le nouveau `scenario_p2_reglages_retour`) → pré-release `etape2-08f0514`, APK `lumisite-etape2-v138-08f0514.apk` ; etape-3 (bf65b07, + `scenario_p3_cadastre_ign`) verte → pré-release `etape3-bf65b07`, APK `lumisite-etape3-v145-bf65b07.apk`. Émulateur uniquement. Reste dans l'ordre v4 : rien (D9 était le dernier point ; le reste de la P3 est reporté). Questions ouvertes inchangées : accélération de Session > Synchro (fenêtre de 12 s, AudioRecord réutilisé) et écriture directe du journal au format D9.

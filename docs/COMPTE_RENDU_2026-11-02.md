@@ -63,10 +63,10 @@ Tests : CI (émulateur Pixel 7, API 34) et émulateur local seulement ; aucun te
 - Export : `releves.geojson`, une seule `FeatureCollection` RFC 7946. La géométrie est en WGS84 (lon, lat) ; E/N et la hauteur (ou « non qualifiée ») sont dans `properties.local`, et la provenance dans `properties.provenance`. Il n'y a jamais de coordonnées locales dans `coordinates`. NDJSON est réservé aux journaux bruts (`raw/`). `LISEZMOI.txt` explique chaque fichier.
 - Test JVM : `ResumableExportTest.relevesGeojson…`.
 
-### 1.5 Conservation à la mise à jour — partiel
+### 1.5 Conservation à la mise à jour — fait (CI)
 - JVM : `SegmentFormatsTest`. Une session à l'ancien format 0.1/0.2 (un fichier par flux à la racine, sans `seg/`) est lue et exportée sans qu'aucun fichier ne soit modifié, et la reprise écrit dans `seg/` à côté. Les segments `.gz` et un arrêt entre compression et suppression ne font lire aucune ligne deux fois.
 - Aucune migration : rien n'est réécrit ni supprimé.
-- **Pas encore fait** : le test `adb install -r` version N → N+1 sur l'émulateur.
+- Test de mise à jour en CI (`.github/scripts/maestro-ci.sh`, après les parcours) : installation de la dernière pré-release de la même étape (version N, même clé de test), `.maestro/maj/maj_avant.yaml` (« Mise a jour avant creer session » : site + relevé, sans Terminer), arrêt brutal, `adb install -r` de l'APK du commit (N+1), puis `.maestro/maj/maj_apres.yaml` (« Mise a jour apres session lisible et exportable » : Accueil > « Maestro bureau » > « Relevés : 1 », Site > Sessions > reprise, Session > Export vérifié SHA-256). Les deux moitiés sont dans `.maestro/maj/` et non à la racine : elles ne tiennent pas seules, c'est le script qui les enchaîne autour de l'installation. Vérifié en local avec une mise à jour sur le même APK (clé de debug locale) ; la vraie mise à jour N → N+1 n'est vérifiée qu'en CI.
 
 ### Questions ouvertes (non tranchées)
 1. Copie unique D9 : les flux historiques sont gardés comme seule copie (lecteur, export et réimport existants). Faut-il plutôt basculer sur `captation.ndjson` seul ?

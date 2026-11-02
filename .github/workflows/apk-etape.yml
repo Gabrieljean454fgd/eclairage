@@ -124,6 +124,8 @@ jobs:
 
       - name: Parcours Maestro sur émulateur Pixel 7 (API 34)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          GH_TOKEN: ${{ github.token }} # lecture des pré-releases (version N du test de mise à jour)
         with:
           api-level: 34
           target: google_apis

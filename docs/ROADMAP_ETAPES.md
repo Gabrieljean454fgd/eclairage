@@ -81,6 +81,6 @@ Le prompt dit lui-même que ses libellés sont indicatifs. Écarts constatés da
 | Réglages > Stockage, Réglages > Journal | aucun écran Réglages avant l'étape 1 |
 
 ## Plan v5 révisé (02/11/2026) — état sur etape-3
-- LOT 1 Fiabilité : 1.0 contrat, 1.1 reprise, 1.2 export WorkManager, 1.3 poids IMU (D15) et 1.4 formats faits ; 1.5 partiel (test `adb install -r` N → N+1 à faire). Détail : `docs/COMPTE_RENDU_2026-11-02.md`.
+- LOT 1 Fiabilité : 1.0 contrat, 1.1 reprise, 1.2 export WorkManager, 1.3 poids IMU (D15) et 1.4 formats et 1.5 conservation à la mise à jour (test `adb install -r` N → N+1 en CI) faits. Détail : `docs/COMPTE_RENDU_2026-11-02.md`.
 - LOT 2 Positionnement, LOT 3 AR utile, LOT 4 Ergonomie : non commencés.
 - Reporté : synchro multi-appareils (note `docs/SYNCHRO_CONCEPTION.md` à écrire), service de capture complet, mode profondeur.

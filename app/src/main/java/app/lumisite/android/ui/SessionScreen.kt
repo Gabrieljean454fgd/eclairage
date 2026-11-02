@@ -139,7 +139,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             else -> "ARCore : $a"
         })
         if (!arReady) c.markArUnavailable("AR_NOT_RUNNING")
-        if (!arReady && app.lumisite.android.DebugFlags.simulatedPoses) c.startSimulatedPoses()
+        if (app.lumisite.android.DebugFlags.simulatedPoses) c.startSimulatedPoses()
     }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {

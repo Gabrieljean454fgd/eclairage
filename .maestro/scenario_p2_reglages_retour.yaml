@@ -1,0 +1,15 @@
+# Accueil > « Réglages », puis le Retour système Android : l'application revient à l'Accueil au lieu de se fermer.
+appId: app.lumisite.android
+name: "Reglages retour systeme vers Accueil"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_reglages" }
+    timeout: 90000
+- tapOn: { id: "accueil_reglages" }
+- assertNotVisible: { id: "accueil_nouveau_releve" }
+- back
+- assertVisible: { id: "accueil_nouveau_releve" }
+- assertVisible: { id: "accueil_reglages" }

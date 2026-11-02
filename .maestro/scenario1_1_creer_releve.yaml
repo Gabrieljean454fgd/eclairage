@@ -26,5 +26,7 @@ name: "Scénario 1.1 — Créer un relevé"
 - assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
 - scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - tapOn: { id: "nouveau_site_creer" }
+# Site : le titre complet est affiché (colonne unique en portrait, jamais coupé lettre par lettre).
+- assertVisible: { id: "site_titre", text: "Maestro bureau" }
 - tapOn: { id: "site_nouvelle_session_terrain" }
 - assertVisible: { id: "session_terminer_la_session" }

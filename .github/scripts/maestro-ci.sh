@@ -7,6 +7,10 @@ export MAESTRO_CLI_NO_ANALYTICS=1 MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED=tru
 adb install -r "$APK"
 # Reproduit le cas du Pixel 7 réel : en-tête AR de Session à sa taille maximale (bloc caméra simulé, APK debug seulement).
 adb shell settings put global lumisite_simuler_entete_ar 1
+# Navigation à 3 boutons, comme le Pixel 7 de test : un bouton dessiné sous la barre de navigation fait alors échouer l'appui au centre.
+adb shell cmd overlay enable com.android.internal.systemui.navbar.threebutton || true
+sleep 3
+echo "navigation_mode=$(adb shell settings get secure navigation_mode) (0 = 3 boutons)"
 mkdir -p maestro-out
 fail=0; summary=""
 for f in .maestro/*.yaml; do

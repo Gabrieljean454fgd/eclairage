@@ -43,9 +43,19 @@ name: "Session calibrage multipoints"
 - swipe: { start: "50%,70%", end: "50%,88%", duration: 600 }
 - swipe: { start: "50%,70%", end: "50%,88%", duration: 600 }
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-- assertVisible: { id: "session_calibrer_ligne_1" }
+# Le dernier message est fixé au-dessus de la barre d'actions (bas de l'écran) : on glisse plus haut, dans le panneau, jusqu'à la ligne 2.
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_2" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,74%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_2" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,80%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_1" }
 - tapOn: { id: "session_calibrer_supprimer_1" }
 - assertVisible: { id: "session_calibrer_ligne_1" }
 - assertNotVisible: { id: "session_calibrer_ligne_2" }

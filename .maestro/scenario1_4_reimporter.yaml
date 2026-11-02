@@ -14,7 +14,20 @@ name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
 - tapOn: { id: "accueil_reglages" }
 - assertVisible: { id: "reglages_stockage_chemin" }
 - tapOn: { id: "reglages_stockage_reimporter" }
+# Le sélecteur charge la liste avant d'activer son bouton : un appui trop tôt est perdu (vu en CI, navigation à 3 boutons).
+- extendedWaitUntil:
+    visible: "(?i)utiliser ce dossier|use this folder"
+    timeout: 20000
+- waitForAnimationToEnd
 - tapOn: { text: "(?i)utiliser ce dossier|use this folder", optional: true }
+- runFlow:
+    when:
+      visible: "(?i)utiliser ce dossier|use this folder"
+    commands:
+      # En navigation à 3 boutons, le bouton du sélecteur système (DocumentsUI, pas LumiSite) a son centre sur le bord
+      # de la barre de navigation : l'appui au centre est absorbé par la barre. On touche sa moitié haute, visible.
+      - waitForAnimationToEnd
+      - tapOn: { point: "50%,93%" }
 - tapOn: { text: "(?i)autoriser|allow", optional: true }
 - extendedWaitUntil:
     visible: { id: "reglages_stockage_resultat" }

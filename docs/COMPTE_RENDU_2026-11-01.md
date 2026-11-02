@@ -222,3 +222,11 @@ Statut : spécification écrite, sans code, comme demandé : `docs/FORMAT_ECHANG
 - Synchro prévue : échange de type NTP en local, puis recalage par chirp au bureau.
 - Contrainte notée : Nearby entre Android et iOS = même Wi-Fi obligatoire.
 - **Question ouverte** : écrire le journal de session « dès maintenant » dans ce format n'est pas fait. La correspondance avec le journal actuel est complète (§6 de la spec). Je propose un export dérivé plutôt qu'une réécriture du stockage.
+||||||| bcf8971
+
+
+### Corrections CI après P2d–P2f (flows Maestro, sans assertion retirée)
+
+- **Session > Calibrer** (`scenario_p2_calibrage_multipoints`) : `session_calibrer_ligne_2` introuvable. Cause : depuis P2d, le dernier message (« Calibrage : 2 point(s)… ») est fixé au-dessus de la barre d'actions ; les glissements du flow partaient de 88 % de la hauteur, donc sur ce message, et le panneau ne défilait pas (la ligne 2 existait, sous le message). Correction : glissements courts dans le panneau jusqu'à la ligne 2, puis retour jusqu'à la ligne 1 ; les deux lignes restent vérifiées « visible », puis « Supprimer » → 1 ligne.
+- **Session > Annoter** (`scenario_p2_annoter_deplacer`) : depuis P2e, « Enregistrer le relevé » ouvre l'appareil photo (Session > Relevé > photo automatique, activée par défaut). Le flow fait maintenant « retour » puis Session > Relevé > « Passer », comme `scenario_p2_photo_implantation`, avant les vérifications inchangées.
+- **Accueil > Réglages** (`scenario1_4_reimporter`, échec unique sur le run de 74badcd : `accueil_reglages` non visible après relance `clearState`) : non reproduit en local (vert), vert sur les runs CI suivants ; classé comme instabilité de l'émulateur (écran noir au lancement déjà observé), à surveiller.

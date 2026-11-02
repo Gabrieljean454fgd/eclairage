@@ -222,8 +222,7 @@ Statut : spécification écrite, sans code, comme demandé : `docs/FORMAT_ECHANG
 - Types de trames : IMU, pose, GNSS, chirps audio, LiDAR / scan 3D, état de liaison, coupures `gap`.
 - Synchro prévue : échange de type NTP en local, puis recalage par chirp au bureau.
 - Contrainte notée : Nearby entre Android et iOS = même Wi-Fi obligatoire.
-- **Question ouverte** : écrire le journal de session « dès maintenant » dans ce format n'est pas fait. La correspondance avec le journal actuel est complète (§6 de la spec). Je propose un export dérivé plutôt qu'une réécriture du stockage.
-||||||| bcf8971
+- **Question ouverte** (tranchée le 02/11 et faite dans la relance n°2 : journal écrit au format D9) : écrire le journal de session « dès maintenant » dans ce format n'est pas fait. La correspondance avec le journal actuel est complète (§6 de la spec). Je propose un export dérivé plutôt qu'une réécriture du stockage.
 
 
 ### Corrections CI après P2d–P2f (flows Maestro, sans assertion retirée)

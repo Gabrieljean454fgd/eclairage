@@ -9,3 +9,9 @@ Tests : CI (émulateur Pixel 7, API 34) et émulateur local seulement ; aucun te
 - **Correctif** : bord à bord activé sur tous les niveaux d'API (`enableEdgeToEdge()`), et marge `safeDrawing` (barres système, encoche, clavier) appliquée à la racine, donc sur Accueil, Accueil > Nouveau, Site, Réglages et Session. L'émulateur API 34 se comporte maintenant comme le Pixel.
 - **CI** : `.github/scripts/maestro-ci.sh` passe l'émulateur en navigation à 3 boutons (`cmd overlay enable com.android.internal.systemui.navbar.threebutton`) avant tous les parcours ; `scenario1_1_creer_releve` n'est pas modifié. Vérifié en local : parcours 1.1 vert en navigation à 3 boutons.
 - À vérifier sur le Pixel 7 : appui au centre de « Créer sans contours OSM » en navigation à 3 boutons et par gestes.
+
+### M4 — `docs/COMPTE_RENDU_2026-11-01.md` (etape-3)
+- Ligne `||||||| bcf8971` (reste d'un conflit de fusion) supprimée ; `git grep -nE '^(<<<<<<<|\|\|\|\|\|\|\||>>>>>>>)'` ne renvoie plus rien.
+
+### Plan révisé (22 h)
+- M2 (contraste des libellés) et l'option B (« Enregistrer le relevé » fixé) étaient codés et verts en local sur etape-2 ; non publiés, ils passent au LOT 4 (etape-3). M3 et les options A et C aussi.

@@ -3,6 +3,8 @@ package app.lumisite.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -88,6 +90,9 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) DiagLog.i("APP", "Activité recréée par Android (état restauré)")
         app.lumisite.android.capture.ArDebug.fromIntent(applicationContext, intent, BuildConfig.DEBUG)
         val repo = Repository(applicationContext)
+        // Edge-to-edge on every API level (it is forced from Android 15 with targetSdk 35): the layout below pads itself with the
+        // safe-drawing insets, so no button is ever drawn under the 3-button navigation bar, and the emulator behaves like the Pixel.
+        enableEdgeToEdge()
         setContent {
             LumiTheme {
                 Surface(Modifier.semantics { testTagsAsResourceId = true }) {
@@ -104,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     }
                     val scope = rememberCoroutineScope()
                     // The theme button has its own row: it never covers a screen title.
-                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                     if (screen !is Screen.Live) androidx.compose.foundation.layout.Row(
                         Modifier.fillMaxWidth().statusBarsPadding(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
                     ) { ThemeToggle(this@MainActivity) }

@@ -8,7 +8,7 @@ Mis à jour à la fin de chaque palier. Rien n'est fusionné. Tests réalisés s
 |---|---|---|
 | 1.1 | Session > barre d'actions (« ← Terminer la session », « Synchro », « Calibrer », « Relevé », « Annoter », « Recaler », « Export ») | fait (à vérifier sur Pixel 7) |
 | 1.2 | Session > carte > « Point à la croix », « Centrer / Suivre », légende, « Fond : … » | fait (à vérifier sur Pixel 7) |
-| 1.3 | Accueil > « Nouveau » > « Créer » (etape-1) | cause probable corrigée, non confirmée sur Pixel 7 |
+| 1.3 | Accueil > « Nouveau » > « Créer » (etape-1) | cause réelle trouvée le 02/11 (voir rectificatif ci-dessous) |
 | 1.4 | Parcours Maestro 1.1 à 1.5 et 2 + CI | voir ci-dessous |
 
 ### 1.1 — Cause et correctif
@@ -26,7 +26,8 @@ Mis à jour à la fin de chaque palier. Rien n'est fusionné. Tests réalisés s
 - Le cartouche « Source : GPS · non calibré… » sera raccourci au point 2.1 (P2).
 
 ### 1.3 — Accueil > « Nouveau » > « Créer » : site absent sur Pixel 7
-- **Cause la plus probable** (trouvée dans le code, non reproduite sur le Pixel 7) : `Repository` créait les dossiers `sites/`, `sessions/`, `exports/` **une seule fois** au démarrage. Maestro `clearState` (`pm clear`) peut vider le dossier privé alors que le processus garde ses chemins ; l'écriture du site se faisait ensuite dans un dossier absent, `renameTo` échouait **sans erreur**, et l'écran Site, ne trouvant pas le site, revenait silencieusement à l'Accueil vide. C'est exactement le symptôme décrit. Seconde cause possible : la recréation de l'activité par Android (écran courant non sauvegardé).
+- **Rectificatif du 02/11 : la cause ci-dessous (« dossiers non recréés ») était FAUSSE.** Cause réelle, mesurée par Sébastien sur le Pixel 7 (navigation à 3 boutons) : avec `targetSdk 35`, Android 15+ impose l'affichage bord à bord ; l'appli ne tenait pas compte de la barre de navigation, et le bouton « Créer sans contours OSM » (`nouveau_site_creer`, [32,2243]–[577,2369] px) était dessiné sous elle ([0,2274]–[1080,2400]). L'appui au centre (304, 2306) tombait sur le bouton Retour de la barre, d'où le retour à l'Accueil sans site. L'émulateur API 34 n'impose pas le bord à bord, d'où « vert sur émulateur ». Correctif : voir `docs/COMPTE_RENDU_2026-11-02.md` (M1).
+- ~~Cause la plus probable~~ (hypothèse abandonnée, gardée pour l'historique ; trouvée dans le code, non reproduite sur le Pixel 7) : `Repository` créait les dossiers `sites/`, `sessions/`, `exports/` **une seule fois** au démarrage. Maestro `clearState` (`pm clear`) peut vider le dossier privé alors que le processus garde ses chemins ; l'écriture du site se faisait ensuite dans un dossier absent, `renameTo` échouait **sans erreur**, et l'écran Site, ne trouvant pas le site, revenait silencieusement à l'Accueil vide. C'est exactement le symptôme décrit. Seconde cause possible : la recréation de l'activité par Android (écran courant non sauvegardé).
 - **Correctifs** : dossiers recréés à chaque accès ; écriture du site atomique avec `fsync`, échec de renommage levé, relecture immédiate ; en cas d'échec, message « Site non enregistré : … » et entrée dans le journal (Réglages > Journal) au lieu d'un retour silencieux ; si un site ouvert est introuvable, message « Site introuvable (voir Réglages > Journal) » et entrée de journal ; écran courant conservé si Android recrée l'activité (une session en cours revient sur son écran Site, d'où « Reprendre »).
 - **À vérifier sur le Pixel 7** : si le symptôme persiste, le journal (Réglages > Journal) contient désormais la raison exacte.
 
@@ -53,4 +54,4 @@ Pré-releases intermédiaires (remplacées) : `etape1-c3c749b` (v110) avant les 
 4. Les 6 parcours Maestro.
 
 ### Questions ouvertes (P1)
-- La cause du point 1.3 est déduite du code et non reproduite sur le Pixel 7 : à confirmer par le parcours 1.1 sur le téléphone.
+- La cause du point 1.3 déduite du code était fausse : cause réelle (bouton sous la barre de navigation) dans le rectificatif ci-dessus.

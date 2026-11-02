@@ -83,6 +83,14 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
             androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
             Text(" Photo automatique à l'implantation (Session > Relevé)")
         }
+        var imuHz by remember { mutableStateOf(app.lumisite.android.capture.ImuRates.motionHz(ctx)) }
+        Text("Accéléromètre et gyroscope (magnétomètre : 10 Hz), appliqué à la prochaine session :", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            app.lumisite.android.capture.ImuRates.choices.forEach { hz ->
+                androidx.compose.material3.FilterChip(imuHz == hz, { imuHz = hz; app.lumisite.android.capture.ImuRates.set(ctx, hz) }, { Text("$hz Hz") },
+                    modifier = Modifier.testTag("reglages_imu_${hz}hz"))
+            }
+        }
 
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)

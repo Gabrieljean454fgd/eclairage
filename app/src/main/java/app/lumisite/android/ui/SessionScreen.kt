@@ -1,5 +1,8 @@
 package app.lumisite.android.ui
 
+import app.lumisite.core.export.ResumableExport
+import app.lumisite.android.ExportWorker
+
 import app.lumisite.android.ControlRow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.sp
@@ -160,15 +163,27 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var closing by remember { mutableStateOf(false) }
     // Same sequence for "Terminer", the top back button and the system back gesture:
     // stop GL drawing, pause the GLSurfaceView (blocks until the GL thread is idle), close ARCore, write session_stopped, then navigate.
-    fun finish() {
+    var confirmExport by remember { mutableStateOf<Int?>(null) }
+    fun finish(confirmed: Boolean = false) {
         if (closing) return
+        // D14: during an export, Terminer asks for a confirmation (double appui) and never stops the export (WorkManager).
+        val running = ExportWorker.live[c.sessionId]
+        if (running != null && !confirmed) { confirmExport = running; return }
         closing = true
+        running?.let { pct -> android.widget.Toast.makeText(activity, "Export en cours ($pct %), il continue en arrière-plan", android.widget.Toast.LENGTH_LONG).show() }
         c.ar.rendering = false
         runCatching { glView?.onPause() }
         runCatching { c.close("user") }
         onClosed()
     }
     BackHandler { finish() }
+    confirmExport?.let { pct ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = { confirmExport = null },
+            title = { Text("Export en cours ($pct %)") },
+            text = { Text("L'export continue en arrière-plan après la fin de la session. Android peut le différer : il reprendra où il s'est arrêté, sans refaire ce qui est vérifié. Terminer la session ?") },
+            confirmButton = { Button({ confirmExport = null; finish(confirmed = true) }, Modifier.testTag("session_terminer_confirmer")) { Text("Terminer quand même") } },
+            dismissButton = { OutlinedButton({ confirmExport = null }, Modifier.testTag("session_terminer_rester")) { Text("Rester") } })
+    }
 
     fun refPoint(label: String): ReferencePoint? {
         val p = picked ?: run { c.notify("Touchez d'abord la carte pour choisir le point."); return null }
@@ -330,6 +345,20 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_message")) }
     }
+    // D13: persistent banner while a resumed session is not tied to the new AR frame (or only by one point).
+    val resumeBanner: @Composable () -> Unit = {
+        val reposition = c.needsReposition()
+        if (reposition || c.approximateReposition()) Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.tertiaryContainer).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_reprise_bandeau")) {
+            Text(if (reposition) "Session reprise : vos relevés sont affichés. Repositionnez-vous (2 points) pour continuer en AR."
+                else "Repositionnement approximatif (1 point : translation et cap seulement). Ajoutez un 2e point.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${SurveyPositions.current(st.events).size} relevé(s), ${c.previousControlRows().size} point(s) de calibrage de la session précédente",
+                    Modifier.weight(1f).testTag("session_reprise_nb"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                TextButton({ mode = Mode.CALIBRATE }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_reprise_positionner")) { Text("Calibrer") }
+            }
+        }
+    }
     val actionBar: @Composable () -> Unit = {
         // 7 equal cells (icon + short label, ≥ 56 dp high), one line, fixed at the bottom: never scrolled, never over the camera.
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).testTag("session_barre_actions")) {
@@ -371,7 +400,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("session_recaler_decalage"))
                     RelocPanel(c, pickedTxt, ::refPoint)
                 }
-                Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint)
+                Mode.SURVEY -> SurveyPanel(c, st.tracking, picked != null, ::refPoint, c.needsReposition())
                 Mode.DRAW -> DrawPanel(c, draw, mapCenter?.let { c.ltp.toEnu(it).copy(u = 0.0) }, selectedSurvey) { selectedSurvey = it }
                 Mode.SYNC -> SyncPanel(activity, c)
                 Mode.EXPORT -> ExportPanel(activity, repo, c)
@@ -410,6 +439,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Column(Modifier.weight(0.45f).fillMaxHeight()) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
                     HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
+                    resumeBanner()
                     messageBar()
                     actionBar()
                 }
@@ -419,6 +449,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow(); statusBlock(Modifier) }
                 map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.6f))
                 panel(Modifier.weight(if (short) 0.75f else 0.4f).padding(horizontal = 8.dp, vertical = 4.dp))
+                resumeBanner()
                 messageBar()
                 actionBar()
             }
@@ -464,10 +495,10 @@ private fun TiltText(c: SessionController) {
 
 /** Session > Calibrer / Recaler > tableau: one row per point (n°, time, plan coordinates, residual, status, « Supprimer »). */
 @Composable
-private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String) {
+private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String, previous: List<ControlRow> = emptyList()) {
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT) }
     Column(Modifier.fillMaxWidth().background(Color(0x11000000)).padding(4.dp).testTag(prefix + "_tableau")) {
-        Text(if (rows.isEmpty()) "Aucun point." else "N° · heure · E / N (m) · résidu · statut", style = MaterialTheme.typography.labelSmall)
+        Text(if (rows.isEmpty() && previous.isEmpty()) "Aucun point." else "N° · heure · E / N (m) · résidu · statut", style = MaterialTheme.typography.labelSmall)
         rows.forEach { r ->
             val site = r.e.observation.reference.site
             Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + r.n), verticalAlignment = Alignment.CenterVertically) {
@@ -475,6 +506,12 @@ private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: S
                     Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = if (r.status == "rejeté") Color(0xFFB00020) else Color.Unspecified)
                 TextButton({ c.removeControlPoint(r.e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_supprimer_" + r.n)) { Text("Supprimer") }
             }
+        }
+        // D13: points of the earlier AR frame, kept for the record (not used by the live solve, not deletable here).
+        previous.forEach { r ->
+            val site = r.e.observation.reference.site
+            Text("${r.n} · ${fmt.format(java.util.Date(r.e.t.utcEpochMs))} · " + "%.1f / %.1f".format(site.e, site.n) + " · " + r.status,
+                Modifier.fillMaxWidth().heightIn(min = 32.dp).testTag(prefix + "_precedente_" + r.n), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -497,7 +534,7 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
         val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
         c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
     }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
-    ControlTable(c, rows, "session_calibrer")
+    ControlTable(c, rows, "session_calibrer", c.previousControlRows())
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
 }
 
@@ -525,10 +562,11 @@ private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String)
 }
 
 @Composable
-private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: Boolean, ref: (String) -> ReferencePoint?) {
+private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: Boolean, ref: (String) -> ReferencePoint?, arBlocked: Boolean = false) {
     var family by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
-    var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING) }
+    var useMap by remember { mutableStateOf(tracking != TrackingState.TRACKING || arBlocked) }
+    LaunchedEffect(arBlocked) { if (arBlocked) useMap = true }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // Survives the activity being recreated while the camera app is in front.
     var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -539,7 +577,9 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     val details = remember { mutableStateMapOf<String, String>() }
     DetailsForm(family, details)
     OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_releve_commentaire_facultatif"))
-    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { useMap = it }, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
+    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { if (!arBlocked) useMap = it }, enabled = !arBlocked, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
+    if (arBlocked) Text("Pose AR désactivée : la session reprise n'est pas encore repositionnée (Calibrer, 2 points). La pose par toucher sur la carte reste possible.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("session_releve_pose_ar_desactivee"))
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null
         val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
@@ -667,58 +707,72 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
 private fun ExportPanel(activity: Activity, repo: Repository, c: SessionController) {
     val scope = rememberCoroutineScope()
     val resultView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
-    var busy by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf<SessionExporter.Progress?>(null) }
-    var out by remember { mutableStateOf<Repository.ExportResult?>(null) }
+    // D14: the export runs in WorkManager (ExportWorker); this panel only shows its state, polled from WorkManager.
+    var pressed by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf<androidx.work.WorkInfo?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(c.sessionId) {
+        while (true) { info = withContext(Dispatchers.IO) { ExportWorker.latest(activity, c.sessionId) }; kotlinx.coroutines.delay(300) }
+    }
+    val running = info?.state?.isFinished == false
+    val done = info?.state == androidx.work.WorkInfo.State.SUCCEEDED
+    val failed = info?.state == androidx.work.WorkInfo.State.FAILED
 
     fun localUri(zip: File) = FileProvider.getUriForFile(activity, activity.packageName + ".files", zip)
     fun share(zip: File) {
         activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, localUri(zip)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Partager l'export"))
     }
-    fun open(r: Repository.ExportResult) {
-        val uri = r.publicUri?.takeIf { it.scheme == "content" } ?: localUri(r.zip)
+    fun open(zip: File, publicUri: android.net.Uri?) {
+        val uri = publicUri?.takeIf { it.scheme == "content" } ?: localUri(zip)
         try { activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/zip").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
         catch (e: android.content.ActivityNotFoundException) { err = "Aucune appli ne sait ouvrir un ZIP sur ce téléphone : utilisez « Partager »."; DiagLog.e("EXPORT", "Ouvrir : aucune appli pour application/zip", e) }
     }
 
-    Text("Export en flux (session.json, raw/, derived/, media/), relu par empreintes, puis copié dans Documents/LumiSite/<site>/<session>/exports/.", style = MaterialTheme.typography.labelLarge)
-    Button(modifier = Modifier.testTag("session_export_exporter_la_session"), enabled = !busy, onClick = {
-        busy = true; err = null; out = null; progress = null
+    Text("Export en arrière-plan (reprenable s'il est interrompu) : releves.geojson, session.json, raw/, derived/, media/, LISEZMOI.txt, vérifié (tailles et SHA-256), puis copié dans Documents/LumiSite/<site>/<session>/exports/.", style = MaterialTheme.typography.labelLarge)
+    Button(modifier = Modifier.testTag("session_export_exporter_la_session"), enabled = !running && !pressed, onClick = {
+        pressed = true; err = null
         DiagLog.i("EXPORT", "Début de l'export de la session ${c.sessionId}"); DiagLog.memory("avant export")
         scope.launch {
             try {
+                // Closes the open segments so the snapshot contains everything recorded until now.
                 withContext(Dispatchers.IO) { c.mirrorNow() }
-                val r = withContext(Dispatchers.IO) { repo.export(c.site, c.sessionId) { p -> progress = p } }
-                out = r
-                val msgs = ArrayList<String>()
-                if (r.problems.isNotEmpty()) msgs += "Relecture : ${r.problems.joinToString()}"
-                if (r.publicPath == null) msgs += "Copie dans Documents/LumiSite impossible : le ZIP reste dans l'appli, utilisez « Partager ». Détail dans Réglages > Journal."
-                err = msgs.joinToString("\n").ifEmpty { null }
-                DiagLog.i("EXPORT", "Exporté dans ${r.publicPath ?: r.zip.path} (${r.zip.length()} octets), relecture ${if (r.problems.isEmpty()) "OK" else r.problems.toString()}")
+                ExportWorker.enqueue(activity, c.site.id, c.sessionId)
             } catch (e: Throwable) {
-                err = "Échec de l'export : ${e.message ?: e}. L'erreur est écrite dans Réglages > Journal."
-                DiagLog.e("EXPORT", "Échec de l'export de ${c.sessionId}", e)
-            } finally { busy = false; DiagLog.memory("après export") }
+                err = "Échec du lancement de l'export : ${e.message ?: e}. L'erreur est écrite dans Réglages > Journal."
+                DiagLog.e("EXPORT", "Lancement de l'export de ${c.sessionId}", e)
+            }
+            // Keeps "Préparation…" until WorkManager reports the work (no gap between the press and the bar).
+            while (ExportWorker.latest(activity, c.sessionId)?.state?.isFinished != false && ExportWorker.live.containsKey(c.sessionId)) kotlinx.coroutines.delay(100)
+            pressed = false
         }
-    }) { Text(if (busy) "Export…" else "Exporter la session") }
-    if (busy) progress?.let { p ->
-        LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.fillMaxWidth().testTag("session_export_progression"))
-        Text("${p.step} : ${(p.fraction * 100).toInt()} % (${p.doneBytes shr 10} / ${p.totalBytes shr 10} Ko)", style = MaterialTheme.typography.bodySmall)
+    }) { Text(if (running || pressed) "Export…" else "Exporter la session") }
+    // The bar stays after the end (« Terminé 100 % »): a short export is never invisible.
+    if (pressed || running || done) {
+        val pr = info?.progress
+        val pct = if (done && !pressed) 100 else pr?.getInt(ExportWorker.KEY_PCT, 0) ?: 0
+        val step = if (done && !pressed) ResumableExport.Step.TERMINE.label else pr?.getString(ExportWorker.KEY_STEP) ?: ResumableExport.Step.PREPARATION.label
+        val detail = pr?.getString(ExportWorker.KEY_DETAIL)
+        LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth().testTag("session_export_progression"))
+        Text("$step… $pct %" + (detail?.takeIf { it != step && !it.startsWith(step) }?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("session_export_etape"))
+        if (!done || pressed) Text("Vous pouvez terminer la session : l'export continue en arrière-plan (le système peut le différer ; il reprend où il s'est arrêté).", style = MaterialTheme.typography.bodySmall)
     }
     err?.let { Text(it, color = Color.Red, modifier = Modifier.testTag("session_export_erreur")) }
-    out?.let { r ->
-        // The result appears below the fold of the scrollable panel: bring the path and its buttons into view.
-        LaunchedEffect(r) { resultView.bringIntoView() }
-        Text("Exporté dans ${r.publicPath ?: r.zip.path}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
+    if (failed && !pressed) Text("Échec de l'export : ${info?.outputData?.getString(ExportWorker.KEY_ERROR) ?: "voir Réglages > Journal"}. Un nouvel appui reprend où il s'est arrêté.",
+        color = Color.Red, modifier = Modifier.testTag("session_export_erreur"))
+    if (done && !pressed) info?.outputData?.let { o ->
+        val zip = File(o.getString(ExportWorker.KEY_ZIP) ?: return@let)
+        val publicPath = o.getString(ExportWorker.KEY_PUBLIC)
+        val problems = o.getString(ExportWorker.KEY_PROBLEMS).orEmpty()
+        LaunchedEffect(zip.path) { resultView.bringIntoView() }
+        Text("Exporté dans ${publicPath ?: zip.path}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("session_export_resultat"))
+        if (publicPath == null) Text("Copie dans Documents/LumiSite impossible : le ZIP reste dans l'appli, utilisez « Partager ». Détail dans Réglages > Journal.", color = Color.Red)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.bringIntoViewRequester(resultView)) {
-            Button(onClick = { open(r) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
-            OutlinedButton(onClick = { share(r.zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
+            Button(onClick = { open(zip, o.getString(ExportWorker.KEY_URI)?.let(android.net.Uri::parse)) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
+            OutlinedButton(onClick = { share(zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
         }
-        Text("Fichier : ${r.zip.name} (${r.zip.length() / 1024} Ko)\n" + r.manifest.files.joinToString("\n") { "${it.category} · ${it.path} · ${it.records} enr." } +
-            "\nRelecture : ${r.problems.ifEmpty { listOf("OK, empreintes et nombres d'enregistrements vérifiés") }}" +
-            r.manifest.integrity.entries.joinToString("") { "\nAvertissement : ${it.key}, lignes ${it.value} déjà illisibles dans le journal (arrêt brutal)" },
+        Text("Fichier : ${zip.name} (${zip.length() / 1024} Ko), ${o.getInt(ExportWorker.KEY_FILES, 0)} fichiers\nVérification : ${problems.ifEmpty { "OK, tailles et empreintes SHA-256 vérifiées" }}",
             style = MaterialTheme.typography.bodySmall)
     }
 }

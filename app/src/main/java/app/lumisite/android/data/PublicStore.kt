@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import app.lumisite.core.export.sha256
 import app.lumisite.core.journal.LumiJson
+import app.lumisite.core.journal.Segments
 import app.lumisite.core.model.Site
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -115,8 +116,11 @@ class PublicStore(private val ctx: Context) {
         /** Final sync of the session, then the worker stops once the queue is empty. */
         fun close() { syncAll(); exec.shutdown() }
 
-        private fun copyOne(file: File) {
-            if (!file.isFile) return
+        private fun copyOne(f0: File) {
+            if (!f0.isFile) return
+            // D15: a closed IMU segment is compressed here (mirror thread, never the UI thread) before its copy.
+            val file = if (f0.parentFile?.name == Segments.DIR && f0.name.startsWith(Segments.base(app.lumisite.core.journal.Streams.IMU) + ".") && f0.name.endsWith(".ndjson"))
+                runCatching { Segments.compress(f0) }.getOrElse { onEvent("Compression de ${f0.name} impossible (copiée telle quelle)", it); f0 } else f0
             val rel = file.relativeTo(sessionDir).invariantSeparatorsPath
             try {
                 val sha = sha256(file)

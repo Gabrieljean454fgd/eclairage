@@ -79,6 +79,7 @@ object Ndjson {
      */
     fun snapshotCompleteLines(src: File, dst: File) {
         if (!src.exists()) { dst.writeText(""); return }
+        if (src.name.endsWith(".gz")) { open(src).use { i -> FileOutputStream(dst).use { i.copyTo(it, 64 * 1024) } }; return }
         val len = src.length()
         src.inputStream().use { input ->
             FileOutputStream(dst).use { out ->
@@ -109,11 +110,14 @@ object Ndjson {
     }
 
     /** Streams the non-blank lines of [files] (1-based line number over the concatenation), never loading a file whole. */
+    /** Reader of a journal file, plain or compressed (.gz, D15). */
+    fun open(f: File): java.io.InputStream = if (f.name.endsWith(".gz")) java.util.zip.GZIPInputStream(f.inputStream(), 64 * 1024) else f.inputStream()
+
     fun forEachLine(files: List<File>, block: (Int, String) -> Unit) {
         var n = 0
         for (f in files) {
             if (!f.exists()) continue
-            f.bufferedReader(Charsets.UTF_8).useLines { lines -> lines.forEach { line -> n++; if (line.isNotBlank()) block(n, line) } }
+            open(f).bufferedReader(Charsets.UTF_8).useLines { lines -> lines.forEach { line -> n++; if (line.isNotBlank()) block(n, line) } }
         }
     }
 }
@@ -128,7 +132,7 @@ object Ndjson {
  */
 object Segments {
     const val DIR = "seg"
-    private val NAME = Regex("""^(.+)\.(\d{6})\.(part|ndjson)$""")
+    private val NAME = Regex("""^(.+)\.(\d{6})\.(part|ndjson|ndjson\.gz)$""")
 
     fun base(stream: String) = stream.removeSuffix(".ndjson")
     fun file(dir: File, stream: String, seq: Int, part: Boolean) =
@@ -136,9 +140,27 @@ object Segments {
 
     data class SegFile(val file: File, val stream: String, val seq: Int, val open: Boolean)
 
+    /**
+     * Segments of every stream. D15: a closed segment may be compressed (.ndjson.gz); if a stop happened between the
+     * gzip rename and the deletion of the .ndjson, the plain file wins (one copy of each line, never two).
+     */
     fun list(dir: File): List<SegFile> = File(dir, DIR).listFiles().orEmpty().mapNotNull { f ->
         NAME.matchEntire(f.name)?.let { m -> SegFile(f, m.groupValues[1] + ".ndjson", m.groupValues[2].toInt(), m.groupValues[3] == "part") }
-    }.sortedWith(compareBy({ it.stream }, { it.seq }))
+    }.groupBy { it.stream to it.seq }.values.map { same -> same.firstOrNull { !it.file.name.endsWith(".gz") } ?: same.first() }
+        .sortedWith(compareBy({ it.stream }, { it.seq }))
+
+    /** D15: compresses a closed segment (off the UI thread): .gz.tmp, fsync, rename, then the plain file is deleted. */
+    fun compress(file: File): File {
+        require(file.name.endsWith(".ndjson") && file.parentFile?.name == DIR) { "Not a closed segment: $file" }
+        val gz = File(file.parentFile, file.name + ".gz")
+        val tmp = File(file.parentFile, file.name + ".gz.tmp")
+        FileOutputStream(tmp).use { fo ->
+            java.util.zip.GZIPOutputStream(fo, 64 * 1024).use { z -> file.inputStream().use { it.copyTo(z, 64 * 1024) }; z.finish(); fo.fd.sync() }
+        }
+        check(tmp.renameTo(gz)) { "Cannot finalize $gz" }
+        file.delete()
+        return gz
+    }
 
     /** Every file of [stream], in write order: legacy root file first, then segments (finished or still open). */
     fun files(dir: File, stream: String): List<File> =
@@ -151,7 +173,8 @@ object Segments {
     /** Closes the segments left open by an abrupt stop (see class doc). Legacy root files get their partial line sealed. */
     fun repair(dir: File): List<Repaired> {
         listOf(Streams.EVENTS, Streams.POSES, Streams.IMU, Streams.GPS, Streams.GPS_STATUS).forEach { Ndjson.sealPartialLine(File(dir, it)) }
-        list(dir).filter { !it.open }.forEach { Ndjson.sealPartialLine(it.file) }
+        list(dir).filter { !it.open && !it.file.name.endsWith(".gz") }.forEach { Ndjson.sealPartialLine(it.file) }
+        File(dir, DIR).listFiles().orEmpty().filter { it.name.endsWith(".gz.tmp") }.forEach { it.delete() }
         return list(dir).filter { it.open }.map { sf ->
             val truncated = sf.file.length() > 0 && RandomAccessFile(sf.file, "r").use { it.seek(it.length() - 1); it.read() != '\n'.code }
             Ndjson.sealPartialLine(sf.file)
@@ -253,6 +276,11 @@ class SessionJournal(
     header: SessionHeader? = null,
     nowMs: () -> Long = ::elapsedMs,
     onSegmentClosed: (File) -> Unit = {},
+    /**
+     * D15: false by default = one copy of each measurement (historical streams). True writes the D9 frames as well
+     * (format kept and tested; which copy becomes the only one is an open question, see COMPTE_RENDU_2026-11-02).
+     */
+    private val captationFrames: Boolean = false,
 ) : AutoCloseable {
     private val events: SegmentedAppender
     private val poses: SegmentedAppender
@@ -286,10 +314,10 @@ class SessionJournal(
     }
 
     fun event(e: SessionEvent) { events.appendLine(LumiJson.encodeToString(SessionEvent.serializer(), e)); events.flush(sync = true) }
-    fun pose(p: PoseSample) { poses.appendLine(LumiJson.encodeToString(PoseSample.serializer(), p)); captation.write(p.t, "pose", Captation.pose(p)) }
-    fun imu(s: ImuSample) { imu.appendLine(LumiJson.encodeToString(ImuSample.serializer(), s)); captation.write(s.t, Captation.imuType(s.sensorType), Captation.imu(s)) }
-    fun gps(f: GpsFix) { gps.appendLine(LumiJson.encodeToString(GpsFix.serializer(), f)); captation.write(f.t, "gnss", Captation.gnss(f)) }
-    fun gpsStatus(s: GpsStatusSample) { gpsStatus.appendLine(LumiJson.encodeToString(GpsStatusSample.serializer(), s)); captation.write(s.t, "gnss.status", Captation.gnssStatus(s)) }
+    fun pose(p: PoseSample) { poses.appendLine(LumiJson.encodeToString(PoseSample.serializer(), p)); if (captationFrames) captation.write(p.t, "pose", Captation.pose(p)) }
+    fun imu(s: ImuSample) { imu.appendLine(LumiJson.encodeToString(ImuSample.serializer(), s)); if (captationFrames) captation.write(s.t, Captation.imuType(s.sensorType), Captation.imu(s)) }
+    fun gps(f: GpsFix) { gps.appendLine(LumiJson.encodeToString(GpsFix.serializer(), f)); if (captationFrames) captation.write(f.t, "gnss", Captation.gnss(f)) }
+    fun gpsStatus(s: GpsStatusSample) { gpsStatus.appendLine(LumiJson.encodeToString(GpsStatusSample.serializer(), s)); if (captationFrames) captation.write(s.t, "gnss.status", Captation.gnssStatus(s)) }
 
     private val all get() = listOf(events, poses, imu, gps, gpsStatus, captationOut)
     fun flushAll() { all.forEach { it.flush(sync = true) } }

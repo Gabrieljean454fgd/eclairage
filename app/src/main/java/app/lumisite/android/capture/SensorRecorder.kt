@@ -25,12 +25,16 @@ class SensorRecorder(ctx: Context, private val stamps: () -> StampFactory?, priv
     @Volatile var cameraTiltDeg: Double? = null; private set
     @Volatile var headingAccuracy: Int? = null; private set
 
+    /**
+     * D15: accelerometer + gyroscope at [ImuRates.motionHz] (100 Hz by default), magnetometer and rotation vector
+     * (heading) at 10 Hz, pressure/light at the normal rate. Gravity, game rotation and the uncalibrated variants are
+     * no longer recorded: they are derived by Android from the same sensors (≈ 60 % of the former IMU volume).
+     */
     val recordedTypes = listOf(
         Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD,
-        Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_GRAVITY,
-        Sensor.TYPE_ACCELEROMETER_UNCALIBRATED, Sensor.TYPE_GYROSCOPE_UNCALIBRATED,
-        Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED, Sensor.TYPE_PRESSURE, Sensor.TYPE_LIGHT,
+        Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_PRESSURE, Sensor.TYPE_LIGHT,
     )
+    private val motionPeriodUs = 1_000_000 / ImuRates.motionHz(ctx)
 
     fun available(): List<Sensor> = recordedTypes.mapNotNull { sm.getDefaultSensor(it) }
 
@@ -38,9 +42,12 @@ class SensorRecorder(ctx: Context, private val stamps: () -> StampFactory?, priv
         if (thread != null) return
         val t = HandlerThread("imu").apply { start() }; thread = t
         val h = Handler(t.looper)
-        // ~50 Hz for motion sensors; environmental sensors at normal rate.
         available().forEach { s ->
-            val rate = if (s.type == Sensor.TYPE_PRESSURE || s.type == Sensor.TYPE_LIGHT) SensorManager.SENSOR_DELAY_NORMAL else 20_000
+            val rate = when (s.type) {
+                Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE -> motionPeriodUs
+                Sensor.TYPE_MAGNETIC_FIELD, Sensor.TYPE_ROTATION_VECTOR -> 100_000
+                else -> SensorManager.SENSOR_DELAY_NORMAL
+            }
             sm.registerListener(this, s, rate, h)
         }
     }
@@ -67,4 +74,12 @@ class SensorRecorder(ctx: Context, private val stamps: () -> StampFactory?, priv
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+}
+
+/** D15: rate of the motion sensors (Réglages > Capture), 100 Hz by default. */
+object ImuRates {
+    private const val FILE = "lumisite_capture"
+    val choices = listOf(50, 100, 200)
+    fun motionHz(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getInt("imu_hz", 100).takeIf { it in choices } ?: 100
+    fun set(ctx: Context, hz: Int) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putInt("imu_hz", hz).apply()
 }

@@ -103,9 +103,18 @@ object ResumableExport {
     fun snapshotFiles(sessionDir: File, stream: String): List<File> =
         listOfNotNull(File(sessionDir, stream).takeIf { it.isFile }) + Segments.list(sessionDir).filter { it.stream == stream }.map { it.file }
 
+    /** An open segment listed at the snapshot may have been closed since (rotation: .part → .ndjson, then .ndjson.gz). */
+    fun current(f: File): File {
+        if (f.exists() || !f.name.endsWith(".part")) return f
+        val base = f.name.removeSuffix(".part")
+        return listOf("$base.ndjson", "$base.ndjson.gz").map { File(f.parentFile, it) }.firstOrNull { it.isFile } ?: f
+    }
+
     /** Length of the complete lines of [f] within its first [len] bytes (an open segment may end with a line being written). */
     fun completeLength(f: File, len: Long): Long {
         if (!f.name.endsWith(".part")) return len
+        // Closed between listing and here: the closed segment only holds complete lines, read it all.
+        if (current(f) != f) return Long.MAX_VALUE
         java.io.RandomAccessFile(f, "r").use { raf -> var end = minOf(len, raf.length()); while (end > 0) { raf.seek(end - 1); if (raf.read() == '\n'.code) break; end-- }; return end }
     }
 
@@ -171,7 +180,7 @@ object ResumableExport {
                         val ser = serializerOf(type)
                         for (f in rawFiles.getValue(stream)) {
                             var pending = 0L
-                            limited(openInput(f), if (f.name.endsWith(".part")) snapLen.getValue(f) else Long.MAX_VALUE).bufferedReader().useLines { seq -> seq.forEach { line ->
+                            limited(openInput(current(f)), if (f.name.endsWith(".part")) snapLen.getValue(f) else Long.MAX_VALUE).bufferedReader().useLines { seq -> seq.forEach { line ->
                                 if (line.isEmpty()) return@forEach
                                 n++
                                 val b = (line + "\n").toByteArray(); out.write(b)
@@ -211,7 +220,7 @@ object ResumableExport {
                 // Paquet v6: business tags of each photo in a JSON file next to it (EXIF keeps GPS, orientation, date).
                 media.filter { it.first.mediaType.startsWith("image/") }.forEach { (a, _) ->
                     val name = a.file.substringAfterLast('/')
-                    entry("media/$name.json", "derived", "PhotoTags") { out -> out.write(PrettyJson.encodeToString(JsonObject.serializer(), Releves.photoTags(fc, name, a, header)).toByteArray()); 1 to emptyList() }
+                    entry("media/$name.json", "derived", "PhotoTags") { out -> out.write(PrettyJson.encodeToString(JsonObject.serializer(), Releves.photoTags(fc, name, a, header, events.filterIsInstance<SurveyEvent>().lastOrNull { e -> e.attachments.any { it.file == a.file } })).toByteArray()); 1 to emptyList() }
                 }
                 audio.forEach { f ->
                     entry("media/" + f.name, "media", "audio/x-wav") { out -> f.inputStream().use { copyBlocks(it, out) { b -> done += b } }; 1 to emptyList() }
@@ -289,7 +298,7 @@ object ResumableExport {
     }
 
     private fun lines(f: File, max: Long = Long.MAX_VALUE): Sequence<String> = sequence {
-        limited(openInput(f), if (f.name.endsWith(".part")) max else Long.MAX_VALUE).bufferedReader().use { r -> while (true) { val l = r.readLine() ?: break; if (l.isNotBlank()) yield(l) } }
+        limited(openInput(current(f)), if (f.name.endsWith(".part")) max else Long.MAX_VALUE).bufferedReader().use { r -> while (true) { val l = r.readLine() ?: break; if (l.isNotBlank()) yield(l) } }
     }
 
     private fun copyBlocks(input: InputStream, out: OutputStream, onBytes: (Long) -> Unit) {
@@ -411,7 +420,7 @@ object Releves {
     }
 
     /** Sidecar media/<photo>.json: the photo, its fingerprint and the business tags of its survey feature. */
-    fun photoTags(fc: JsonObject, name: String, a: Attachment, header: SessionHeader): JsonObject {
+    fun photoTags(fc: JsonObject, name: String, a: Attachment, header: SessionHeader, origin: SurveyEvent? = null): JsonObject {
         val feature = (fc["features"] as JsonArray).map { it as JsonObject }.firstOrNull { f ->
             ((f["properties"] as JsonObject)["photos"] as? JsonArray)?.any { (it as JsonObject)["path"]?.jsonPrimitive?.contentOrNull == "media/$name" } == true
         }
@@ -419,6 +428,8 @@ object Releves {
             put("photo", "media/$name"); put("sha256", a.sha256); put("role", a.role)
             put("session_id", header.id); put("device_id", header.device.id)
             put("releve", feature ?: JsonNull)
+            // Photo replaced or survey deleted: no final feature, the tags of the journal event that carried it are kept.
+            if (feature == null && origin != null) put("releve_journal", LumiJson.encodeToJsonElement(SessionEvent.serializer(), origin))
         }
     }
 

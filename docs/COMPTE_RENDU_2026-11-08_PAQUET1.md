@@ -67,6 +67,8 @@ Conditions de test (aucun test sur le Pixel 7 physique) :
 
 ## Reste à faire / questions ouvertes (non tranchées)
 
+- Revue automatique PR #20 : un recalage légitime après un saut ARCore brutal (perte de suivi) peut être refusé comme « correspondance contradictoire ». Proposition, non tranchée : garder le refus par défaut et ajouter un « Recaler quand même » journalisé, ou ignorer les points antérieurs à une perte de suivi.
+
 - Valider sur le Pixel 7 physique : ARCore réel, pertes `INSUFFICIENT_FEATURES` et photo avec l'appli caméra externe.
 - Anomalie 6 (dérive le long d'un mur) : non mesurable sur émulateur. La part due au mauvais appariement est corrigée. La dérive ARCore propre reste à mesurer sur le terrain avec le point de contrôle.
 - Le vieillissement exponentiel des points sur 300 s n'a pas été modifié. Il amplifie l'erreur quand un point fautif est récent. Le changer est une décision de réglage, à valider avec des données terrain.

@@ -1,5 +1,6 @@
 package app.lumisite.android.ui
 
+import app.lumisite.core.position.CalibrationQuality
 import app.lumisite.core.export.ResumableExport
 import app.lumisite.android.ExportWorker
 
@@ -349,7 +350,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val resumeBanner: @Composable () -> Unit = {
         val reposition = c.needsReposition()
         if (reposition || c.approximateReposition()) Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.tertiaryContainer).padding(horizontal = 8.dp, vertical = 2.dp).testTag("session_reprise_bandeau")) {
-            Text(if (reposition) "Session reprise : vos relevés sont affichés. Repositionnez-vous (2 points) pour continuer en AR."
+            Text(if (reposition) "Position du téléphone perdue à la fermeture. Touchez 2 points déjà calibrés pour reprendre."
                 else "Repositionnement approximatif (1 point : translation et cap seulement). Ajoutez un 2e point.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -415,7 +416,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                st.currentSite?.let { "Position estimée (repère site) E %.2f m, N %.2f m".format(it.e, it.n) } ?: "Position site : non calibrée",
+                st.currentSite?.let { "Position du téléphone (repère site) E %.2f m, N %.2f m".format(it.e, it.n) } ?: "Position du téléphone : non calibrée",
                 style = MaterialTheme.typography.bodySmall,
             )
             st.distanceSinceFixM?.let { Text("Distance parcourue depuis la dernière calibration/recalage : %.1f m (la dérive augmente avec la distance)".format(it), style = MaterialTheme.typography.bodySmall) }
@@ -534,7 +535,15 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
         val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
         c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
     }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
+    if (rows.size >= 2) OutlinedButton({ ref("Contrôle")?.let { c.controlCheck(it) } }, modifier = Modifier.testTag("session_calibrer_controler_ici")) { Text("Contrôler ici (hors calcul)") }
     ControlTable(c, rows, "session_calibrer", c.previousControlRows())
+    Text("Conseil : au moins 3 points, idéalement 4 à 6 aux extrémités du bâtiment, jamais alignés, + 1 point de contrôle.",
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_conseil"))
+    c.calibrationGrade()?.let { g ->
+        val col = when (g.level) { CalibrationQuality.Level.BON -> Color(0xFF2E7D32); CalibrationQuality.Level.MOYEN -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
+        Text("Qualité : ${g.level.label}" + (if (g.reasons.isEmpty()) "" else " (" + g.reasons.joinToString(", ") + ")"),
+            color = col, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("session_calibrer_qualite"))
+    }
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
 }
 
@@ -578,7 +587,7 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     DetailsForm(family, details)
     OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_releve_commentaire_facultatif"))
     Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { if (!arBlocked) useMap = it }, enabled = !arBlocked, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
-    if (arBlocked) Text("Pose AR désactivée : la session reprise n'est pas encore repositionnée (Calibrer, 2 points). La pose par toucher sur la carte reste possible.",
+    if (arBlocked) Text("Position du téléphone perdue à la fermeture : relevé par point visé AR impossible. Touchez la carte, ou Calibrer (2 points).",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("session_releve_pose_ar_desactivee"))
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
         val manual = if (useMap) ref("Relevé") else null

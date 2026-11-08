@@ -1,0 +1,22 @@
+# Paquet v6, bugs 1 à 4, 2e moitié (après adb install -r, données conservées) : Site > Sessions > reprise ; le relevé précédent
+# et la ligne de calibrage « session précédente » sont affichés ; nouveau calibrage 2 points ; position du téléphone et relevé.
+appId: app.lumisite.android
+name: "Reinstallation apres reprise calibrage releve"
+---
+- launchApp:
+    clearState: false
+    permissions: { all: allow }
+    arguments:
+      simuler_pose_ar: true
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: "Maestro reinstall"
+- scrollUntilVisible: { element: { id: "site_session_reprendre" } }
+- tapOn: { id: "site_session_reprendre" }
+- extendedWaitUntil:
+    visible: { id: "session_reprise_bandeau" }
+    timeout: 60000
+- assertVisible: ".*1 relevé\\(s\\), 2 point\\(s\\) de calibrage de la session précédente.*"
+- runFlow: v6_calibrer_2_points.yaml
+- runFlow: v6_releve.yaml

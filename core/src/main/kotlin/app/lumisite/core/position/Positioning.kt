@@ -65,10 +65,13 @@ object CalibrationSolver {
     fun solve(points: List<ControlPoint>, nowNs: Long, fallbackRotationRad: Double? = null, s: SolverSettings = SolverSettings()): Solution? {
         if (points.isEmpty()) return null
         val w = points.associate { it.id to weight(nowNs - it.tNs, s) }
-        val anchor = points.filter { it.relocalization }.maxByOrNull { it.tNs }
         val firstRotation = points.firstNotNullOfOrNull { it.rotationRad } ?: fallbackRotationRad
-        val rejected = LinkedHashSet<String>()
-        var kept = points
+        // Paquet v6 (scène 2 du 08/11): contradictory pairs (phone ~still, map points far apart) are removed before the
+        // fit; age weighting and a pinned relocalization anchor would otherwise let them turn the whole transform.
+        val rejected = LinkedHashSet(ControlPointCheck.inconsistent(points))
+        var kept = points.filter { it.id !in rejected }
+        if (kept.isEmpty()) return null
+        val anchor = kept.filter { it.relocalization }.maxByOrNull { it.tNs }
         var fit = fit(kept, w, anchor, firstRotation, s) ?: return null
         var iter = 0
         while (iter < s.maxIterations && kept.size > 2) {

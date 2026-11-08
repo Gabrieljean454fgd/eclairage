@@ -47,3 +47,10 @@ Le schéma JSON publié ne couvre que les Features `equipment`.
 - `sigma_xy_m`, `sigma_z_m` et les champs d'horloge valent `null` : l'appli ne connaît pas ces valeurs et n'en invente pas. `accuracy.method` contient la source de la position (`AR_POSE`, `MANUAL_MAP`, `MANUAL_EDIT`).
 - Les identifiants sont ceux du journal (`srv-xxxxxxxx-xxxx`), pas des UUID v7.
 - `operator` vaut `null` (aucune saisie d'opérateur).
+
+## Paquet v6 (08/11) — chemins dans l'export ZIP de session
+
+- Dans `releves.geojson` de l'export ZIP, `photos[].path` et `voice_notes[].path` désignent l'entrée du ZIP : `media/<nom>` (avant : chemin interne de la session, introuvable dans le ZIP).
+- À côté de chaque photo, `media/<photo>.json` (sidecar) reprend la photo, son SHA-256, son rôle et les tags métier du relevé (catégorie, type, propriétés). Les EXIF (GPS, orientation, date) restent dans le JPEG.
+- Les enregistrements de synchro `sync_*.wav` présents dans la session sont exportés dans `media/`.
+- Les segments encore ouverts (session non terminée) sont exportés jusqu'à leur dernière ligne complète, et signalés dans les notes du manifeste ; ils ne sont plus exclus silencieusement.

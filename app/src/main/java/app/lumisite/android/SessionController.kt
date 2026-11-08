@@ -13,6 +13,8 @@ import app.lumisite.core.position.GnssObservation
 import app.lumisite.core.position.GnssClassifier
 import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.CalibrationSolver
+import app.lumisite.core.position.CalibrationQuality
+import app.lumisite.core.position.ControlPointCheck
 import android.content.Context
 import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.GpsRecorder
@@ -512,10 +514,34 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = trackedPose() ?: return fail(poseUnavailable(if (reloc) "Recalage" else "Calibrage"))
         val before = activeSegment()
         if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
+        // Paquet v6: same map point reused, or contradictory pair (phone ~still, map points far apart), refused before recording.
+        val active = activeControlEvents()
+        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(ref.site.e, ref.site.n), reloc)
+        ControlPointCheck.refusal(active.mapNotNull(::toControlPoint), cand) { p ->
+            val e = active.first { it.id == p.id }
+            "${active.filter { it.kind == e.kind }.indexOf(e) + 1} (${if (e.kind == "RELOCALIZATION") "recalage" else "calibrage"})"
+        }?.let { DiagLog.i("POSITION", "Point refusé : $it"); return fail(it) }
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
         record(e)
         ar.requestAnchor(e.id, pose)
         resolve(e, before, headingCorrectionDeg, note)
+    }
+
+    /** Session > Calibrer: quality of the live calibration (bon / moyen / insuffisant), null before the first point. */
+    fun calibrationGrade(): CalibrationQuality.Grade? {
+        val pts = activeControlEvents().mapNotNull(::toControlPoint)
+        return if (pts.isEmpty()) null else CalibrationQuality.grade(pts, _state.value.controlSolution)
+    }
+
+    /** Session > Calibrer > « Contrôler ici »: distance between the phone position and a known map point, not used in the solve. */
+    fun controlCheck(ref: ReferencePoint): Double? {
+        val pose = trackedPose() ?: run { fail(poseUnavailable("Contrôle")); return null }
+        val seg = activeSegment() ?: run { fail("Contrôle impossible : aucun calibrage actif."); return null }
+        val p = seg.transform.apply(PoseGeometry.plane(pose))
+        val d = (p - Vec2(ref.site.e, ref.site.n)).norm()
+        DiagLog.i("POSITION", "Point de contrôle (hors calcul) ${ref.label} : écart " + "%.2f".format(java.util.Locale.ROOT, d) + " m")
+        _state.update { it.copy(message = "Point de contrôle (non utilisé dans le calcul) : écart " + "%.2f".format(java.util.Locale.FRANCE, d) + " m" + if (d > 1.0) " : calibrage imprécis." else ".") }
+        return d
     }
 
     fun removeControlPoint(id: String) {
@@ -605,7 +631,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
-        if (manual == null && needsReposition()) { fail("Pose AR désactivée : la session reprise n'est pas repositionnée. Touchez le point sur la carte, ou repositionnez-vous (Calibrer, 2 points)."); return false }
+        if (manual == null && needsReposition()) { fail("Position du téléphone perdue à la fermeture : pas de point visé AR. Touchez le point sur la carte, ou touchez 2 points déjà calibrés (Calibrer, 2 points)."); return false }
         val aim = if (pose != null && seg != null) ar.aim.value else null
         if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit

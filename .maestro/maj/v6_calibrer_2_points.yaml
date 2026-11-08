@@ -1,0 +1,32 @@
+# Session > « Calibrer » : point à la croix (cap 0°) puis un 2e point touché sur la carte, puis position du téléphone affichée.
+appId: app.lumisite.android
+name: "Calibrer deux points"
+---
+- tapOn: { id: "session_calibrer" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_calibrer_cap_de_visee" }
+- inputText: "0"
+- hideKeyboard
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_1" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_valider_la_calibration" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+# 2e point carte = position actuelle du téléphone (Centrer / Suivre puis Point à la croix), calibrée par le point 1 + cap, choisie juste avant Valider (le téléphone simulé avance de 0,6 m/s) :
+# correspondance cohérente avec les poses simulées. Un point arbitraire de la carte est refusé comme contradictoire (paquet v6).
+- tapOn: { id: "session_trajectoire_estimee_vert_non_gar" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_2" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_2" }

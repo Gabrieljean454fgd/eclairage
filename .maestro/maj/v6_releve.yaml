@@ -1,0 +1,40 @@
+# Session > « Relevé » : position du téléphone calibrée affichée, puis un relevé enregistré (pose AR).
+# Libellé « Position estimée » jusqu'à la v161, « Position du téléphone » ensuite (même vérification sur les deux versions).
+appId: app.lumisite.android
+name: "Releve apres calibrage"
+---
+- tapOn: { id: "session_releve" }
+- repeat:
+    while: { notVisible: "(Position estimée|Position du téléphone) \\(repère site\\).*" }
+    times: 10
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
+- assertVisible: "(Position estimée|Position du téléphone) \\(repère site\\).*"
+- repeat:
+    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+# Le haut du panneau défile sous la carte : deux glissements de plus pour amener la puce dans la partie visible du panneau.
+- swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+- swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
+- swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      notVisible: { id: "session_terminer_la_session" }
+    commands:
+      - back
+- runFlow:
+    when:
+      visible: { id: "session_photo_passer" }
+    commands:
+      - tapOn: { id: "session_photo_passer" }
+- assertVisible: ".*Relevé « .* » enregistré.*"

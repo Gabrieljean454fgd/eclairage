@@ -47,5 +47,18 @@ if [ -n "$PREV_TAG" ] && gh release download "$PREV_TAG" -p '*.apk' -D prev >/de
 else
   summary+="- ⚠️ mise à jour non exécutée : aucune pré-release etape${N_ETAPE} téléchargeable"$'\n'
 fi
+# Paquet v6 (anomalies 1 à 4 du 08/11) : même APK, calibrage 2 points + position du téléphone + relevé, arrêt brutal,
+# adb install -r par-dessus (données conservées), reprise : relevé et calibrage précédents affichés, nouveau calibrage, relevé.
+ok=0
+for attempt in 1 2; do
+  adb uninstall app.lumisite.android >/dev/null 2>&1; adb shell input keyevent KEYCODE_HOME; sleep 2
+  adb install "$APK" >/dev/null || continue
+  maestro test .maestro/maj/v6_avant.yaml --debug-output "maestro-out/v6_avant-${attempt}" > "maestro-out/v6_avant-${attempt}.log" 2>&1 || continue
+  adb shell am force-stop app.lumisite.android
+  adb install -r "$APK" > "maestro-out/v6_install-${attempt}.log" 2>&1 || continue
+  if maestro test .maestro/maj/v6_apres.yaml --debug-output "maestro-out/v6_apres-${attempt}" > "maestro-out/v6_apres-${attempt}.log" 2>&1; then ok=1; break; fi
+done
+if [ $ok = 1 ]; then summary+="- ✅ réinstallation adb install -r, reprise, calibrage et relevé (essai ${attempt})"$'\n'
+else summary+="- ❌ réinstallation adb install -r, reprise, calibrage et relevé (2 essais)"$'\n'; fail=1; fi
 printf '%s' "$summary" | tee maestro-out/resume.md
 exit $fail

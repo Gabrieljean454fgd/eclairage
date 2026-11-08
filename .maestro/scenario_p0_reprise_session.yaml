@@ -87,7 +87,7 @@ name: "Session reprise donnees affichees"
 - extendedWaitUntil:
     visible: { id: "session_reprise_bandeau" }
     timeout: 30000
-- assertVisible: "Session reprise : vos relevés sont affichés. Repositionnez-vous \\(2 points\\) pour continuer en AR."
+- assertVisible: "Position du téléphone perdue à la fermeture. Touchez 2 points déjà calibrés pour reprendre."
 - assertVisible: "2 relevé\\(s\\), 1 point\\(s\\) de calibrage de la session précédente"
 - assertVisible: { id: "session_reprise_positionner" }
 # Les 2 relevés sont listés (et dessinés sur la carte) avant tout repositionnement.

@@ -86,4 +86,36 @@ class ResumableExportTest {
             assertTrue(zf.getInputStream(zf.getEntry("LISEZMOI.txt")).readBytes().decodeToString().contains("releves.geojson"))
         }
     }
+
+    /** Paquet v6 (export du 08/11): open segment exported, photo path = zip entry, sync WAV exported, photo sidecar JSON. */
+    @Test fun openSegmentsPhotoPathWavAndSidecarAreExported() {
+        val dir = session()
+        File(dir, "photos").mkdirs(); File(dir, "photos/p1.jpg").writeBytes(ByteArray(2000) { it.toByte() })
+        File(dir, "sync_A_1.wav").writeBytes(ByteArray(1000) { 1 })
+        SessionJournal(dir).use { j ->
+            val pose = Fixtures.pose(9 * s, 1.0, 1.0)
+            j.event(SurveyEvent("s9", pose.t, "LUMINAIRE", "note terrain", pose, TrackingState.TRACKING, null, "AR_POSE",
+                attachments = listOf(app.lumisite.core.model.Attachment("photos/p1.jpg", "image/jpeg", "abc", "vue"))))
+        }
+        val open = app.lumisite.core.journal.Segments.file(dir, app.lumisite.core.journal.Streams.POSES, 999, part = true)
+        val l1 = LumiJson.encodeToString(app.lumisite.core.model.PoseSample.serializer(), Fixtures.pose(20 * s, 3.0, 3.0))
+        open.writeText(l1 + "\n" + l1.replace("\"monotonicNs\":20", "\"monotonicNs\":21") + "\n" + l1.take(20))
+        val r = ResumableExport.run(Fixtures.site, dir, Files.createTempDirectory("exp").toFile(), "test", 1_700_000_000_000)
+        assertTrue(r.manifest.notes.any { it.contains(open.name) && it.contains("exportés") }, "${r.manifest.notes}")
+        ZipFile(r.zip).use { zf ->
+            val poses = r.manifest.entries.first { it.recordType == "PoseSample" }
+            assertEquals(21 + 2, poses.records, "closed poses + the 2 complete lines of the open segment (partial line left out)")
+            assertEquals(emptyList(), poses.unreadableLines)
+            val fc = LumiJson.decodeFromString(JsonObject.serializer(), zf.getInputStream(zf.getEntry("releves.geojson")).readBytes().decodeToString())
+            val photoPaths = (fc["features"] as JsonArray).flatMap { f -> (((f as JsonObject)["properties"] as JsonObject)["photos"] as? JsonArray).orEmpty().map { (it as JsonObject)["path"]!!.jsonPrimitive.content } }
+            assertEquals(listOf("media/p1.jpg"), photoPaths)
+            photoPaths.forEach { assertTrue(zf.getEntry(it) != null, "$it absent du zip") }
+            assertTrue(zf.getEntry("media/sync_A_1.wav") != null)
+            val side = LumiJson.decodeFromString(JsonObject.serializer(), zf.getInputStream(zf.getEntry("media/p1.jpg.json")).readBytes().decodeToString())
+            assertEquals("media/p1.jpg", side["photo"]!!.jsonPrimitive.content)
+            assertTrue(side["releve"].toString().contains("note terrain"))
+        }
+        assertEquals(emptyList(), SessionImporter.verify(r.zip))
+        assertTrue(open.isFile, "the open segment of the session is never modified")
+    }
 }

@@ -114,7 +114,9 @@ data class LiveState(
 
 /** A point refused as contradictory, kept until the user forces it, adds another point or clears the table. */
 data class ForcibleControlPoint(val kind: String, val ref: ReferencePoint, val headingDeg: Double?, val headingSource: String?,
-                                val headingCorrectionDeg: Double?, val note: String?, val refusal: ControlPointCheck.Refusal)
+                                val headingCorrectionDeg: Double?, val note: String?, val refusal: ControlPointCheck.Refusal,
+                                /** Phone pose when the user confirmed the point (forcing later must not use a newer pose). */
+                                val pose: PoseSample)
 
 /** One row of Session > Calibrer / Recaler > tableau. */
 data class ControlRow(val n: Int, val e: ControlPointEvent, val residualM: Double?, val status: String)
@@ -529,7 +531,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         ControlPointCheck.refusal(active.mapNotNull(::toControlPoint), cand, label)?.let { r ->
             DiagLog.i("POSITION", "Point refusé : ${r.message}")
-            _state.update { it.copy(forcible = if (r.overridable) ForcibleControlPoint(kind, ref, headingDeg, headingSource, headingCorrectionDeg, note, r) else null) }
+            _state.update { it.copy(forcible = if (r.overridable) ForcibleControlPoint(kind, ref, headingDeg, headingSource, headingCorrectionDeg, note, r, pose) else null) }
             return fail(if (r.overridable) r.message + " Après une perte de suivi ARCore, « Recaler quand même » est possible." else r.message)
         }
         _state.update { it.copy(forcible = null) }
@@ -546,7 +548,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      */
     fun forceControlPoint(cause: String) {
         val f = _state.value.forcible ?: return
-        val pose = trackedPose() ?: return fail(poseUnavailable("Recalage forcé"))
+        trackedPose() ?: return fail(poseUnavailable("Recalage forcé"))
+        val pose = f.pose
         val before = activeSegment()
         val active = activeControlEvents()
         val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(f.ref.site.e, f.ref.site.n), f.kind == "RELOCALIZATION")
@@ -562,7 +565,9 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     /** Last loss of ARCore tracking journaled in this session (« 18:23:34, INSUFFICIENT_FEATURES »), shown before forcing. */
-    fun lastTrackingLoss(): String? = _state.value.events.filterIsInstance<TrackingStateChanged>().lastOrNull { it.state != TrackingState.TRACKING }?.let {
+    fun lastTrackingLoss(): String? = _state.value.events.filterIsInstance<TrackingStateChanged>()
+        .let { ev -> ev.drop(ev.indexOfFirst { it.state == TrackingState.TRACKING } + 1).takeIf { ev.any { it.state == TrackingState.TRACKING } }.orEmpty() }
+        .lastOrNull { it.state != TrackingState.TRACKING }?.let {
         java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date(it.t.utcEpochMs)) + (it.reason?.let { r -> ", $r" } ?: "")
     }
 

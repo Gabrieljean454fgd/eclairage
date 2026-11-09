@@ -1,0 +1,26 @@
+# Paquet 2 — Accueil > Synchro > Saisie (maître), sans aucun esclave autour : l'écran doit dire « 0 appareil » et
+# « non synchronisé » (jamais « synchronisé » sans appareil). Le test à deux appareils (« synchronisé ») demande deux
+# téléphones réels : Nearby Connections ne fonctionne pas entre émulateurs.
+appId: app.lumisite.android
+name: "Synchro sans esclave 0 appareil"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_maitre" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+- assertVisible: { id: "synchro_mode_actif", text: "Mode : Saisie \\(maître\\)" }
+- assertVisible: { id: "synchro_resume", text: "0 appareil" }
+- assertVisible: { id: "synchro_etat_global", text: "non synchronisé" }
+- assertNotVisible: { id: "synchro_esclave_1" }
+- tapOn: { id: "synchro_arreter" }
+- assertVisible: { id: "synchro_mode_maitre" }
+- tapOn: { id: "synchro_retour" }
+- assertVisible: { id: "accueil_nouveau_releve" }

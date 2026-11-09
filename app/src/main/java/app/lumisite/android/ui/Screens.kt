@@ -69,7 +69,7 @@ import java.util.Locale
 fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
 
 @Composable
-fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSettings: () -> Unit = {}) {
+fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSettings: () -> Unit = {}, onSync: () -> Unit = {}) {
     val sites = remember { repo.sites() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -100,6 +100,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau_releve")) { Text("Nouveau relevé") }
             OutlinedButton(onClick = onSettings, modifier = Modifier.testTag("accueil_reglages")) { Text("Réglages") }
+            OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Synchro") }
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(16.dp))

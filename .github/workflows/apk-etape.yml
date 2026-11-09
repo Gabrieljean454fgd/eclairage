@@ -146,6 +146,8 @@ jobs:
         with:
           name: maestro-rapports
           path: maestro-out/
+          # Les captures de --debug-output sont sous .maestro/ (fichiers cachés, exclus par défaut).
+          include-hidden-files: true
 
   release:
     needs: [apk, maestro]

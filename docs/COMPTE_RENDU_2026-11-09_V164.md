@@ -41,3 +41,49 @@ testTags. Aucun testTag renommé, aucune assertion retirée, aucun flow supprim�
 - Réimport avec 4,5 Go et IDs de l'appli caméra (`shutter_button`, `done_button`) : à confirmer sur le Pixel 7.
 - La CI lance l'émulateur avec `-noaudio` : si le WAV ne peut pas être produit, le flow export échoue visiblement.
 - Faut-il proposer « Recaler quand même » aussi après un refus de *doublon AR* ? Non fait (seule la contradiction est forçable).
+
+## C — Paquet 2 : synchro maître / esclave (branche `etape-3-paquet2-synchro`, PR séparée)
+
+**Fait**
+- Accueil > **Synchro** (`accueil_synchro`) → choix **Saisie (maître)** (`synchro_mode_maitre`) ou **Captation-synchro (esclave)**
+  (`synchro_mode_esclave`). Permissions Bluetooth / appareils à proximité / micro demandées à ce moment-là seulement.
+- Transport : Nearby Connections `P2P_STAR`, local, sans cloud ni Firebase ; choix et limites dans `docs/SYNCHRO_NEARBY.md`.
+- Modèle pur Kotlin `core/.../sync/SyncMesh.kt` (`MasterMesh`, `SlaveMesh`, `ClockAlign`) : connexion, alignement temporel,
+  capture et repère spatial sont quatre états séparés, affichés par esclave. « Synchronisé » = connecté **et** aligné
+  (≥ 3 allers-retours, incertitude ≤ 50 ms). Résumé `synchro_resume` : « 0 appareil » ou « k/N synchronisé(s) · n en capture ».
+- Esclave silencieux > 6 s → « perdu » ; redémarrage de l'esclave (nouvelle base de temps) → alignement remis à zéro.
+- Le maître seul fait le relevé ; l'esclave enregistre un WAV (horodaté en `t_mono_ns`) et l'envoie au maître avec SHA-256.
+- Journal append-only `files/synchro/<date>/synchro.ndjson`.
+
+**Tests**
+- JVM `SyncMeshTest` (4 tests : 0 appareil ; 2 esclaves connexion → alignement → capture → perte d'un esclave ;
+  redémarrage d'esclave ; calcul du décalage et rejet d'un aller-retour trop long).
+- Flow `scenario_p2b_synchro_sans_esclave.yaml` : maître sans esclave → « 0 appareil » et « non synchronisé » : **passe** sur
+  l'émulateur.
+- CI du 1er push du paquet 2 : tout passe sauf `scenario1_4_reimporter` (2 essais, « accueil_reglages » jamais visible).
+  Reproduit sur l'AVD local. Cause, d'après logcat : ce n'est pas un plantage de l'appli. Le flow relance l'appli avec
+  `clearState` alors qu'elle tourne encore après 1.3. Le système tue alors le processus qui vient d'être relancé
+  (« Destroy timeout of remove-task … Killing …lumisite… remove task », puis « failed to attach »), d'où un écran noir
+  pendant 90 s. Correction **du flow** : `stopApp` + Accueil avant le relancement, et un seul relancement sans effacement
+  si l'Accueil n'apparaît pas. L'assertion est inchangée. Le flow passe ensuite en local (relancement de secours non
+  utilisé). Je n'ai pas démontré pourquoi la course apparaît sur cette branche et pas sur le paquet 1.
+- CI de 0098d4c : 1.4 passe ; la réinstallation `adb install -r` échoue (2 essais) sur « session_calibrer_ligne_2 ».
+  Elle passe 3 fois en local (APK local et APK de la CI). La CI de 7aba58c publie les captures (`include-hidden-files`) :
+  essai 1 en échec, essai 2 vert. Capture de l'essai 1 : « Correspondance contradictoire avec le point 1 : téléphone déplacé
+  de 1,9 m, points carte séparés de 8,9 m ». Les horodatages Maestro montrent 14 à 30 s entre « Point à la croix » et la pose
+  prise à « Valider » en CI (environ 6 s en local). Le téléphone simulé avance à 0,6 m/s : le point carte était périmé et le
+  refus de l'appli est correct. Correction **du flow** `maj/v6_calibrer_2_points.yaml` : jusqu'à 3 reprises de la position
+  actuelle. L'assertion « ligne 2 » est inchangée.
+- CI de b71a2a9 : verte (24 contrôles) et pré-release `etape3-b71a2a9` (versionCode 173) publiée. Deux parcours ne sont passés
+  qu'au 2e essai. `scenario1_1_creer_releve` : la capture montre le dialogue système « Pixel Launcher isn't responding »
+  par-dessus l'Accueil (émulateur). `scenario_p2_calibrage_multipoints` : le point 1 est retenu, mais sa ligne du tableau est
+  restée hors de l'écran ; cause non analysée plus loin.
+- Vu sur ces captures : sur l'Accueil, le libellé « Synchro » passe sur deux lignes (« Synchr / o ») à côté de « Nouveau relevé »
+  et « Réglages » (largeur Pixel 7). C'est cosmétique et ce n'est pas corrigé.
+- **Non testé** : maître + esclave réels (« synchronisé »). Nearby a besoin de deux appareils avec Bluetooth/Wi-Fi ; je n'en ai
+  pas. Aucun flow multi-appareils n'est livré tant qu'il n'a pas pu être exécuté.
+
+**Reste**
+- Test réel à deux téléphones (Pixel 7 + Xiaomi) ; seuil de 50 ms à mesurer.
+- Rattacher les médias reçus à la session du maître et à son export.
+- Acceptation automatique des connexions (même identifiant de service) : à revoir si plusieurs équipes sont sur le même site.

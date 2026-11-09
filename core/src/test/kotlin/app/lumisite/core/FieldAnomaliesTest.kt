@@ -5,6 +5,7 @@ import app.lumisite.core.geo.Vec2
 import app.lumisite.core.position.CalibrationSolver
 import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.ControlPointCheck
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.Test
 import kotlin.test.assertNull
@@ -76,5 +77,18 @@ class FieldAnomaliesTest {
         assertTrue((sol.transform.apply(jumped) - truth.apply(Vec2(0.0, 6.0))).norm() < 1e-6)
         // Without forcing, the solver removes the contradictory point (older journals).
         assertTrue("j" in CalibrationSolver.solve(old + cand, 70 * s)!!.rejected)
+    }
+
+    /** Review (09/11): a forced *calibration* point (not a relocalization) must also place the phone where the user said. */
+    @Test fun forcedCalibrationPointIsHonouredExactly() {
+        val truth = Similarity2D.fromPointAndRotation(Vec2(0.0, 0.0), Vec2(5.0, 5.0), Math.toRadians(30.0))
+        val layout = listOf(Vec2(0.0, 0.0), Vec2(8.0, 0.0), Vec2(8.0, 6.0))
+        val old = layout.mapIndexed { i, l -> ControlPoint("p$i", i * 20 * s, l, truth.apply(l), false) }
+        val jumped = Vec2(0.0, 6.0) + Vec2(12.0, 0.0)
+        val forced = ControlPoint("j", 70 * s, jumped, truth.apply(Vec2(0.0, 6.0)), false, forced = true)
+        val sol = assertNotNull(CalibrationSolver.solve(old + forced, 70 * s))
+        assertEquals("j", sol.anchorId)
+        assertTrue((sol.transform.apply(jumped) - truth.apply(Vec2(0.0, 6.0))).norm() < 1e-6, "forced point honoured: $sol")
+        assertTrue(old.none { it.id in sol.rejected })
     }
 }

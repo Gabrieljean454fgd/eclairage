@@ -73,7 +73,8 @@ object CalibrationSolver {
         val rejected = LinkedHashSet(ControlPointCheck.inconsistent(points))
         var kept = points.filter { it.id !in rejected }
         if (kept.isEmpty()) return null
-        val anchor = kept.filter { it.relocalization }.maxByOrNull { it.tNs }
+        // « Recaler quand même »: a forced point (calibration or relocalization) is honoured exactly like a relocalization.
+        val anchor = kept.filter { it.relocalization || it.forced }.maxByOrNull { it.tNs }
         var fit = fit(kept, w, anchor, firstRotation, s) ?: return null
         var iter = 0
         while (iter < s.maxIterations && kept.size > 2) {

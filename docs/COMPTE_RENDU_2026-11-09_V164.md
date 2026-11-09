@@ -41,3 +41,29 @@ testTags. Aucun testTag renommé, aucune assertion retirée, aucun flow supprim�
 - Réimport avec 4,5 Go et IDs de l'appli caméra (`shutter_button`, `done_button`) : à confirmer sur le Pixel 7.
 - La CI lance l'émulateur avec `-noaudio` : si le WAV ne peut pas être produit, le flow export échoue visiblement.
 - Faut-il proposer « Recaler quand même » aussi après un refus de *doublon AR* ? Non fait (seule la contradiction est forçable).
+
+## C — Paquet 2 : synchro maître / esclave (branche `etape-3-paquet2-synchro`, PR séparée)
+
+**Fait**
+- Accueil > **Synchro** (`accueil_synchro`) → choix **Saisie (maître)** (`synchro_mode_maitre`) ou **Captation-synchro (esclave)**
+  (`synchro_mode_esclave`). Permissions Bluetooth / appareils à proximité / micro demandées à ce moment-là seulement.
+- Transport : Nearby Connections `P2P_STAR`, local, sans cloud ni Firebase ; choix et limites dans `docs/SYNCHRO_NEARBY.md`.
+- Modèle pur Kotlin `core/.../sync/SyncMesh.kt` (`MasterMesh`, `SlaveMesh`, `ClockAlign`) : connexion, alignement temporel,
+  capture et repère spatial sont quatre états séparés, affichés par esclave. « Synchronisé » = connecté **et** aligné
+  (≥ 3 allers-retours, incertitude ≤ 50 ms). Résumé `synchro_resume` : « 0 appareil » ou « k/N synchronisé(s) · n en capture ».
+- Esclave silencieux > 6 s → « perdu » ; redémarrage de l'esclave (nouvelle base de temps) → alignement remis à zéro.
+- Le maître seul fait le relevé ; l'esclave enregistre un WAV (horodaté en `t_mono_ns`) et l'envoie au maître avec SHA-256.
+- Journal append-only `files/synchro/<date>/synchro.ndjson`.
+
+**Tests**
+- JVM `SyncMeshTest` (4 tests : 0 appareil ; 2 esclaves connexion → alignement → capture → perte d'un esclave ;
+  redémarrage d'esclave ; calcul du décalage et rejet d'un aller-retour trop long).
+- Flow `scenario_p2b_synchro_sans_esclave.yaml` : maître sans esclave → « 0 appareil » et « non synchronisé » : **passe** sur
+  l'émulateur.
+- **Non testé** : maître + esclave réels (« synchronisé »). Nearby a besoin de deux appareils avec Bluetooth/Wi-Fi ; je n'en ai
+  pas. Aucun flow multi-appareils n'est livré tant qu'il n'a pas pu être exécuté.
+
+**Reste**
+- Test réel à deux téléphones (Pixel 7 + Xiaomi) ; seuil de 50 ms à mesurer.
+- Rattacher les médias reçus à la session du maître et à son export.
+- Acceptation automatique des connexions (même identifiant de service) : à revoir si plusieurs équipes sont sur le même site.

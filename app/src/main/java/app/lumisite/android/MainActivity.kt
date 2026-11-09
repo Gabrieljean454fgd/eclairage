@@ -51,6 +51,7 @@ sealed interface Screen {
     data class SiteDetail(val siteId: String) : Screen
     data class Live(val controller: SessionController) : Screen
     data object Settings : Screen
+    data object Synchro : Screen
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -102,14 +103,14 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.semantics { testTagsAsResourceId = true }) { androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     // Saved across activity re-creation; a live session comes back as its site screen (the session can be resumed there).
                     var screen by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = androidx.compose.runtime.saveable.Saver<Screen, String>(
-                        save = { when (it) { Screen.Home -> "home"; Screen.NewSite -> "new"; Screen.Settings -> "settings"; is Screen.SiteDetail -> "site:" + it.siteId; is Screen.Live -> "site:" + it.controller.site.id } },
-                        restore = { v -> when { v == "new" -> Screen.NewSite; v == "settings" -> Screen.Settings; v.startsWith("site:") -> Screen.SiteDetail(v.removePrefix("site:")); else -> Screen.Home } },
+                        save = { when (it) { Screen.Home -> "home"; Screen.NewSite -> "new"; Screen.Settings -> "settings"; Screen.Synchro -> "synchro"; is Screen.SiteDetail -> "site:" + it.siteId; is Screen.Live -> "site:" + it.controller.site.id } },
+                        restore = { v -> when { v == "new" -> Screen.NewSite; v == "settings" -> Screen.Settings; v == "synchro" -> Screen.Synchro; v.startsWith("site:") -> Screen.SiteDetail(v.removePrefix("site:")); else -> Screen.Home } },
                     )) { mutableStateOf<Screen>(Screen.Home) }
                     var homeKey by remember { mutableStateOf(0) }
                     LaunchedEffect(screen) {
                         live = (screen as? Screen.Live)?.controller
                         DiagLog.screen(when (screen) { Screen.Home -> "Accueil"; Screen.NewSite -> "Accueil > Nouveau relevé"; is Screen.SiteDetail -> "Site"
-                            is Screen.Live -> "Session"; Screen.Settings -> "Réglages" })
+                            is Screen.Live -> "Session"; Screen.Settings -> "Réglages"; Screen.Synchro -> "Accueil > Synchro" })
                     }
                     val scope = rememberCoroutineScope()
                     // The theme button has its own row: it never covers a screen title.
@@ -119,7 +120,8 @@ class MainActivity : ComponentActivity() {
                     ) { ThemeToggle(this@MainActivity, Modifier.padding(end = 4.dp)) }
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (val s = screen) {
-                        Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }) }
+                        Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }, onSync = { screen = Screen.Synchro }) }
+                        Screen.Synchro -> app.lumisite.android.ui.SyncScreen(onBack = { screen = Screen.Home })
                         Screen.Settings -> SettingsScreen(repo, onBack = { screen = Screen.Home }, onReimported = { homeKey++ })
                         Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
                             repo.stageOsmSource(f.snapshot.retrievedUtcMs, f.snapshot.endpoint, f.raw)

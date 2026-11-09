@@ -74,6 +74,12 @@ testTags. Aucun testTag renommé, aucune assertion retirée, aucun flow supprim�
   prise à « Valider » en CI (environ 6 s en local). Le téléphone simulé avance à 0,6 m/s : le point carte était périmé et le
   refus de l'appli est correct. Correction **du flow** `maj/v6_calibrer_2_points.yaml` : jusqu'à 3 reprises de la position
   actuelle. L'assertion « ligne 2 » est inchangée.
+- CI de b71a2a9 : verte (24 contrôles) et pré-release `etape3-b71a2a9` (versionCode 173) publiée. Deux parcours ne sont passés
+  qu'au 2e essai. `scenario1_1_creer_releve` : la capture montre le dialogue système « Pixel Launcher isn't responding »
+  par-dessus l'Accueil (émulateur). `scenario_p2_calibrage_multipoints` : le point 1 est retenu, mais sa ligne du tableau est
+  restée hors de l'écran ; cause non analysée plus loin.
+- Vu sur ces captures : sur l'Accueil, le libellé « Synchro » passe sur deux lignes (« Synchr / o ») à côté de « Nouveau relevé »
+  et « Réglages » (largeur Pixel 7). C'est cosmétique et ce n'est pas corrigé.
 - **Non testé** : maître + esclave réels (« synchronisé »). Nearby a besoin de deux appareils avec Bluetooth/Wi-Fi ; je n'en ai
   pas. Aucun flow multi-appareils n'est livré tant qu'il n'a pas pu être exécuté.
 

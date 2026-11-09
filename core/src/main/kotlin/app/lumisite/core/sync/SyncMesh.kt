@@ -80,6 +80,8 @@ data class Peer(
     val timeBaseId: String? = null,
     val media: Int = 0,
     val frame: Frame = Frame.NOT_SHARED,
+    /** Nearby link open (independent of [link], which turns LOST after a silence): pings keep going so it can recover. */
+    val transport: Boolean = false,
 ) {
     val clock: Clock get() = if (link == Link.CONNECTED) ClockAlign.state(samples) else Clock.NOT_ALIGNED
     val offsetNs: Long? get() = ClockAlign.best(samples)?.offsetNs
@@ -117,13 +119,13 @@ class MasterMesh(val deviceId: String) {
 
     fun onConnecting(id: String, name: String, tNs: Long) = change(peers[id], (peers[id] ?: Peer(id, name)).copy(name = name, link = Link.CONNECTING, lastHeardNs = tNs), tNs)
 
-    fun onConnected(id: String, tNs: Long) = peers[id]?.let { change(it, it.copy(link = Link.CONNECTED, lastHeardNs = tNs), tNs) } ?: emptyList()
+    fun onConnected(id: String, tNs: Long) = peers[id]?.let { change(it, it.copy(link = Link.CONNECTED, lastHeardNs = tNs, transport = true), tNs) } ?: emptyList()
 
-    fun onDisconnected(id: String, tNs: Long) = peers[id]?.let { change(it, it.copy(link = Link.LOST), tNs) } ?: emptyList()
+    fun onDisconnected(id: String, tNs: Long) = peers[id]?.let { change(it, it.copy(link = Link.LOST, transport = false), tNs) } ?: emptyList()
 
-    /** Pings to send now (one per connected peer). */
+    /** Pings to send now: one per open Nearby link, including peers shown « perdu » after a silence (they may answer again). */
     fun pings(tNs: Long): List<Pair<String, MeshMsg.Ping>> =
-        peers.values.filter { it.link == Link.CONNECTED }.map { it.endpointId to MeshMsg.Ping(++seq, tNs) }
+        peers.values.filter { it.transport }.map { it.endpointId to MeshMsg.Ping(++seq, tNs) }
 
     /** Marks silent peers as lost. */
     fun tick(tNs: Long): List<MeshLog> = peers.values.filter { it.link == Link.CONNECTED && tNs - it.lastHeardNs > LOST_AFTER_NS }
@@ -131,13 +133,13 @@ class MasterMesh(val deviceId: String) {
 
     fun start(captureId: String, tNs: Long): List<Pair<String, MeshMsg>> {
         this.captureId = captureId
-        return peers.values.filter { it.link == Link.CONNECTED }.map { it.endpointId to MeshMsg.StartCapture(captureId, tNs) }
+        return peers.values.filter { it.transport }.map { it.endpointId to MeshMsg.StartCapture(captureId, tNs) }
     }
 
     fun stop(tNs: Long): List<Pair<String, MeshMsg>> {
         val id = captureId ?: return emptyList()
         captureId = null
-        return peers.values.filter { it.link == Link.CONNECTED }.map { it.endpointId to MeshMsg.StopCapture(id, tNs) }
+        return peers.values.filter { it.transport }.map { it.endpointId to MeshMsg.StopCapture(id, tNs) }
     }
 
     /** Message from a slave. Returns logs, plus a StartCapture to send if a capture is running and the slave just joined. */
@@ -145,7 +147,8 @@ class MasterMesh(val deviceId: String) {
         val p = peers[id] ?: return emptyList<MeshLog>() to null
         var reply: MeshMsg? = null
         val n = when (m) {
-            is MeshMsg.Hello -> { if (captureId != null) reply = MeshMsg.StartCapture(captureId!!, tNs); p.copy(deviceId = m.deviceId, timeBaseId = m.timeBaseId, name = m.name) }
+            is MeshMsg.Hello -> { if (captureId != null) reply = MeshMsg.StartCapture(captureId!!, tNs); p.copy(deviceId = m.deviceId, timeBaseId = m.timeBaseId, name = m.name,
+                samples = if (p.timeBaseId != null && p.timeBaseId != m.timeBaseId) emptyList() else p.samples) }
             is MeshMsg.Pong -> ClockAlign.sample(m, tNs)?.let { s -> p.copy(samples = (p.samples + s).takeLast(ClockAlign.WINDOW)) } ?: p
             // A new time base on the slave (restart) invalidates the clock samples: no silent continuity.
             is MeshMsg.Status -> if (p.timeBaseId != null && p.timeBaseId != m.timeBaseId) p.copy(capture = m.capture, timeBaseId = m.timeBaseId, samples = emptyList())

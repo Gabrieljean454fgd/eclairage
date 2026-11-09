@@ -70,6 +70,32 @@ class SyncMeshTest {
         assertTrue(logs.any { it.what.startsWith("interruption") })
     }
 
+    /** Review: a peer shown « perdu » after a silence on a still-open Nearby link is still pinged and can recover. */
+    @Test
+    fun silentPeerIsStillPingedAndRecovers() {
+        val master = MasterMesh("maitre")
+        master.onConnecting("e1", "E1", 0); master.onConnected("e1", 0)
+        master.tick(7_000 * ms)
+        assertEquals(Link.LOST, master.peers.getValue("e1").link)
+        assertEquals(listOf("e1"), master.pings(7_000 * ms).map { it.first })
+        master.onMessage("e1", MeshMsg.Pong(1, 7_000 * ms, 7_010 * ms, 7_011 * ms), 7_021 * ms)
+        assertEquals(Link.CONNECTED, master.peers.getValue("e1").link)
+        master.onDisconnected("e1", 8_000 * ms)
+        assertTrue(master.pings(8_000 * ms).isEmpty())
+    }
+
+    /** Review: a slave that reconnects after a reboot (Hello with a new time base) loses its old clock samples. */
+    @Test
+    fun helloWithNewTimeBaseDropsClockSamples() {
+        val master = MasterMesh("maitre")
+        master.onConnecting("e1", "E1", 0); master.onConnected("e1", 0)
+        master.onMessage("e1", SlaveMesh("d1", "E1", "tb-1").hello(), 0)
+        repeat(3) { i -> master.onMessage("e1", MeshMsg.Pong(i.toLong(), i * 1000L, i * 1000L + 10, i * 1000L + 20), i * 1000L + 30) }
+        assertEquals(Clock.ALIGNED, master.peers.getValue("e1").clock)
+        master.onMessage("e1", SlaveMesh("d1", "E1", "tb-2").hello(), 5000)
+        assertEquals(Clock.NOT_ALIGNED, master.peers.getValue("e1").clock)
+    }
+
     @Test
     fun roundTripSampleAndHugeRttIsNotAligned() {
         val s = assertNotNull(ClockAlign.sample(MeshMsg.Pong(1, 0, 1_010, 1_020), 40))

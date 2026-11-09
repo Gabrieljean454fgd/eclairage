@@ -67,6 +67,13 @@ testTags. Aucun testTag renommé, aucune assertion retirée, aucun flow supprim�
   pendant 90 s. Correction **du flow** : `stopApp` + Accueil avant le relancement, et un seul relancement sans effacement
   si l'Accueil n'apparaît pas. L'assertion est inchangée. Le flow passe ensuite en local (relancement de secours non
   utilisé). Je n'ai pas démontré pourquoi la course apparaît sur cette branche et pas sur le paquet 1.
+- CI de 0098d4c : 1.4 passe ; la réinstallation `adb install -r` échoue (2 essais) sur « session_calibrer_ligne_2 ».
+  Elle passe 3 fois en local (APK local et APK de la CI). La CI de 7aba58c publie les captures (`include-hidden-files`) :
+  essai 1 en échec, essai 2 vert. Capture de l'essai 1 : « Correspondance contradictoire avec le point 1 : téléphone déplacé
+  de 1,9 m, points carte séparés de 8,9 m ». Les horodatages Maestro montrent 14 à 30 s entre « Point à la croix » et la pose
+  prise à « Valider » en CI (environ 6 s en local). Le téléphone simulé avance à 0,6 m/s : le point carte était périmé et le
+  refus de l'appli est correct. Correction **du flow** `maj/v6_calibrer_2_points.yaml` : jusqu'à 3 reprises de la position
+  actuelle. L'assertion « ligne 2 » est inchangée.
 - **Non testé** : maître + esclave réels (« synchronisé »). Nearby a besoin de deux appareils avec Bluetooth/Wi-Fi ; je n'en ai
   pas. Aucun flow multi-appareils n'est livré tant qu'il n'a pas pu être exécuté.
 

@@ -204,7 +204,7 @@ object NearbyMesh {
                         }
                         slave?.let { s ->
                             when (m) {
-                                is MeshMsg.StartCapture -> appCtx?.let { startRecording(it, m.captureId) }
+                                is MeshMsg.StartCapture -> appCtx?.let { startRecording(it, m.captureId, id) }
                                 is MeshMsg.StopCapture -> stopRecording(id)
                                 else -> {}
                             }
@@ -225,7 +225,7 @@ object NearbyMesh {
                 val p = pendingFiles.remove(u.payloadId) ?: return
                 val meta = pendingMedia.remove(u.payloadId)
                 if (u.status == PayloadTransferUpdate.Status.FAILURE) { journal(id, "média non reçu (${meta?.name ?: u.payloadId})"); return }
-                val target = File(dir, "media/${id}_${meta?.name ?: "media_${u.payloadId}"}").apply { parentFile?.mkdirs() }
+                val target = File(dir, "media/" + safeName("${id}_${meta?.name ?: "media_${u.payloadId}"}")).apply { parentFile?.mkdirs() }
                 runCatching {
                     val f = p.asFile() ?: return
                     if (Build.VERSION.SDK_INT >= 29) appCtx!!.contentResolver.openInputStream(f.asUri()!!)!!.use { i -> target.outputStream().use { i.copyTo(it) } }
@@ -238,6 +238,9 @@ object NearbyMesh {
             }
         }
     }
+
+    /** A peer-supplied name never leaves media/: no separators, no « .. ». */
+    private fun safeName(s: String): String = s.replace(Regex("[^A-Za-z0-9._-]"), "_").trimStart('.').ifEmpty { "media" }
 
     private fun send(id: String, m: MeshMsg) { client?.sendPayload(id, Payload.fromBytes(MeshMsg.encode(m))) }
 
@@ -259,9 +262,14 @@ object NearbyMesh {
     fun stop() {
         synchronized(lock) {
             if (_state.value.running) journal("local", "synchro arrêtée")
-            recorder?.stop(); recorder = null
+            // Master: end the slaves' captures first, so they send their media instead of recording on after the link drops.
+            val stops = master?.stop(now()).orEmpty()
+            stops.forEach { (id, msg) -> send(id, msg) }
+            recorder?.let { r -> recorder = null; r.stop(); journal("local", "interruption : capture locale arrêtée avec la synchro (${r.file.name} gardé sur l'appareil)") }
             loop?.cancel(); loop = null
-            client?.apply { stopAdvertising(); stopDiscovery(); stopAllEndpoints() }
+            val c = client
+            if (c != null && stops.isNotEmpty()) scope.launch { delay(1500); c.stopAllEndpoints() }
+            client?.apply { stopAdvertising(); stopDiscovery(); if (stops.isEmpty()) stopAllEndpoints() }
             client = null; master = null; slave = null; masterEndpoint = null
             _state.value = UiState()
         }
@@ -269,10 +277,15 @@ object NearbyMesh {
 
     // ---- slave capture: microphone WAV, monotonic start/end, sent to the master as a FILE payload ----
 
-    private fun startRecording(ctx: Context, captureId: String) {
-        if (recorder != null) return
-        val f = File(dir, "capture_${captureId}.wav")
-        recorder = SlaveRecorder(f).also { it.start() }
+    private fun startRecording(ctx: Context, captureId: String, masterId: String) {
+        recorder?.let { r ->
+            if (r.captureId == captureId) return
+            // The capture changed while this slave was away: close and send the old one, never merge two periods.
+            journal("local", "interruption : capture ${r.captureId} close, nouvelle capture $captureId")
+            stopRecording(masterId)
+        }
+        val f = File(dir, "capture_${safeName(captureId)}.wav")
+        recorder = SlaveRecorder(f, captureId).also { it.start() }
         if (recorder?.error != null) journal("local", "interruption : micro indisponible (${recorder?.error})")
     }
 
@@ -294,7 +307,7 @@ object NearbyMesh {
         md.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private class SlaveRecorder(val file: File) {
+    private class SlaveRecorder(val file: File, val captureId: String) {
         var tStartNs = 0L; var tEndNs = 0L; var error: String? = null
         @Volatile private var on = false
         private var thread: Thread? = null

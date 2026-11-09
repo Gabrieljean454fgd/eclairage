@@ -25,29 +25,43 @@ object ControlPointCheck {
         return gap.takeIf { it > maxOf(MIN_CONTRADICTION_M, RELATIVE_TOLERANCE * max(dAr, dMap), drift) }
     }
 
-    /** Refusal reason for [candidate] against the active points, or null if it can be added. */
-    fun refusal(existing: List<ControlPoint>, candidate: ControlPoint, labelOf: (ControlPoint) -> String = { it.id }): String? {
-        if (!candidate.relocalization) existing.filter { !it.relocalization }.firstOrNull { (it.target - candidate.target).norm() < MIN_MAP_SEPARATION_M }?.let {
-            return "Point carte déjà utilisé (à %.1f m du point %s). Choisissez un autre point de la carte, à plus de %.0f m."
-                .format(java.util.Locale.FRANCE, (it.target - candidate.target).norm(), labelOf(it), MIN_MAP_SEPARATION_M)
-        }
+    /**
+     * Why [candidate] is refused. [overridable]: a contradiction may be a real ARCore jump (tracking lost, e.g.
+     * INSUFFICIENT_FEATURES), so the user can force it (« Recaler quand même », journaled with its cause); a reused map
+     * point (scene 1) can never be forced.
+     */
+    data class Refusal(val message: String, val overridable: Boolean, val conflictId: String? = null)
+
+    /** Refusal of [candidate] against the active points, or null if it can be added. */
+    fun refusal(existing: List<ControlPoint>, candidate: ControlPoint, labelOf: (ControlPoint) -> String = { it.id }): Refusal? {
+        sameMapPoint(existing, candidate, labelOf)?.let { return it }
         existing.firstOrNull { contradiction(it, candidate) != null }?.let {
-            return ("Correspondance contradictoire avec le point %s : téléphone déplacé de %.1f m, points carte séparés de %.1f m. " +
-                "Vérifiez le point touché sur la carte.").format(java.util.Locale.FRANCE, labelOf(it), (it.local - candidate.local).norm(), (it.target - candidate.target).norm())
+            return Refusal(("Correspondance contradictoire avec le point %s : téléphone déplacé de %.1f m, points carte séparés de %.1f m. " +
+                "Vérifiez le point touché sur la carte.").format(java.util.Locale.FRANCE, labelOf(it), (it.local - candidate.local).norm(), (it.target - candidate.target).norm()),
+                overridable = true, conflictId = it.id)
         }
         return null
+    }
+
+    /** Scene 1: a calibration map point closer than [MIN_MAP_SEPARATION_M] to an active one (never overridable). */
+    fun sameMapPoint(existing: List<ControlPoint>, candidate: ControlPoint, labelOf: (ControlPoint) -> String = { it.id }): Refusal? {
+        if (candidate.relocalization) return null
+        val it = existing.filter { !it.relocalization }.firstOrNull { (it.target - candidate.target).norm() < MIN_MAP_SEPARATION_M } ?: return null
+        return Refusal("Point carte déjà utilisé (à %.1f m du point %s). Choisissez un autre point de la carte, à plus de %.0f m."
+            .format(java.util.Locale.FRANCE, (it.target - candidate.target).norm(), labelOf(it), MIN_MAP_SEPARATION_M), overridable = false, conflictId = it.id)
     }
 
     /**
      * Points of an already recorded table that contradict the others (journals written before the check): the point with
      * the most contradictions is removed first, the most recent one on a tie, until the rest is consistent. Never below
      * 2 points: between two contradictory points nothing says which one is wrong (the entry check refuses the 2nd).
+     * A contradiction with a forced point (« Recaler quand même ») is the user's decision: neither point is removed.
      */
     fun inconsistent(points: List<ControlPoint>): Set<String> {
         val out = LinkedHashSet<String>()
         var kept = points
         while (kept.size >= 3) {
-            val bad = kept.associateWith { p -> kept.count { q -> q !== p && contradiction(p, q) != null } }
+            val bad = kept.associateWith { p -> if (p.forced) 0 else kept.count { q -> q !== p && !q.forced && contradiction(p, q) != null } }
             val worst = bad.entries.filter { it.value > 0 }.maxWithOrNull(compareBy<Map.Entry<ControlPoint, Int>>({ it.value }, { it.key.tNs })) ?: break
             out += worst.key.id; kept = kept - worst.key
         }

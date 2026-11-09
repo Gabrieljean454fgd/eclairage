@@ -1,0 +1,91 @@
+# Retour Pixel du 09/11 (point 4) : export des médias. Session > « Calibrer » (2 points) > « Relevé » > « Enregistrer le relevé »
+# > appareil photo (une vraie photo) > « Terminé » ; Session > « Synchro » > « Synchroniser » (enregistre sync_*.wav) ;
+# Session > « Export » > « Exporter la session » : le résultat relu dans le ZIP indique 1 photo, sa fiche JSON (sidecar),
+# 1 WAV et la photo référencée dans releves.geojson. La CI relit aussi le ZIP (media/, sidecar, chemins du GeoJSON).
+appId: app.lumisite.android
+name: "Export medias photo wav sidecar"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+    arguments:
+      simuler_pose_ar: true
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro medias"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- tapOn: { id: "nouveau_site_creer" }
+- tapOn: { id: "site_nouvelle_session_terrain" }
+- assertVisible: { id: "session_terminer_la_session" }
+- runFlow: maj/v6_calibrer_2_points.yaml
+- tapOn: { id: "session_releve" }
+- repeat:
+    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+# Appareil photo externe : AOSP (émulateur) ou Google Camera (Pixel). Déclencheur puis validation.
+- extendedWaitUntil:
+    visible: { id: ".*:id/shutter_button" }
+    timeout: 20000
+- waitForAnimationToEnd
+- tapOn: { id: ".*:id/shutter_button" }
+- extendedWaitUntil:
+    visible: { id: ".*:id/(done_button|shutter_button)" }
+    timeout: 20000
+- tapOn: { id: ".*:id/done_button", optional: true }
+- runFlow:
+    when:
+      notVisible: { id: "session_photo_proposee" }
+    commands:
+      - tapOn: { id: ".*:id/shutter_button" }
+- extendedWaitUntil:
+    visible: { id: "session_photo_etat", text: "1 photo\\(s\\) rattachée\\(s\\) à l'objet" }
+    timeout: 20000
+- tapOn: { id: "session_photo_passer" }
+- tapOn: { id: "session_synchro" }
+- tapOn: { id: "session_synchro_synchroniser" }
+# Le résultat s'affiche sous le bouton (hors écran) après 12 s d'écoute : on fait défiler le panneau en l'attendant.
+- repeat:
+    while: { notVisible: ".*chirp\\(s\\) entendu\\(s\\).*|Échec audio.*" }
+    times: 40
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: ".*chirp\\(s\\) entendu\\(s\\).*"
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_resultat" }
+    timeout: 180000
+# Le résumé des médias est affiché sous « Ouvrir / Partager », souvent hors écran : on fait défiler le panneau.
+- repeat:
+    while: { notVisible: { id: "session_export_medias" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_export_medias" }
+- assertVisible: "Médias : 1 photo\\(s\\), 1 fiche\\(s\\) JSON, 1 WAV ; GeoJSON : 1 photo\\(s\\) référencée\\(s\\)"
+- assertNotVisible: { id: "session_export_erreur" }

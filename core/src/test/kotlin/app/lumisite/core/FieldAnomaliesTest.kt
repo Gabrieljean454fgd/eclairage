@@ -23,7 +23,7 @@ class FieldAnomaliesTest {
         println("scene1: solution=$sol")
         assertNull(sol)
         // Correction: the 2nd calibration point on the same map point is refused before it enters the table.
-        assertNotNull(ControlPointCheck.refusal(pts.take(1), pts[1]))
+        assertNotNull(ControlPointCheck.refusal(pts.take(1), pts[1])).also { assertTrue(!it.overridable) }
         assertNull(ControlPointCheck.refusal(pts.take(1), ControlPoint("q", 0, Vec2(3.0, 0.0), map + Vec2(3.0, 0.0), false)))
     }
 
@@ -52,5 +52,29 @@ class FieldAnomaliesTest {
         // The pair is also refused at entry (phone moved 0.05 m, map points 9.77 m apart).
         val (_, a) = scene2(3, 300, true)
         assertTrue("p7" in a.rejected)
+    }
+
+    /**
+     * Décision A (09/11): a contradictory pair is refused by default but can be forced (« Recaler quand même ») after a
+     * real ARCore jump. The forced point is kept by the solver and the older points are not discarded automatically.
+     */
+    @Test fun contradictionIsOverridableAndForcedPointIsKept() {
+        val truth = Similarity2D.fromPointAndRotation(Vec2(0.0, 0.0), Vec2(5.0, 5.0), Math.toRadians(30.0))
+        val layout = listOf(Vec2(0.0, 0.0), Vec2(8.0, 0.0), Vec2(8.0, 6.0))
+        val old = layout.mapIndexed { i, l -> ControlPoint("p$i", i * 20 * s, l, truth.apply(l), false) }
+        // ARCore jump of 12 m after tracking was lost: the phone frame moved, the real map point is still the true one.
+        val jumped = Vec2(0.0, 6.0) + Vec2(12.0, 0.0)
+        val cand = ControlPoint("j", 70 * s, jumped, truth.apply(Vec2(0.0, 6.0)), true)
+        val r = assertNotNull(ControlPointCheck.refusal(old, cand))
+        assertTrue(r.overridable, r.message)
+        val forced = cand.copy(forced = true)
+        assertTrue(ControlPointCheck.inconsistent(old + forced).isEmpty())
+        val sol = assertNotNull(CalibrationSolver.solve(old + forced, 70 * s))
+        assertTrue("j" !in sol.rejected && sol.anchorId == "j", "forced relocalization kept as anchor: $sol")
+        assertTrue(old.none { it.id in sol.rejected }, "older points not discarded automatically: ${sol.rejected}")
+        // The newest relocalization is honoured exactly: the phone is where the user said.
+        assertTrue((sol.transform.apply(jumped) - truth.apply(Vec2(0.0, 6.0))).norm() < 1e-6)
+        // Without forcing, the solver removes the contradictory point (older journals).
+        assertTrue("j" in CalibrationSolver.solve(old + cand, 70 * s)!!.rejected)
     }
 }

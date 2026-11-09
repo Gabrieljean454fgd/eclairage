@@ -32,11 +32,30 @@ name: "Calibrage meme point carte refuse"
 - assertVisible: { id: "session_terminer_la_session" }
 - tapOn: { id: "session_calibrer" }
 - tapOn: { id: "session_point_a_la_croix" }
+# Cap de visée du 1er point (sans lui, un seul point ne donne pas de transformation : retour test Pixel du 09/11).
+- tapOn: { id: "session_calibrer_cap_de_visee" }
+- inputText: "0"
+- hideKeyboard
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+# Le dernier message est fixé en bas (~85–90 %) : les glissements partent de 74 %, dans le panneau.
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_1" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_valider_la_calibration" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# Marge : le bouton doit être entièrement sous la carte, sinon l'appui tombe sur la carte.
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# 2e point sur le même point carte (la croix n'a pas bougé) : refusé, non forçable.
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
 - extendedWaitUntil:
-    visible: { id: "session_calibrer_ligne_1" }
+    visible: ".*Point carte déjà utilisé.*"
     timeout: 10000
-- tapOn: { id: "session_calibrer_valider_la_calibration" }
-- scrollUntilVisible: { element: ".*Point carte déjà utilisé.*" }
 - assertVisible: ".*Point carte déjà utilisé.*"
+- assertNotVisible: { id: "session_calibrer_recaler_quand_meme" }
 - assertNotVisible: { id: "session_calibrer_ligne_2" }

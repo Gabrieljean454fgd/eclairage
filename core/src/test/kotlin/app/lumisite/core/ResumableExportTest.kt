@@ -115,6 +115,7 @@ class ResumableExportTest {
             assertEquals("media/p1.jpg", side["photo"]!!.jsonPrimitive.content)
             assertTrue(side["releve"].toString().contains("note terrain"))
         }
+        assertEquals(ResumableExport.MediaSummary(1, 1, 1, 1, 0), ResumableExport.mediaSummary(r.zip))
         assertEquals(emptyList(), SessionImporter.verify(r.zip))
         assertTrue(open.isFile, "the open segment of the session is never modified")
     }

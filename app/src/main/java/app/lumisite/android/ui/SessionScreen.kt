@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package app.lumisite.android.ui
 
 import app.lumisite.core.position.CalibrationQuality
@@ -65,6 +67,8 @@ import androidx.compose.ui.Modifier
 import app.lumisite.core.export.SessionExporter
 import app.lumisite.android.data.DiagLog
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -180,6 +184,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     BackHandler { finish() }
     confirmExport?.let { pct ->
         androidx.compose.material3.AlertDialog(onDismissRequest = { confirmExport = null },
+            // Dialogs are separate windows: re-enable testTag → resource-id for Maestro.
+            modifier = Modifier.semantics { testTagsAsResourceId = true },
             title = { Text("Export en cours ($pct %)") },
             text = { Text("L'export continue en arrière-plan après la fin de la session. Android peut le différer : il reprendra où il s'est arrêté, sans refaire ce qui est vérifié. Terminer la session ?") },
             confirmButton = { Button({ confirmExport = null; finish(confirmed = true) }, Modifier.testTag("session_terminer_confirmer")) { Text("Terminer quand même") } },
@@ -535,6 +541,7 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
         val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
         c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
     }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
+    ForceOverride(c, "CALIBRATION", "session_calibrer")
     if (rows.size >= 2) OutlinedButton({ ref("Contrôle")?.let { c.controlCheck(it) } }, modifier = Modifier.testTag("session_calibrer_controler_ici")) { Text("Contrôler ici (hors calcul)") }
     ControlTable(c, rows, "session_calibrer", c.previousControlRows())
     Text("Conseil : au moins 3 points, idéalement 4 à 6 aux extrémités du bâtiment, jamais alignés, + 1 point de contrôle.",
@@ -545,6 +552,36 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
             color = col, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("session_calibrer_qualite"))
     }
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
+}
+
+/**
+ * Décision A (09/11): after a point refused as contradictory, « Recaler quand même » records it anyway, with a cause chosen
+ * by the user (journaled with the overridden refusal). Older points are kept: the user removes them from the table.
+ */
+@Composable
+private fun ForceOverride(c: SessionController, kind: String, prefix: String) {
+    val f = c.state.collectAsState().value.forcible?.takeIf { it.kind == kind } ?: return
+    var ask by remember { mutableStateOf(false) }
+    OutlinedButton({ ask = true }, modifier = Modifier.testTag(prefix + "_recaler_quand_meme")) { Text("Recaler quand même") }
+    if (ask) {
+        val loss = c.lastTrackingLoss()
+        androidx.compose.material3.AlertDialog(onDismissRequest = { ask = false }, modifier = Modifier.semantics { testTagsAsResourceId = true },
+            title = { Text("Recaler quand même ?") },
+            text = {
+                Text(f.refusal.message + "\n\nLe point sera enregistré à la position actuelle du téléphone, avec la cause choisie. Les points précédents sont conservés." +
+                    (loss?.let { "\nDernière perte de suivi ARCore : $it." } ?: "\nAucune perte de suivi ARCore journalisée dans cette session."),
+                    modifier = Modifier.testTag("session_forcer_explication"))
+            },
+            confirmButton = {
+                Column {
+                    TextButton({ ask = false; c.forceControlPoint("perte de suivi ARCore" + (loss?.let { " ($it)" } ?: "")) },
+                        modifier = Modifier.testTag("session_forcer_cause_perte_suivi")) { Text("Cause : perte de suivi ARCore") }
+                    TextButton({ ask = false; c.forceControlPoint("point carte vérifié sur place") },
+                        modifier = Modifier.testTag("session_forcer_cause_point_verifie")) { Text("Cause : point carte vérifié sur place") }
+                }
+            },
+            dismissButton = { TextButton({ ask = false }, modifier = Modifier.testTag("session_forcer_annuler")) { Text("Annuler") } })
+    }
 }
 
 @Composable
@@ -558,6 +595,7 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
     OutlinedTextField(headingCorr, { headingCorr = it }, label = { Text("Correction de cap (°, optionnel, + = horaire)") }, modifier = Modifier.testTag("session_recaler_correction_de_cap_optionnel_hora"))
     OutlinedTextField(note, { note = it }, label = { Text("Note") }, modifier = Modifier.testTag("session_recaler_note"))
     Button(onClick = { ref("Recalage ${rows.size + 1}")?.let { c.addControlPoint("RELOCALIZATION", it, headingCorrectionDeg = headingCorr.replace(',', '.').toDoubleOrNull(), note = note.ifBlank { null }) } }, modifier = Modifier.testTag("session_recaler_je_suis_ici_recaler")) { Text("Je suis ici : recaler") }
+    ForceOverride(c, "RELOCALIZATION", "session_recaler")
     ControlTable(c, rows, "session_recaler")
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = true) }, modifier = Modifier.testTag("session_recaler_nouveau_recalage")) { Text("Nouveau recalage") }
 }
@@ -783,5 +821,6 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
         }
         Text("Fichier : ${zip.name} (${zip.length() / 1024} Ko), ${o.getInt(ExportWorker.KEY_FILES, 0)} fichiers\nVérification : ${problems.ifEmpty { "OK, tailles et empreintes SHA-256 vérifiées" }}",
             style = MaterialTheme.typography.bodySmall)
+        o.getString(ExportWorker.KEY_MEDIA)?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_export_medias")) }
     }
 }

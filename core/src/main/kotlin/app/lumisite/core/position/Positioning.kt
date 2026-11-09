@@ -22,6 +22,8 @@ data class ControlPoint(
     val target: Vec2,
     val relocalization: Boolean = false,
     val rotationRad: Double? = null,
+    /** Kept although it contradicts older points (« Recaler quand même », cause journaled): never rejected automatically. */
+    val forced: Boolean = false,
 )
 
 @Serializable
@@ -77,7 +79,7 @@ object CalibrationSolver {
         while (iter < s.maxIterations && kept.size > 2) {
             iter++
             val res = kept.associate { it.id to residual(fit.first, it) }
-            val cand = kept.filter { it.id != anchor?.id }.maxByOrNull { res.getValue(it.id) } ?: break
+            val cand = kept.filter { it.id != anchor?.id && !it.forced }.maxByOrNull { res.getValue(it.id) } ?: break
             val others = kept.filter { it.id != cand.id }.map { res.getValue(it.id) }
             val sigma = sqrt(others.sumOf { it * it } / others.size)
             if (res.getValue(cand.id) <= max(s.sigmaFactor * sigma, s.minRejectM)) break

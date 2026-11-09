@@ -25,6 +25,13 @@ for f in .maestro/*.yaml; do
     fi
   done
   if [ $ok = 1 ]; then summary+="- ✅ ${name} (essai ${attempt})"$'\n'; else summary+="- ❌ ${name} (2 essais)"$'\n'; fail=1; fi
+  # Retour Pixel du 09/11 (point 4) : le ZIP copié dans Documents/LumiSite (conservé par pm clear) est relu hors de l'appli.
+  if [ "$name" = scenario_v6_export_medias ] && [ $ok = 1 ]; then
+    z=$(adb shell "ls -t /sdcard/Documents/LumiSite/*/*/exports/*.zip 2>/dev/null" | tr -d '\r' | grep -i medias | head -1)
+    if [ -n "$z" ] && adb pull "$z" maestro-out/export_medias.zip >/dev/null && python3 .github/scripts/verifier_export_medias.py maestro-out/export_medias.zip > maestro-out/export_medias_zip.log 2>&1; then
+      summary+="- ✅ ZIP relu : media/ (photo, fiche JSON, WAV) et chemins du GeoJSON"$'\n'
+    else summary+="- ❌ ZIP de scenario_v6_export_medias non conforme ou introuvable (maestro-out/export_medias_zip.log)"$'\n'; fail=1; fi
+  fi
 done
 # LOT 1.5 : conservation des données à la mise à jour. Version N = dernière pré-release publiée de la même étape (même clé
 # de test), session créée, arrêt brutal, puis adb install -r de cette version N+1 : la session doit rester lisible et exportable.

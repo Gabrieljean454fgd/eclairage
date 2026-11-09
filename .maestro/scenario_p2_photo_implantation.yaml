@@ -13,7 +13,7 @@ name: Session releve photo automatique a l implantation
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8
     commands:
-      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
 - assertVisible: { id: "session_releve_checkbox", checked: true }
 - tapOn: { id: "session_releve_enregistrer_le_releve" }
 - assertNotVisible: { id: "session_terminer_la_session" }

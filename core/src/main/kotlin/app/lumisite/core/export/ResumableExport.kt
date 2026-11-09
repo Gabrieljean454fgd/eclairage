@@ -124,6 +124,26 @@ object ResumableExport {
         override fun read(b: ByteArray, off: Int, len: Int): Int { if (left <= 0) return -1; val n = super.read(b, off, minOf(len.toLong(), left).toInt()); if (n > 0) left -= n; return n }
     }
 
+    /**
+     * Retour Pixel du 09/11: media of a finished zip, read back from the zip itself (shown in Session > Export and checked
+     * by the Maestro flow): photos, their JSON sidecars, WAV files, and photo paths of releves.geojson found in the zip.
+     */
+    data class MediaSummary(val photos: Int, val sidecars: Int, val wavs: Int, val geojsonPhotoRefs: Int, val geojsonPhotoRefsMissing: Int) {
+        val text: String get() = "Médias : $photos photo(s), $sidecars fiche(s) JSON, $wavs WAV ; GeoJSON : $geojsonPhotoRefs photo(s) référencée(s)" +
+            if (geojsonPhotoRefsMissing > 0) ", $geojsonPhotoRefsMissing absente(s) du ZIP" else ""
+    }
+
+    fun mediaSummary(zip: File): MediaSummary = ZipFile(zip).use { zf ->
+        val names = zf.entries().asSequence().map { it.name }.toSet()
+        val photos = names.filter { it.startsWith("media/") && (it.endsWith(".jpg") || it.endsWith(".jpeg")) }
+        val refs = zf.getEntry(RELEVES)?.let { e -> zf.getInputStream(e).use { LumiJson.parseToJsonElement(it.readBytes().decodeToString()) } }
+            ?.let { (it as JsonObject)["features"] as? JsonArray }.orEmpty()
+            .flatMap { f -> (((f as JsonObject)["properties"] as? JsonObject)?.get("photos") as? JsonArray).orEmpty() }
+            .mapNotNull { (it as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull }
+        MediaSummary(photos.size, photos.count { "$it.json" in names }, names.count { it.startsWith("media/") && it.endsWith(".wav") },
+            refs.count { it in names }, refs.count { it !in names })
+    }
+
     fun openInput(f: File): InputStream = if (f.name.endsWith(".gz")) GZIPInputStream(f.inputStream(), 64 * 1024) else f.inputStream().buffered(64 * 1024)
 
     fun run(

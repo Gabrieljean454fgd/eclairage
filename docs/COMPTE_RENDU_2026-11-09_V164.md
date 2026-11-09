@@ -60,6 +60,13 @@ testTags. Aucun testTag renommé, aucune assertion retirée, aucun flow supprim�
   redémarrage d'esclave ; calcul du décalage et rejet d'un aller-retour trop long).
 - Flow `scenario_p2b_synchro_sans_esclave.yaml` : maître sans esclave → « 0 appareil » et « non synchronisé » : **passe** sur
   l'émulateur.
+- CI du 1er push du paquet 2 : tout passe sauf `scenario1_4_reimporter` (2 essais, « accueil_reglages » jamais visible).
+  Reproduit sur l'AVD local. Cause, d'après logcat : ce n'est pas un plantage de l'appli. Le flow relance l'appli avec
+  `clearState` alors qu'elle tourne encore après 1.3. Le système tue alors le processus qui vient d'être relancé
+  (« Destroy timeout of remove-task … Killing …lumisite… remove task », puis « failed to attach »), d'où un écran noir
+  pendant 90 s. Correction **du flow** : `stopApp` + Accueil avant le relancement, et un seul relancement sans effacement
+  si l'Accueil n'apparaît pas. L'assertion est inchangée. Le flow passe ensuite en local (relancement de secours non
+  utilisé). Je n'ai pas démontré pourquoi la course apparaît sur cette branche et pas sur le paquet 1.
 - **Non testé** : maître + esclave réels (« synchronisé »). Nearby a besoin de deux appareils avec Bluetooth/Wi-Fi ; je n'en ai
   pas. Aucun flow multi-appareils n'est livré tant qu'il n'a pas pu être exécuté.
 

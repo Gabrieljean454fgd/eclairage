@@ -5,9 +5,26 @@ appId: app.lumisite.android
 name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
 ---
 - runFlow: scenario1_3_exporter.yaml
+# L'appli tourne encore après 1.3 : l'effacement des données la tue, et le système peut aussi tuer le processus relancé
+# dans la foulée (logcat AVD du 09/11 : « Destroy timeout of remove-task … Killing …lumisite… remove task », puis
+# « failed to attach » ; écran noir 90 s). On l'arrête et on laisse le système fermer sa tâche ; si l'Accueil
+# n'apparaît pas, on relance une fois sans réeffacer.
+- stopApp
+- pressKey: Home
+- waitForAnimationToEnd
 - launchApp:
     clearState: true
     permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_reglages" }
+    timeout: 45000
+    optional: true
+- runFlow:
+    when:
+      notVisible: { id: "accueil_reglages" }
+    commands:
+      - launchApp:
+          permissions: { all: allow }
 - extendedWaitUntil:
     visible: { id: "accueil_reglages" }
     timeout: 90000

@@ -1,5 +1,7 @@
 package app.lumisite.core.export
 
+import app.lumisite.core.model.Attachment
+import kotlinx.serialization.json.JsonNull
 import app.lumisite.core.compute.CorrectedPoint
 import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.compute.TrajectoryCorrector
@@ -97,6 +99,51 @@ object ResumableExport {
     fun closedFiles(sessionDir: File, stream: String): List<File> =
         listOfNotNull(File(sessionDir, stream).takeIf { it.isFile }) + Segments.list(sessionDir).filter { it.stream == stream && !it.open }.map { it.file }
 
+    /** Paquet v6: closed files then the open segments (left by an abrupt stop, or still being written), in write order. */
+    fun snapshotFiles(sessionDir: File, stream: String): List<File> =
+        listOfNotNull(File(sessionDir, stream).takeIf { it.isFile }) + Segments.list(sessionDir).filter { it.stream == stream }.map { it.file }
+
+    /** An open segment listed at the snapshot may have been closed since (rotation: .part → .ndjson, then .ndjson.gz). */
+    fun current(f: File): File {
+        if (f.exists() || !f.name.endsWith(".part")) return f
+        val base = f.name.removeSuffix(".part")
+        return listOf("$base.ndjson", "$base.ndjson.gz").map { File(f.parentFile, it) }.firstOrNull { it.isFile } ?: f
+    }
+
+    /** Length of the complete lines of [f] within its first [len] bytes (an open segment may end with a line being written). */
+    fun completeLength(f: File, len: Long): Long {
+        if (!f.name.endsWith(".part")) return len
+        // Closed between listing and here: the closed segment only holds complete lines, read it all.
+        if (current(f) != f) return Long.MAX_VALUE
+        java.io.RandomAccessFile(f, "r").use { raf -> var end = minOf(len, raf.length()); while (end > 0) { raf.seek(end - 1); if (raf.read() == '\n'.code) break; end-- }; return end }
+    }
+
+    private fun limited(i: InputStream, max: Long): InputStream = object : java.io.FilterInputStream(i) {
+        var left = max
+        override fun read(): Int = if (left <= 0) -1 else super.read().also { if (it >= 0) left-- }
+        override fun read(b: ByteArray, off: Int, len: Int): Int { if (left <= 0) return -1; val n = super.read(b, off, minOf(len.toLong(), left).toInt()); if (n > 0) left -= n; return n }
+    }
+
+    /**
+     * Retour Pixel du 09/11: media of a finished zip, read back from the zip itself (shown in Session > Export and checked
+     * by the Maestro flow): photos, their JSON sidecars, WAV files, and photo paths of releves.geojson found in the zip.
+     */
+    data class MediaSummary(val photos: Int, val sidecars: Int, val wavs: Int, val geojsonPhotoRefs: Int, val geojsonPhotoRefsMissing: Int) {
+        val text: String get() = "Médias : $photos photo(s), $sidecars fiche(s) JSON, $wavs WAV ; GeoJSON : $geojsonPhotoRefs photo(s) référencée(s)" +
+            if (geojsonPhotoRefsMissing > 0) ", $geojsonPhotoRefsMissing absente(s) du ZIP" else ""
+    }
+
+    fun mediaSummary(zip: File): MediaSummary = ZipFile(zip).use { zf ->
+        val names = zf.entries().asSequence().map { it.name }.toSet()
+        val photos = names.filter { it.startsWith("media/") && (it.endsWith(".jpg") || it.endsWith(".jpeg")) }
+        val refs = zf.getEntry(RELEVES)?.let { e -> zf.getInputStream(e).use { LumiJson.parseToJsonElement(it.readBytes().decodeToString()) } }
+            ?.let { (it as JsonObject)["features"] as? JsonArray }.orEmpty()
+            .flatMap { f -> (((f as JsonObject)["properties"] as? JsonObject)?.get("photos") as? JsonArray).orEmpty() }
+            .mapNotNull { (it as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull }
+        MediaSummary(photos.size, photos.count { "$it.json" in names }, names.count { it.startsWith("media/") && it.endsWith(".wav") },
+            refs.count { it in names }, refs.count { it !in names })
+    }
+
     fun openInput(f: File): InputStream = if (f.name.endsWith(".gz")) GZIPInputStream(f.inputStream(), 64 * 1024) else f.inputStream().buffered(64 * 1024)
 
     fun run(
@@ -105,13 +152,18 @@ object ResumableExport {
     ): Result {
         progress(Progress(Step.PREPARATION, "Préparation…", 0, 1))
         val header = LumiJson.decodeFromString(SessionHeader.serializer(), File(sessionDir, Streams.HEADER).readText())
-        // Instantané: closed files only (open segments are rotated by the app before the export starts).
-        val rawFiles = rawStreams.associate { (stream, _, _) -> stream to closedFiles(sessionDir, stream) }
+        // Instantané: closed files, then the open segments up to their last complete line (paquet v6: an open segment left
+        // by an abrupt stop is exported and named in the notes, never silently left out).
+        val rawFiles = rawStreams.associate { (stream, _, _) -> stream to snapshotFiles(sessionDir, stream) }
+        val snapLen = rawFiles.values.flatten().associateWith { completeLength(it, it.length()) }
         val openSegs = Segments.list(sessionDir).filter { it.open }.map { it.file.name }
-        val events = rawFiles.getValue(Streams.EVENTS).flatMap { f -> lines(f).mapNotNull { runCatching { LumiJson.decodeFromString(SessionEvent.serializer(), it) }.getOrNull() } }
+        val events = rawFiles.getValue(Streams.EVENTS).flatMap { f -> lines(f, snapLen.getValue(f)).mapNotNull { runCatching { LumiJson.decodeFromString(SessionEvent.serializer(), it) }.getOrNull() } }
         val refs = events.filterIsInstance<SurveyEvent>().flatMap { it.attachments }.distinctBy { it.file }
         val media = refs.mapNotNull { a -> File(sessionDir, a.file).takeIf { it.isFile }?.let { a to it } }
-        val inputs = (rawFiles.values.flatten() + media.map { it.second }).map { ExportInput(it.relativeTo(sessionDir).invariantSeparatorsPath, it.length()) }
+        // Synchro recordings (sync_*.wav) are not attachments of a survey: exported as they are next to the photos.
+        val audio = sessionDir.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".wav") && media.none { m -> m.second == it } }.sortedBy { it.name }
+        val inputs = (rawFiles.values.flatten().map { it to snapLen.getValue(it) } + (media.map { it.second } + audio).map { it to it.length() })
+            .map { (f, n) -> ExportInput(f.relativeTo(sessionDir).invariantSeparatorsPath, n) }
         progress(Progress(Step.INSTANTANE, "Instantané : ${inputs.size} fichiers", 0, 1))
         val exportId = header.id + "-" + sha256(LumiJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(ExportInput.serializer()), inputs).toByteArray()).take(10)
         val dir = File(exportsRoot, exportId).apply { mkdirs() }
@@ -119,7 +171,7 @@ object ResumableExport {
         val zipName = "${header.id}.zip"
         var m = if (mf.isFile) runCatching { LumiJson.decodeFromString(ResumableManifest.serializer(), mf.readText()) }.getOrNull() else null
         if (m == null || m.inputs != inputs) m = ResumableManifest(exportId, header.id, nowUtcMs, Step.ASSEMBLAGE.name, zipName, inputs,
-            notes = if (openSegs.isEmpty()) emptyList() else listOf("Segments encore ouverts non exportés : $openSegs"))
+            notes = if (openSegs.isEmpty()) emptyList() else listOf("Segments encore ouverts, exportés jusqu'à leur dernière ligne complète : $openSegs"))
         val zip = File(dir, zipName)
         val part = File(dir, "$zipName.part")
         val reused = m.entries.map { it.name }
@@ -148,7 +200,7 @@ object ResumableExport {
                         val ser = serializerOf(type)
                         for (f in rawFiles.getValue(stream)) {
                             var pending = 0L
-                            openInput(f).bufferedReader().useLines { seq -> seq.forEach { line ->
+                            limited(openInput(current(f)), if (f.name.endsWith(".part")) snapLen.getValue(f) else Long.MAX_VALUE).bufferedReader().useLines { seq -> seq.forEach { line ->
                                 if (line.isEmpty()) return@forEach
                                 n++
                                 val b = (line + "\n").toByteArray(); out.write(b)
@@ -163,7 +215,7 @@ object ResumableExport {
                 }
                 entry("derived/trajectory_site.ndjson", "derived", "CorrectedPoint") { out ->
                     var count = 0
-                    val poses = rawFiles.getValue(Streams.POSES).asSequence().flatMap { lines(it) }
+                    val poses = rawFiles.getValue(Streams.POSES).asSequence().flatMap { lines(it, snapLen.getValue(it)) }
                         .mapNotNull { runCatching { LumiJson.decodeFromString(PoseSample.serializer(), it) }.getOrNull() }
                     TrajectoryCorrector.correctEach(poses, events, ltp) { c -> out.write((LumiJson.encodeToString(CorrectedPoint.serializer(), c) + "\n").toByteArray()); count++ }
                     count to emptyList()
@@ -173,8 +225,8 @@ object ResumableExport {
                     pts.forEach { out.write((LumiJson.encodeToString(DerivedSurveyPoint.serializer(), it) + "\n").toByteArray()) }
                     pts.size to emptyList()
                 }
+                val fc = Releves.featureCollection(events, ltp, header.device.id, header.id)
                 entry(RELEVES, "derived", "FeatureCollection") { out ->
-                    val fc = Releves.featureCollection(events, ltp, header.device.id, header.id)
                     out.write(PrettyJson.encodeToString(JsonObject.serializer(), fc).toByteArray())
                     (fc["features"] as JsonArray).size to emptyList()
                 }
@@ -184,6 +236,14 @@ object ResumableExport {
                         src.inputStream().use { copyBlocks(it, out) { b -> done += b } }
                         1 to emptyList()
                     }
+                }
+                // Paquet v6: business tags of each photo in a JSON file next to it (EXIF keeps GPS, orientation, date).
+                media.filter { it.first.mediaType.startsWith("image/") }.forEach { (a, _) ->
+                    val name = a.file.substringAfterLast('/')
+                    entry("media/$name.json", "derived", "PhotoTags") { out -> out.write(PrettyJson.encodeToString(JsonObject.serializer(), Releves.photoTags(fc, name, a, header, events.filterIsInstance<SurveyEvent>().lastOrNull { e -> e.attachments.any { it.file == a.file } })).toByteArray()); 1 to emptyList() }
+                }
+                audio.forEach { f ->
+                    entry("media/" + f.name, "media", "audio/x-wav") { out -> f.inputStream().use { copyBlocks(it, out) { b -> done += b } }; 1 to emptyList() }
                 }
                 entry(LISEZMOI, "doc", "text/plain") { out -> out.write(Releves.lisezmoi(header, site).toByteArray()); 1 to emptyList() }
                 val sm = sessionManifestOf(m!!.entries, site, header, events, generator, nowUtcMs, m!!.notes)
@@ -257,8 +317,8 @@ object ResumableExport {
         "SessionEvent" -> SessionEvent.serializer(); else -> JsonObject.serializer()
     }
 
-    private fun lines(f: File): Sequence<String> = sequence {
-        openInput(f).bufferedReader().use { r -> while (true) { val l = r.readLine() ?: break; if (l.isNotBlank()) yield(l) } }
+    private fun lines(f: File, max: Long = Long.MAX_VALUE): Sequence<String> = sequence {
+        limited(openInput(current(f)), if (f.name.endsWith(".part")) max else Long.MAX_VALUE).bufferedReader().use { r -> while (true) { val l = r.readLine() ?: break; if (l.isNotBlank()) yield(l) } }
     }
 
     private fun copyBlocks(input: InputStream, out: OutputStream, onBytes: (Long) -> Unit) {
@@ -368,9 +428,29 @@ object Releves {
                 // Contrat de données : pas de hauteur en mètres sans sol de référence connu.
                 put("hauteur", app.lumisite.core.contract.SiteHeight.UNQUALIFIED_LABEL)
             }
-            JsonObject(f + ("properties" to JsonObject(props + ("provenance" to provenance))))
+            // Paquet v6: paths of photos / voice notes = their entry in this zip (media/<name>).
+            fun inZip(key: String) = (props[key] as? JsonArray)?.let { arr -> key to JsonArray(arr.map { o ->
+                val obj = o as JsonObject; val path = obj["path"]?.jsonPrimitive?.contentOrNull
+                if (path == null) obj else JsonObject(obj + ("path" to JsonPrimitive("media/" + path.substringAfterLast('/'))))
+            }) }
+            val media = listOfNotNull(inZip("photos"), inZip("voice_notes")).toMap()
+            JsonObject(f + ("properties" to JsonObject(props + media + ("provenance" to provenance))))
         }
         return buildJsonObject { put("type", "FeatureCollection"); put("features", JsonArray(features)) }
+    }
+
+    /** Sidecar media/<photo>.json: the photo, its fingerprint and the business tags of its survey feature. */
+    fun photoTags(fc: JsonObject, name: String, a: Attachment, header: SessionHeader, origin: SurveyEvent? = null): JsonObject {
+        val feature = (fc["features"] as JsonArray).map { it as JsonObject }.firstOrNull { f ->
+            ((f["properties"] as JsonObject)["photos"] as? JsonArray)?.any { (it as JsonObject)["path"]?.jsonPrimitive?.contentOrNull == "media/$name" } == true
+        }
+        return buildJsonObject {
+            put("photo", "media/$name"); put("sha256", a.sha256); put("role", a.role)
+            put("session_id", header.id); put("device_id", header.device.id)
+            put("releve", feature ?: JsonNull)
+            // Photo replaced or survey deleted: no final feature, the tags of the journal event that carried it are kept.
+            if (feature == null && origin != null) put("releve_journal", LumiJson.encodeToJsonElement(SessionEvent.serializer(), origin))
+        }
     }
 
     fun lisezmoi(header: SessionHeader, site: Site): String = """
@@ -394,6 +474,11 @@ object Releves {
         derived/trajectory_site.ndjson, derived/survey_points.ndjson
           Calculs reproductibles depuis raw/ : trajectoire et points relevés dans le repère du site (mètres).
         media/
-          Photos et pièces jointes, copiées telles quelles (empreinte dans session.json).
+          Photos, notes vocales et enregistrements de synchro (sync_*.wav), copiés tels quels (empreinte dans session.json).
+          media/<photo>.json : à côté de chaque photo, le relevé auquel elle appartient (famille, détails, note,
+          coordonnées, provenance). Les données EXIF de la photo (GPS, orientation, date) sont conservées.
+        Segments ouverts
+          Un journal resté ouvert (arrêt brutal) est exporté jusqu'à sa dernière ligne complète ; session.json le signale
+          dans "notes".
     """.trimIndent() + "\n"
 }

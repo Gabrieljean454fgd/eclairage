@@ -29,9 +29,11 @@ name: "Scénario 1.4 — Réglages, Stockage, Réimporter"
       - waitForAnimationToEnd
       - tapOn: { point: "50%,93%" }
 - tapOn: { text: "(?i)autoriser|allow", optional: true }
+# Retour Pixel du 09/11 : Documents/LumiSite contenait 4,5 Go, le réimport copie et vérifie chaque session trouvée ;
+# 90 s ne suffisaient pas. Attente portée à 15 min (l'assertion du résultat est inchangée).
 - extendedWaitUntil:
     visible: { id: "reglages_stockage_resultat" }
-    timeout: 90000
+    timeout: 900000
 - assertVisible: ".*réimportée.*"
 - tapOn: { id: "reglages_retour" }
 - assertVisible: "Maestro bureau"

@@ -66,7 +66,8 @@ class ExportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             }
             DiagLog.i("EXPORT", "Export ${r.zip.name} terminé (${r.zip.length()} octets), copie : ${r.publicPath ?: "non faite"}")
             Result.success(workDataOf(KEY_ZIP to r.zip.path, KEY_PUBLIC to r.publicPath, KEY_URI to r.publicUri?.toString(),
-                KEY_PROBLEMS to r.problems.joinToString("\n"), KEY_FILES to r.manifest.files.size))
+                KEY_PROBLEMS to r.problems.joinToString("\n"), KEY_FILES to r.manifest.files.size,
+                KEY_MEDIA to runCatching { ResumableExport.mediaSummary(r.zip).text }.getOrNull()))
         } catch (e: CancellationException) {
             DiagLog.i("EXPORT", "Export $sessionId interrompu ; il reprendra au prochain lancement")
             throw e
@@ -81,7 +82,7 @@ class ExportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         private const val NOTIF_BASE = 4200
         const val KEY_SESSION = "session"; const val KEY_SITE = "site"; const val KEY_STEP = "step"; const val KEY_DETAIL = "detail"
         const val KEY_PCT = "pct"; const val KEY_ZIP = "zip"; const val KEY_PUBLIC = "public"; const val KEY_URI = "uri"
-        const val KEY_PROBLEMS = "problems"; const val KEY_FILES = "files"; const val KEY_ERROR = "error"
+        const val KEY_PROBLEMS = "problems"; const val KEY_FILES = "files"; const val KEY_ERROR = "error"; const val KEY_MEDIA = "media"
 
         /** Percentage of the exports running in this process (cards of Accueil / Site, Terminer message). */
         val live = ConcurrentHashMap<String, Int>()

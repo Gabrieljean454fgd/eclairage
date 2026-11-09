@@ -25,6 +25,13 @@ for f in .maestro/*.yaml; do
     fi
   done
   if [ $ok = 1 ]; then summary+="- ✅ ${name} (essai ${attempt})"$'\n'; else summary+="- ❌ ${name} (2 essais)"$'\n'; fail=1; fi
+  # Retour Pixel du 09/11 (point 4) : le ZIP copié dans Documents/LumiSite (conservé par pm clear) est relu hors de l'appli.
+  if [ "$name" = scenario_v6_export_medias ] && [ $ok = 1 ]; then
+    z=$(adb shell "ls -t /sdcard/Documents/LumiSite/*/*/exports/*.zip 2>/dev/null" | tr -d '\r' | grep -i medias | head -1)
+    if [ -n "$z" ] && adb pull "$z" maestro-out/export_medias.zip >/dev/null && python3 .github/scripts/verifier_export_medias.py maestro-out/export_medias.zip > maestro-out/export_medias_zip.log 2>&1; then
+      summary+="- ✅ ZIP relu : media/ (photo, fiche JSON, WAV) et chemins du GeoJSON"$'\n'
+    else summary+="- ❌ ZIP de scenario_v6_export_medias non conforme ou introuvable (maestro-out/export_medias_zip.log)"$'\n'; fail=1; fi
+  fi
 done
 # LOT 1.5 : conservation des données à la mise à jour. Version N = dernière pré-release publiée de la même étape (même clé
 # de test), session créée, arrêt brutal, puis adb install -r de cette version N+1 : la session doit rester lisible et exportable.
@@ -47,5 +54,18 @@ if [ -n "$PREV_TAG" ] && gh release download "$PREV_TAG" -p '*.apk' -D prev >/de
 else
   summary+="- ⚠️ mise à jour non exécutée : aucune pré-release etape${N_ETAPE} téléchargeable"$'\n'
 fi
+# Paquet v6 (anomalies 1 à 4 du 08/11) : même APK, calibrage 2 points + position du téléphone + relevé, arrêt brutal,
+# adb install -r par-dessus (données conservées), reprise : relevé et calibrage précédents affichés, nouveau calibrage, relevé.
+ok=0
+for attempt in 1 2; do
+  adb uninstall app.lumisite.android >/dev/null 2>&1; adb shell input keyevent KEYCODE_HOME; sleep 2
+  adb install "$APK" >/dev/null || continue
+  maestro test .maestro/maj/v6_avant.yaml --debug-output "maestro-out/v6_avant-${attempt}" > "maestro-out/v6_avant-${attempt}.log" 2>&1 || continue
+  adb shell am force-stop app.lumisite.android
+  adb install -r "$APK" > "maestro-out/v6_install-${attempt}.log" 2>&1 || continue
+  if maestro test .maestro/maj/v6_apres.yaml --debug-output "maestro-out/v6_apres-${attempt}" > "maestro-out/v6_apres-${attempt}.log" 2>&1; then ok=1; break; fi
+done
+if [ $ok = 1 ]; then summary+="- ✅ réinstallation adb install -r, reprise, calibrage et relevé (essai ${attempt})"$'\n'
+else summary+="- ❌ réinstallation adb install -r, reprise, calibrage et relevé (2 essais)"$'\n'; fail=1; fi
 printf '%s' "$summary" | tee maestro-out/resume.md
 exit $fail

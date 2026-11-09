@@ -14,11 +14,11 @@ name: Session annoter selection directe et deplacement
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8
     commands:
-      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
 - assertVisible: { id: "session_releve_checkbox", checked: true }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
 - tapOn: { id: "session_releve_enregistrer_le_releve" }
 # Session > Relevé > photo automatique (activée par défaut) : l'appareil photo s'ouvre, retour sans photo, « Passer ».
 - back

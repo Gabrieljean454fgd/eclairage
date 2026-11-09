@@ -39,11 +39,11 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     tracking != TrackingState.TRACKING -> Color(0xFFD50000) to "Suivi perdu"
     aim == AimResult.Grazing -> Color(0xFFD50000) to "Orientez l'appareil vers le sol"
     // Each source has its own colour; only a detected plane is shown as a real target (green).
-    aim is AimResult.Hit && aim.source == "ESTIMATED" -> Color(0xFFFF9800) to "Pas de cible : point estimé à 50 cm"
+    aim is AimResult.Hit && aim.source == "ESTIMATED" -> Color(0xFFFF9800) to "Point visé : pas de cible, estimé à 50 cm"
     aim is AimResult.Hit && aim.source == "AR_PLANE" -> Color(0xFF00C853) to "Plan détecté"
     aim is AimResult.Hit && aim.source == "AR_LAST_PLANE" -> Color(0xFF00B0FF) to "Pas de plan : hauteur du dernier objet"
     aim is AimResult.Hit -> Color(0xFFFFEB3B) to "Pas de plan : sol estimé 1,4 m sous l'appareil"
-    else -> Color(0xFFD50000) to "Pas de cible"
+    else -> Color(0xFFD50000) to "Point visé : pas de cible"
 }
 
 /** Drawn over the camera view (inside its Box): reticle coloured by tracking/aim state and calibration label. */

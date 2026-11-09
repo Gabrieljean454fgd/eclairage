@@ -1,0 +1,61 @@
+# Paquet v6, anomalie de la scène 1 du 08/11 (4 points AR associés au même point carte, aucune calibration) :
+# Session > « Calibrer » > « Point à la croix » sans déplacer la carte > « Valider le point » deux fois. Le 2e point sur le
+# même point carte est refusé avec un message, le tableau garde 1 ligne. Poses AR simulées (simuler_pose_ar, APK de débogage).
+appId: app.lumisite.android
+name: "Calibrage meme point carte refuse"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+    arguments:
+      simuler_pose_ar: true
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro meme point"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- tapOn: { id: "nouveau_site_creer" }
+- tapOn: { id: "site_nouvelle_session_terrain" }
+- assertVisible: { id: "session_terminer_la_session" }
+- tapOn: { id: "session_calibrer" }
+- tapOn: { id: "session_point_a_la_croix" }
+# Cap de visée du 1er point (sans lui, un seul point ne donne pas de transformation : retour test Pixel du 09/11).
+- tapOn: { id: "session_calibrer_cap_de_visee" }
+- inputText: "0"
+- hideKeyboard
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+# Le dernier message est fixé en bas (~85–90 %) : les glissements partent de 74 %, dans le panneau.
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_calibrer_ligne_1" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_valider_la_calibration" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# Marge : le bouton doit être entièrement sous la carte, sinon l'appui tombe sur la carte.
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# 2e point sur le même point carte (la croix n'a pas bougé) : refusé, non forçable.
+- tapOn: { id: "session_calibrer_valider_la_calibration" }
+- extendedWaitUntil:
+    visible: ".*Point carte déjà utilisé.*"
+    timeout: 10000
+- assertVisible: ".*Point carte déjà utilisé.*"
+- assertNotVisible: { id: "session_calibrer_recaler_quand_meme" }
+- assertNotVisible: { id: "session_calibrer_ligne_2" }

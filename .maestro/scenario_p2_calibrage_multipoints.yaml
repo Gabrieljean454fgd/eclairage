@@ -37,11 +37,19 @@ name: "Session calibrage multipoints"
 - inputText: "0"
 - hideKeyboard
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
-- swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_1" }
-- tapOn: { point: "30%,50%" }
-- swipe: { start: "50%,70%", end: "50%,88%", duration: 600 }
-- swipe: { start: "50%,70%", end: "50%,88%", duration: 600 }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_valider_la_calibration" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# Marge : le bouton doit être entièrement sous la carte, sinon l'appui tombe sur la carte.
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+# 2e point carte = position actuelle du téléphone (Centrer / Suivre puis Point à la croix), calibrée par le point 1 + cap, choisie juste avant Valider (le téléphone simulé avance de 0,6 m/s) :
+# correspondance cohérente avec les poses simulées. Un point arbitraire de la carte est refusé comme contradictoire (paquet v6).
+- tapOn: { id: "session_trajectoire_estimee_vert_non_gar" }
+- tapOn: { id: "session_point_a_la_croix" }
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
 # Le dernier message est fixé au-dessus de la barre d'actions (bas de l'écran) : on glisse plus haut, dans le panneau, jusqu'à la ligne 2.
 - repeat:

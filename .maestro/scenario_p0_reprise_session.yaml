@@ -43,7 +43,7 @@ name: "Session reprise donnees affichees"
     while: { notVisible: { id: "session_calibrer_ligne_1" } }
     times: 8
     commands:
-      - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_1" }
 # Deux relevés (pose AR simulée, transformée par le calibrage).
 # « Relevé » ouvre le panneau une fois ; il reste ouvert après l'enregistrement (un 2e appui le fermerait).
@@ -55,16 +55,16 @@ name: "Session reprise donnees affichees"
           while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
           times: 8
           commands:
-            - swipe: { start: "50%,72%", end: "50%,88%", duration: 600 }
+            - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
       - tapOn: { id: "session_annoter_famille_Amplificateur" }
       - repeat:
           while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
           times: 8
           commands:
-            - swipe: { start: "50%,88%", end: "50%,72%", duration: 600 }
+            - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
       # Le bouton est en bas du panneau, sous le dernier message : on le remonte entièrement avant l'appui au centre.
-      - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
-      - swipe: { start: "50%,88%", end: "50%,70%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
       - tapOn: { id: "session_releve_enregistrer_le_releve" }
       - waitForAnimationToEnd
       # Photo automatique : l'appli photo externe passe au premier plan ; Retour la ferme (jamais quand LumiSite est visible).
@@ -87,7 +87,7 @@ name: "Session reprise donnees affichees"
 - extendedWaitUntil:
     visible: { id: "session_reprise_bandeau" }
     timeout: 30000
-- assertVisible: "Session reprise : vos relevés sont affichés. Repositionnez-vous \\(2 points\\) pour continuer en AR."
+- assertVisible: "Position du téléphone perdue à la fermeture. Touchez 2 points déjà calibrés pour reprendre."
 - assertVisible: "2 relevé\\(s\\), 1 point\\(s\\) de calibrage de la session précédente"
 - assertVisible: { id: "session_reprise_positionner" }
 # Les 2 relevés sont listés (et dessinés sur la carte) avant tout repositionnement.

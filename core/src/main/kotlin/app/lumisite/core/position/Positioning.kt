@@ -22,6 +22,8 @@ data class ControlPoint(
     val target: Vec2,
     val relocalization: Boolean = false,
     val rotationRad: Double? = null,
+    /** Kept although it contradicts older points (« Recaler quand même », cause journaled): never rejected automatically. */
+    val forced: Boolean = false,
 )
 
 @Serializable
@@ -65,16 +67,20 @@ object CalibrationSolver {
     fun solve(points: List<ControlPoint>, nowNs: Long, fallbackRotationRad: Double? = null, s: SolverSettings = SolverSettings()): Solution? {
         if (points.isEmpty()) return null
         val w = points.associate { it.id to weight(nowNs - it.tNs, s) }
-        val anchor = points.filter { it.relocalization }.maxByOrNull { it.tNs }
         val firstRotation = points.firstNotNullOfOrNull { it.rotationRad } ?: fallbackRotationRad
-        val rejected = LinkedHashSet<String>()
-        var kept = points
+        // Paquet v6 (scène 2 du 08/11): contradictory pairs (phone ~still, map points far apart) are removed before the
+        // fit; age weighting and a pinned relocalization anchor would otherwise let them turn the whole transform.
+        val rejected = LinkedHashSet(ControlPointCheck.inconsistent(points))
+        var kept = points.filter { it.id !in rejected }
+        if (kept.isEmpty()) return null
+        // « Recaler quand même »: a forced point (calibration or relocalization) is honoured exactly like a relocalization.
+        val anchor = kept.filter { it.relocalization || it.forced }.maxByOrNull { it.tNs }
         var fit = fit(kept, w, anchor, firstRotation, s) ?: return null
         var iter = 0
         while (iter < s.maxIterations && kept.size > 2) {
             iter++
             val res = kept.associate { it.id to residual(fit.first, it) }
-            val cand = kept.filter { it.id != anchor?.id }.maxByOrNull { res.getValue(it.id) } ?: break
+            val cand = kept.filter { it.id != anchor?.id && !it.forced }.maxByOrNull { res.getValue(it.id) } ?: break
             val others = kept.filter { it.id != cand.id }.map { res.getValue(it.id) }
             val sigma = sqrt(others.sumOf { it * it } / others.size)
             if (res.getValue(cand.id) <= max(s.sigmaFactor * sigma, s.minRejectM)) break

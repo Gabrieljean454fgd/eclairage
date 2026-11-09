@@ -291,6 +291,11 @@ data class ControlPointEvent(
     val observation: LocalObservation,
     val headingDeg: Double? = null,
     val headingSource: String? = null,
+    /** « Recaler quand même »: cause chosen by the user (e.g. ARCore tracking lost) for a point refused as contradictory. */
+    val forcedCause: String? = null,
+    /** Refusal message the user overrode, and the point it contradicted. */
+    val forcedRefusal: String? = null,
+    val forcedAgainst: String? = null,
 ) : SessionEvent
 
 /** « Supprimer » on a row of the table: the point is ignored from now on (the journal keeps it). */

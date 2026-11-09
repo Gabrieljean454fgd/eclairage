@@ -73,3 +73,7 @@ Tests : CI (émulateur Pixel 7, API 34) et émulateur local seulement ; aucun te
 1. Copie unique D9 : les flux historiques sont gardés comme seule copie (lecteur, export et réimport existants). Faut-il plutôt basculer sur `captation.ndjson` seul ?
 2. Audio : PCM brut (≈ 200 Mo / 35 min) ou FLAC ?
 3. Capteurs dérivés (gravité, rotation « jeu », non calibrés) : plus enregistrés. À rétablir derrière un réglage si Sébastien en a l'usage ?
+
+## Relance v6 — paquet 1 (08/11)
+
+Voir `docs/COMPTE_RENDU_2026-11-08_PAQUET1.md`.

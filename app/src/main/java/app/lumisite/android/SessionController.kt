@@ -13,6 +13,8 @@ import app.lumisite.core.position.GnssObservation
 import app.lumisite.core.position.GnssClassifier
 import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.CalibrationSolver
+import app.lumisite.core.position.CalibrationQuality
+import app.lumisite.core.position.ControlPointCheck
 import android.content.Context
 import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.GpsRecorder
@@ -106,7 +108,15 @@ data class LiveState(
     val gnssReasons: List<String> = emptyList(),
     /** D3–D5: last solution of the calibration / relocalization tables (residual and status of every row). */
     val controlSolution: Solution? = null,
+    /** Décision A: last contradictory point refused, that the user may force (« Recaler quand même »). */
+    val forcible: ForcibleControlPoint? = null,
 )
+
+/** A point refused as contradictory, kept until the user forces it, adds another point or clears the table. */
+data class ForcibleControlPoint(val kind: String, val ref: ReferencePoint, val headingDeg: Double?, val headingSource: String?,
+                                val headingCorrectionDeg: Double?, val note: String?, val refusal: ControlPointCheck.Refusal,
+                                /** Phone pose when the user confirmed the point (forcing later must not use a newer pose). */
+                                val pose: PoseSample)
 
 /** One row of Session > Calibrer / Recaler > tableau. */
 data class ControlRow(val n: Int, val e: ControlPointEvent, val residualM: Double?, val status: String)
@@ -483,13 +493,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = observationNow(e).pose ?: return null
         val site = e.observation.reference.site
         return ControlPoint(e.id, e.t.monotonicNs, PoseGeometry.plane(pose), Vec2(site.e, site.n), e.kind == "RELOCALIZATION",
-            e.headingDeg?.let { Angles.wrapPi(Angles.headingDegToEnuRad(it) - PoseGeometry.forwardPlaneAngle(pose)) })
+            e.headingDeg?.let { Angles.wrapPi(Angles.headingDegToEnuRad(it) - PoseGeometry.forwardPlaneAngle(pose)) }, forced = e.forcedCause != null)
     }
 
     fun controlRows(kind: String): List<ControlRow> {
         val sol = _state.value.controlSolution
         return activeControlEvents().filter { it.kind == kind }.mapIndexed { i, e ->
-            ControlRow(i + 1, e, sol?.residualsM?.get(e.id), when { sol == null -> "en attente"; e.id in sol.rejected -> "rejeté"; e.id == sol.anchorId -> "ancre"; else -> "retenu" })
+            ControlRow(i + 1, e, sol?.residualsM?.get(e.id), when { sol == null -> "en attente"; e.id in sol.rejected -> "rejeté"; e.id == sol.anchorId -> "ancre"; else -> "retenu" } + if (e.forcedCause != null) " · forcé" else "")
         }
     }
 
@@ -512,14 +522,75 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = trackedPose() ?: return fail(poseUnavailable(if (reloc) "Recalage" else "Calibrage"))
         val before = activeSegment()
         if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
+        // Paquet v6: same map point reused, or contradictory pair (phone ~still, map points far apart), refused before recording.
+        val active = activeControlEvents()
+        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(ref.site.e, ref.site.n), reloc)
+        val label: (ControlPoint) -> String = { p ->
+            val e = active.first { it.id == p.id }
+            "${active.filter { it.kind == e.kind }.indexOf(e) + 1} (${if (e.kind == "RELOCALIZATION") "recalage" else "calibrage"})"
+        }
+        ControlPointCheck.refusal(active.mapNotNull(::toControlPoint), cand, label)?.let { r ->
+            DiagLog.i("POSITION", "Point refusé : ${r.message}")
+            _state.update { it.copy(forcible = if (r.overridable) ForcibleControlPoint(kind, ref, headingDeg, headingSource, headingCorrectionDeg, note, r, pose) else null) }
+            return fail(if (r.overridable) r.message + " Après une perte de suivi ARCore, « Recaler quand même » est possible." else r.message)
+        }
+        _state.update { it.copy(forcible = null) }
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
         record(e)
         ar.requestAnchor(e.id, pose)
         resolve(e, before, headingCorrectionDeg, note)
     }
 
+    /**
+     * Décision A (09/11), Session > Calibrer / Recaler > « Recaler quand même »: records the refused contradictory point at
+     * the current phone position, with the user's [cause] and the overridden refusal. Older points are kept (the user
+     * removes them from the table if needed); a reused map point stays refused.
+     */
+    fun forceControlPoint(cause: String) {
+        val f = _state.value.forcible ?: return
+        trackedPose() ?: return fail(poseUnavailable("Recalage forcé"))
+        val pose = f.pose
+        val before = activeSegment()
+        val active = activeControlEvents()
+        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(f.ref.site.e, f.ref.site.n), f.kind == "RELOCALIZATION")
+        ControlPointCheck.sameMapPoint(active.mapNotNull(::toControlPoint), cand)?.let { _state.update { s -> s.copy(forcible = null) }; return fail(it.message) }
+        _state.update { it.copy(forcible = null) }
+        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), f.kind, LocalObservation(pose, f.ref), f.headingDeg, f.headingSource,
+            forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId)
+        DiagLog.i("POSITION", "Point forcé par l'utilisateur (${f.kind}) : cause « $cause » ; refus ignoré : ${f.refusal.message}")
+        record(e)
+        ar.requestAnchor(e.id, pose)
+        resolve(e, before, f.headingCorrectionDeg, listOfNotNull(f.note, "forcé : $cause").joinToString(" · "))
+        _state.update { it.copy(message = "Point forcé enregistré (cause : $cause). Les points précédents sont conservés : supprimez-les dans le tableau s'ils sont faux. " + (it.message ?: "")) }
+    }
+
+    /** Last loss of ARCore tracking journaled in this session (« 18:23:34, INSUFFICIENT_FEATURES »), shown before forcing. */
+    fun lastTrackingLoss(): String? = _state.value.events.filterIsInstance<TrackingStateChanged>()
+        .let { ev -> ev.drop(ev.indexOfFirst { it.state == TrackingState.TRACKING } + 1).takeIf { ev.any { it.state == TrackingState.TRACKING } }.orEmpty() }
+        .lastOrNull { it.state != TrackingState.TRACKING }?.let {
+        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date(it.t.utcEpochMs)) + (it.reason?.let { r -> ", $r" } ?: "")
+    }
+
+    /** Session > Calibrer: quality of the live calibration (bon / moyen / insuffisant), null before the first point. */
+    fun calibrationGrade(): CalibrationQuality.Grade? {
+        val pts = activeControlEvents().mapNotNull(::toControlPoint)
+        return if (pts.isEmpty()) null else CalibrationQuality.grade(pts, _state.value.controlSolution)
+    }
+
+    /** Session > Calibrer > « Contrôler ici »: distance between the phone position and a known map point, not used in the solve. */
+    fun controlCheck(ref: ReferencePoint): Double? {
+        val pose = trackedPose() ?: run { fail(poseUnavailable("Contrôle")); return null }
+        val seg = activeSegment() ?: run { fail("Contrôle impossible : aucun calibrage actif."); return null }
+        val p = seg.transform.apply(PoseGeometry.plane(pose))
+        val d = (p - Vec2(ref.site.e, ref.site.n)).norm()
+        DiagLog.i("POSITION", "Point de contrôle (hors calcul) ${ref.label} : écart " + "%.2f".format(java.util.Locale.ROOT, d) + " m")
+        _state.update { it.copy(message = "Point de contrôle (non utilisé dans le calcul) : écart " + "%.2f".format(java.util.Locale.FRANCE, d) + " m" + if (d > 1.0) " : calibrage imprécis." else ".") }
+        return d
+    }
+
     fun removeControlPoint(id: String) {
         val before = activeSegment()
+        _state.update { it.copy(forcible = null) }
         record(ControlPointRemoved(Ids.new("ev"), stamps.now(), id))
         ar.dropAnchor(id); anchorPoses.remove(id)
         resolve(null, before)
@@ -528,6 +599,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     /** « Nouveau calibrage » empties both tables, « Nouveau recalage » only the relocalizations. */
     fun clearControlPoints(relocalizationsOnly: Boolean) {
         val before = activeSegment()
+        _state.update { it.copy(forcible = null) }
         activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)); ar.dropAnchor(it.id); anchorPoses.remove(it.id) }
         resolve(null, before)
     }
@@ -605,7 +677,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
-        if (manual == null && needsReposition()) { fail("Pose AR désactivée : la session reprise n'est pas repositionnée. Touchez le point sur la carte, ou repositionnez-vous (Calibrer, 2 points)."); return false }
+        if (manual == null && needsReposition()) { fail("Position du téléphone perdue à la fermeture : pas de point visé AR. Touchez le point sur la carte, ou touchez 2 points déjà calibrés (Calibrer, 2 points)."); return false }
         val aim = if (pose != null && seg != null) ar.aim.value else null
         if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit

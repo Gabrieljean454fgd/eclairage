@@ -23,7 +23,8 @@ Branche `etape-3-paquet3-flows`, empilée sur `etape-3-paquet2-synchro` (c7988ae
 
 ## Tests
 - Émulateur : `scenario_p0_reprise_session` et `scenario_p2_calibrage_multipoints` passent avant et après la correction.
-- CI : voir la PR. La pré-release n'est publiée que si la CI est verte.
+- CI (6f83c12, run 43001145903) : verte. Les 21 parcours et les 2 enchaînements de mise à jour (v173 → v175, `adb install -r`) passent tous au 1er essai.
+- Pré-release : [etape3-6f83c12](https://github.com/Gabrieljean454fgd/eclairage/releases/tag/etape3-6f83c12), `lumisite-etape3-v175-6f83c12.apk` (versionCode 175).
 
 ## Reste
 - À revalider sur le Pixel (non testé par Devin).

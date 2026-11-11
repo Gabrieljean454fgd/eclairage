@@ -37,7 +37,13 @@ name: "Session calibrage multipoints"
 - inputText: "0"
 - hideKeyboard
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
-- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+# Un seul balayage ne suffisait pas toujours (CI 09/11 essai 1, Pixel v173 : point retenu, ligne 1 hors écran) ;
+# même boucle que scenario_p0_reprise_session, qui passe à cette étape sur le Pixel.
+- repeat:
+    while: { notVisible: { id: "session_calibrer_ligne_1" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_1" }
 - repeat:
     while: { notVisible: { id: "session_calibrer_valider_la_calibration" } }

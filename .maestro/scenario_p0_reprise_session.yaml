@@ -92,25 +92,28 @@ name: "Session reprise donnees affichees"
 - assertVisible: { id: "session_reprise_positionner" }
 # Les 2 relevés sont listés (et dessinés sur la carte) avant tout repositionnement.
 - tapOn: { id: "session_annoter" }
+# Pixel v173 : la liste n'était pas atteinte. Après reprise, le bas de l'écran est occupé par le bandeau et le message
+# fixés (~78–91 % de la hauteur, capture CI du 09/11) : un balayage partant à 80 % démarre sur cette zone fixe.
+# Les balayages partent donc à 74 %, dans le panneau défilant (comme les autres boucles de ce flow).
 - repeat:
     while: { notVisible: { id: "session_objets_releve_2" } }
-    times: 12
+    times: 14
     commands:
-      - swipe: { start: "50%,80%", end: "50%,66%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
 - assertVisible: { id: "session_objets_releve_2" }
 - repeat:
     while: { notVisible: { id: "session_objets_releve_1" } }
     times: 4
     commands:
-      - swipe: { start: "50%,68%", end: "50%,78%", duration: 600 }
+      - swipe: { start: "50%,64%", end: "50%,74%", duration: 600 }
 - assertVisible: { id: "session_objets_releve_1" }
 # Le bouton du bandeau ouvre Session > Calibrer, où la ligne de la session précédente est affichée.
 - tapOn: { id: "session_reprise_positionner" }
 - repeat:
     while: { notVisible: { id: "session_calibrer_precedente_1" } }
-    times: 8
+    times: 10
     commands:
-      - swipe: { start: "50%,80%", end: "50%,66%", duration: 600 }
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
 - assertVisible: ".*session précédente.*"
 - assertVisible: { id: "session_calibrer_precedente_1" }
 - takeScreenshot: reprise_session

@@ -408,7 +408,8 @@ class VoiceRec(ctx: Context, val file: File, val startUtc: Long, val mono: Long)
 
 /** Photo (role "etiquette" or "vue") and voice note attached to a survey record, as separate files with sha256. */
 @Composable
-fun AttachmentButtons(c: SessionController, surveyId: String) {
+fun AttachmentButtons(c: SessionController, surveyId: String, attachments: List<app.lumisite.core.model.Attachment> = emptyList(), onReselect: (String) -> Unit = {}) {
+    val counts = app.lumisite.core.survey.SurveyEdits.attachmentCounts(attachments)
     val ctx = LocalContext.current
     // Survives the activity being recreated while the camera app is in front: "path|role".
     var pending by rememberSaveable { mutableStateOf<String?>(null) }
@@ -418,7 +419,7 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
             val f = File(p.substringBeforeLast('|')); val role = p.substringAfterLast('|')
             if (ok && f.exists() && f.length() > 0) {
                 val dest = c.attachmentFile("ph", "jpg")
-                if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) c.attach(surveyId, dest, "image/jpeg", role)
+                if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) c.attach(surveyId, dest, "image/jpeg", role)?.let(onReselect)
                 else c.notify("Photo non enregistrée.")
             } else f.delete()
         }
@@ -433,7 +434,7 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
                 // Only capture/ is exposed through the FileProvider; the photo is moved into the session afterwards.
                 val f = File(File(ctx.filesDir, "capture").apply { mkdirs() }, "ph_${System.currentTimeMillis()}.jpg"); pending = "${f.absolutePath}|$role"
                 runCatching { take.launch(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)) }.onFailure { c.notify("Appareil photo indisponible : ${it.message}") }
-            }, modifier = Modifier.testTag("session_pieces_photo_" + role)) { Text(l) }
+            }, modifier = Modifier.testTag("session_pieces_photo_" + role)) { Text("$l (${counts[role] ?: 0})") }
         }
         OutlinedButton({
             val r = rec
@@ -441,8 +442,8 @@ fun AttachmentButtons(c: SessionController, surveyId: String) {
                 if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { perm.launch(Manifest.permission.RECORD_AUDIO); return@OutlinedButton }
                 val f = c.attachmentFile("vn", "m4a"); val st = c.stampNow()
                 rec = runCatching { VoiceRec(ctx, f, st.utcEpochMs, st.monotonicNs) }.onFailure { c.notify("Enregistrement impossible : ${it.message}") }.getOrNull()
-            } else { r.stop(); rec = null; c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono) }
-        }, modifier = Modifier.testTag("session_pieces_note_vocale")) { Text(if (rec == null) "Note vocale" else "Arrêter la note") }
+            } else { r.stop(); rec = null; c.attach(surveyId, r.file, "audio/mp4", "voix", r.startUtc, r.mono)?.let(onReselect) }
+        }, modifier = Modifier.testTag("session_pieces_note_vocale")) { Text(if (rec == null) "Note vocale (${counts["voix"] ?: 0})" else "Arrêter la note") }
     }
     // Leaving the record while recording keeps the note instead of leaving an orphan file.
     DisposableEffect(surveyId) {

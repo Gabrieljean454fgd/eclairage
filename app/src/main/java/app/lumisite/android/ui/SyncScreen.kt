@@ -55,7 +55,7 @@ fun SyncScreen(onBack: () -> Unit) {
         if (perms.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }) NearbyMesh.start(ctx, role) else launcher.launch(perms)
     }
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Synchro", style = MaterialTheme.typography.headlineSmall)
+        Text("Sync", style = MaterialTheme.typography.headlineSmall)
         Text("Réseau local (Nearby, sans cloud). Le maître fait le relevé ; les esclaves envoient horodatages et médias.", style = MaterialTheme.typography.bodySmall)
         if (!st.running) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

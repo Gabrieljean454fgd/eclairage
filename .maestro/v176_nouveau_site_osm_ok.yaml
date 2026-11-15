@@ -1,0 +1,37 @@
+# v176a A2 : Nouveau site > « Autour de l'origine » > « Récupérer » : bandeau vert « Données OSM récupérées : N objets »
+# au-dessus de « Créer le site » (orange pendant le chargement, rouge si échec). Nécessite le réseau (API OSM).
+appId: app.lumisite.android
+name: "v176a Nouveau site OSM recupere"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro OSM"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- assertNotVisible: { id: "nouveau_site_osm_etat" }
+- scrollUntilVisible: { element: { id: "nouveau_site_autour_de_l_origine" } }
+- tapOn: { id: "nouveau_site_autour_de_l_origine" }
+- scrollUntilVisible: { element: { id: "nouveau_site_recuperer" } }
+- tapOn: { id: "nouveau_site_recuperer" }
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- extendedWaitUntil:
+    visible: { id: "nouveau_site_osm_etat", text: "Données OSM récupérées : [0-9]+ objets" }
+    timeout: 90000
+- assertVisible: { id: "nouveau_site_creer" }
+- assertVisible: "Créer le site"
+- takeScreenshot: maestro-out/captures/v176_nouveau_site_osm_ok

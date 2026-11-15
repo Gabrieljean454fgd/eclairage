@@ -1,0 +1,24 @@
+# v176a A4 : Relevé > Détails > croix « Ajuster la position (10 cm / 50 cm) » : ↑ augmente N de 0,10 m, valeur visible ;
+# en 50 cm, → augmente E de 0,50 m. Les détails restent ouverts après chaque appui.
+appId: app.lumisite.android
+name: "v176a Detail croix de decalage"
+---
+- runFlow: v176/releve_au_centre.yaml
+- tapOn: { id: "session_objet_details" }
+- repeat:
+    while: { notVisible: { id: "session_objet_bas" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: "Ajuster la position \\(10 cm / 50 cm\\)"
+- copyTextFrom: { id: "session_objet_decalage_valeur" }
+- evalScript: ${output.n0 = parseFloat(maestro.copiedText.split('N ')[1].replace(',', '.')); output.e0 = parseFloat(maestro.copiedText.split('E ')[1].replace(',', '.'))}
+- tapOn: { id: "session_objet_haut" }
+- copyTextFrom: { id: "session_objet_decalage_valeur" }
+- assertTrue: ${Math.abs(parseFloat(maestro.copiedText.split('N ')[1].replace(',', '.')) - output.n0 - 0.10) < 0.006}
+- tapOn: { id: "session_objet_pas_50" }
+- tapOn: { id: "session_objet_droite" }
+- copyTextFrom: { id: "session_objet_decalage_valeur" }
+- assertTrue: ${Math.abs(parseFloat(maestro.copiedText.split('E ')[1].replace(',', '.')) - output.e0 - 0.50) < 0.006}
+- assertNotVisible: "N \\+0.1"
+- takeScreenshot: maestro-out/captures/v176_detail_decalage

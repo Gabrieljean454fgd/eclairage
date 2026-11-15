@@ -722,7 +722,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val moved = moveTo != null
         val e = old.copy(
             id = Ids.new("srv"), t = stamps.now(), poseT = old.poseT ?: old.t, supersedes = old.id, deleted = if (delete) true else null,
-            note = note?.let { it.ifBlank { null } } ?: old.note,
+            note = app.lumisite.core.survey.SurveyEdits.note(old.note, note),
             positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
             manualSite = if (moved) pos else old.manualSite,
             kind = fam?.blockName ?: old.kind,

@@ -84,3 +84,10 @@ Le prompt dit lui-même que ses libellés sont indicatifs. Écarts constatés da
 - LOT 1 Fiabilité : 1.0 contrat, 1.1 reprise, 1.2 export WorkManager, 1.3 poids IMU (D15) et 1.4 formats et 1.5 conservation à la mise à jour (test `adb install -r` N → N+1 en CI) faits. Détail : `docs/COMPTE_RENDU_2026-11-02.md`.
 - LOT 2 Positionnement, LOT 3 AR utile, LOT 4 Ergonomie : non commencés.
 - Reporté : synchro multi-appareils (note `docs/SYNCHRO_CONCEPTION.md` à écrire), service de capture complet, mode profondeur.
+
+## Plan v176 (15/11/2026) — paquets empilés sur etape-3
+Décisions de référence : `docs/DECISIONS.md` (D1–D12, P-D13…, DS1–DS3) ; détail : `docs/PROPOSITIONS.md` § 17.
+Ordre : **v176a** correctifs simples → **v176b** fluidité de la carte → **v176a-bis** rectangle éditable du Nouveau site →
+**v176c** AR dépouillée (DS3) → **v176d** synchro maître/esclave réelle → **v176e** catalogue `LS_*` et symboles →
+**v176f** Annoter, export ZIP unique, reprise. Une branche `etape-3-v176x-…`, une PR vers la branche précédente, une
+pré-release `etape3-v176x-<hash>` et un compte rendu par paquet. Aucune fusion. Lot 5A (DXF) annulé (DS1).

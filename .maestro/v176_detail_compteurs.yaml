@@ -1,0 +1,31 @@
+# v176a A3/A5/A6 : Relevé > Détails : « Photo étiquette (0) », « Photo vue (0) », « Note vocale (0) », puis une vraie photo
+# « vue » (appareil photo de l'émulateur) → « Photo vue (1) » et « Photos et sons (1) » ; famille et type actuels affichés.
+appId: app.lumisite.android
+name: "v176a Detail compteurs et famille actuelle"
+---
+- runFlow: v176/releve_au_centre.yaml
+- tapOn: { id: "session_objet_details" }
+- assertVisible: "Photo étiquette \\(0\\)"
+- assertVisible: "Photo vue \\(0\\)"
+- assertVisible: "Note vocale \\(0\\)"
+- tapOn: { id: "session_pieces_photo_vue" }
+- extendedWaitUntil:
+    visible: { id: ".*:id/shutter_button" }
+    timeout: 20000
+- waitForAnimationToEnd
+- tapOn: { id: ".*:id/shutter_button" }
+- extendedWaitUntil:
+    visible: { id: ".*:id/(done_button|shutter_button)" }
+    timeout: 20000
+- tapOn: { id: ".*:id/done_button", optional: true }
+- extendedWaitUntil:
+    visible: "Photo vue \\(1\\)"
+    timeout: 20000
+- assertVisible: ".*Photos et sons \\(1\\).*"
+- repeat:
+    while: { notVisible: { id: "session_objet_famille_actuelle" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_objet_famille_actuelle", text: "Famille et type actuels : Sonorisation › Amplificateur" }
+- takeScreenshot: maestro-out/captures/v176_detail_compteurs

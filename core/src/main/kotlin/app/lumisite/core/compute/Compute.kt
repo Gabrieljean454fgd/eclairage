@@ -204,13 +204,32 @@ object TrajectoryCorrector {
     fun correctEach(poses: Sequence<PoseSample>, events: List<SessionEvent>, ltp: LocalTangentPlane?, emit: (CorrectedPoint) -> Unit) {
         val tl = timeline(events)
         if (tl.isEmpty()) return
+        for (p in poses) correctOne(p, tl, ltp)?.let(emit)
+    }
+
+    private fun correctOne(p: PoseSample, tl: List<Segment>, ltp: LocalTangentPlane?): CorrectedPoint? {
+        if (p.tracking != TrackingState.TRACKING) return null
+        val seg = activeAt(tl, p.t) ?: return null
+        val v = seg.transform.apply(PoseGeometry.plane(p))
+        val enu = Enu(v.x, v.y, PoseGeometry.height(p))
+        return CorrectedPoint(p.t.monotonicNs, p.t.utcEpochMs, p.t.timeBaseId, enu, ltp?.toLatLon(enu.copy(u = 0.0)), p.tracking, seg.eventId)
+    }
+
+    /** session.json derivedSummary: every pose counts in [Summary.trackingStateCounts], even before the first calibration. */
+    data class Summary(val points: Int, val lengthM: Double, val withoutCalibration: Int, val trackingStateCounts: Map<String, Int>)
+
+    fun summarize(poses: Sequence<PoseSample>, events: List<SessionEvent>, ltp: LocalTangentPlane?): Summary {
+        val tl = timeline(events)
+        val counts = LinkedHashMap<String, Int>()
+        var n = 0; var len = 0.0; var without = 0; var prev: CorrectedPoint? = null
         for (p in poses) {
-            if (p.tracking != TrackingState.TRACKING) continue
-            val seg = activeAt(tl, p.t) ?: continue
-            val v = seg.transform.apply(PoseGeometry.plane(p))
-            val enu = Enu(v.x, v.y, PoseGeometry.height(p))
-            emit(CorrectedPoint(p.t.monotonicNs, p.t.utcEpochMs, p.t.timeBaseId, enu, ltp?.toLatLon(enu.copy(u = 0.0)), p.tracking, seg.eventId))
+            counts[p.tracking.name] = (counts[p.tracking.name] ?: 0) + 1
+            if (activeAt(tl, p.t) == null) without++
+            val c = correctOne(p, tl, ltp) ?: continue
+            prev?.let { if (it.timeBaseId == c.timeBaseId) len += hypot(c.site.e - it.site.e, c.site.n - it.site.n) }
+            prev = c; n++
         }
+        return Summary(n, len, without, counts)
     }
 
     fun pathLengthM(points: List<CorrectedPoint>): Double =

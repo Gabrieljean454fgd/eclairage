@@ -60,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -372,7 +373,11 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             listOf(Mode.SYNC to ("🔊" to "Synchro"), Mode.CALIBRATE to ("🎯" to "Calibrer"), Mode.SURVEY to ("📍" to "Relevé"), Mode.DRAW to ("✏️" to "Annoter"),
                 Mode.RELOCALIZE to ("🧭" to "Recaler"), Mode.EXPORT to ("📤" to "Export")).forEach { (m, il) ->
                 val tag = "session_" + when (m) { Mode.CALIBRATE -> "calibrer"; Mode.RELOCALIZE -> "recaler"; Mode.SURVEY -> "releve"; Mode.DRAW -> "annoter"; Mode.SYNC -> "synchro"; Mode.EXPORT -> "export"; else -> "aucun" }
-                ActionCell(il.first, il.second, mode == m, tag, Modifier.weight(1f)) { mode = if (mode == m) Mode.NONE else m; c.clearMessage() }
+                ActionCell(il.first, il.second, mode == m, tag, Modifier.weight(1f)) {
+                    // A7: opening Annoter closes the open record.
+                    if (m == Mode.DRAW && mode != Mode.DRAW) { selectedSurvey = null; movingId = null }
+                    mode = if (mode == m) Mode.NONE else m; c.clearMessage()
+                }
             }
             ActionCell("⏹", "Terminer", false, "session_terminer_la_session", Modifier.weight(1f), enabled = !closing) { finish() }
         }
@@ -380,7 +385,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val panel: @Composable (Modifier) -> Unit = { m ->
         // Back to the top when the mode or the selected object changes: the object panel and the mode controls come first.
         val panelScroll = rememberScrollState()
-        LaunchedEffect(mode, selectedSurvey) { panelScroll.scrollTo(0) }
+        // An edit (offset, photo) supersedes the record under a new id: keep the panel where it is.
+        var keepScroll by remember { mutableStateOf(false) }
+        LaunchedEffect(mode, selectedSurvey) { if (keepScroll) keepScroll = false else panelScroll.scrollTo(0) }
         Column(m.verticalScroll(panelScroll), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
                 Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
@@ -388,7 +395,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             surveys.firstOrNull { it.event.id == selectedSurvey }?.let { r ->
                 SelectedSurveyPanel(c, r, picked, moving = movingId == r.event.id, moveTarget = moveTarget,
                     onMove = { start -> movingId = if (start) r.event.id else null; moveGrab = null; moveTarget = null },
-                    onReselect = { selectedSurvey = it },
+                    onReselect = { keepScroll = true; selectedSurvey = it },
                     onDone = { selectedSurvey = null; movingId = null })
             }
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
@@ -638,10 +645,11 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
 private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolved, picked: LatLon?, moving: Boolean, moveTarget: Enu?, onMove: (Boolean) -> Unit, onReselect: (String) -> Unit, onDone: () -> Unit) {
     var note by remember(r.event.id) { mutableStateOf(r.event.note ?: "") }
     var changeFamily by remember(r.event.id) { mutableStateOf(false) }
-    var details by remember(r.event.id) { mutableStateOf(false) }
+    // Not keyed on the record id: each edit (offset, photo) supersedes the record and must keep the details open.
+    var details by rememberSaveable { mutableStateOf(false) }
     val site = r.site
     Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Relevé sélectionné : ${r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · ${r.event.attachments.size} pièce(s) jointe(s)" else ""), style = MaterialTheme.typography.labelLarge)
+        Text("Relevé sélectionné : ${r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · Photos et sons (${r.event.attachments.size})" else ""), style = MaterialTheme.typography.labelLarge)
         (if (moving) moveTarget ?: site else site)?.let { Text("E %.2f, N %.2f m".format(it.e, it.n), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_coordonnees")) }
         if (moving) {
             Text("Glissez le symbole avec un doigt (deux doigts : déplacer la carte), puis validez.", style = MaterialTheme.typography.bodySmall)
@@ -657,15 +665,8 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
             OutlinedButton({ onDone() }, modifier = Modifier.testTag("session_objet_fermer")) { Text("Fermer") }
         }
         if (!details) return@Column
-        AttachmentButtons(c, r.event.id)
-        if (site != null) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            listOf(0.1, 0.5).forEach { d ->
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n")) { Text("N +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(n = site.n - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_n_2")) { Text("N −$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e + d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e")) { Text("E +$d") }
-                OutlinedButton({ c.editSurvey(r.event.id, moveTo = site.copy(e = site.e - d))?.let(onReselect) }, modifier = Modifier.testTag("session_objet_e_2")) { Text("E −$d") }
-            }
-        }
+        AttachmentButtons(c, r.event.id, r.event.attachments, onReselect)
+        if (site != null) NudgeCross(site) { moved -> c.editSurvey(r.event.id, moveTo = moved)?.let(onReselect) }
         OutlinedButton(enabled = picked != null, onClick = { picked?.let { c.editSurvey(r.event.id, moveTo = c.ltp.toEnu(it).let { e -> Enu(e.e, e.n, site?.u ?: 0.0) }); onDone() } }, modifier = Modifier.testTag("session_objet_deplacer_au_point_touche_sur")) {
             Text("Déplacer au point touché sur la carte")
         }
@@ -673,9 +674,33 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button({ c.editSurvey(r.event.id, note = note); onDone() }, modifier = Modifier.testTag("session_objet_enregistrer")) { Text("Enregistrer") }
             OutlinedButton({ changeFamily = !changeFamily }, modifier = Modifier.testTag("session_objet_changer_de_famille")) { Text("Changer de famille") }
+        }
+        Text("Famille et type actuels : " + app.lumisite.core.survey.SurveyEdits.familyPath(c.catalog.find(r.event.kind), r.event.kind),
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_famille_actuelle"))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }, modifier = Modifier.testTag("session_objet_supprimer")) { Text("Supprimer", color = Color.Red) }
         }
         if (changeFamily) FamilyGrid(c, r.event.kind) { c.editSurvey(r.event.id, familyId = it); onDone() }
+    }
+}
+
+/** A4: « Ajuster la position (10 cm / 50 cm) » — ↑ = +N, → = +E, by the chosen step. */
+@Composable
+private fun NudgeCross(site: Enu, onMove: (Enu) -> Unit) {
+    var step by remember { mutableStateOf(0.1) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Ajuster la position (10 cm / 50 cm)", style = MaterialTheme.typography.labelLarge)
+            FilterChip(step == 0.1, { step = 0.1 }, { Text("10 cm") }, modifier = Modifier.testTag("session_objet_pas_10"))
+            FilterChip(step == 0.5, { step = 0.5 }, { Text("50 cm") }, modifier = Modifier.testTag("session_objet_pas_50"))
+        }
+        OutlinedButton({ onMove(site.copy(n = site.n + step)) }, modifier = Modifier.testTag("session_objet_haut")) { Text("↑") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton({ onMove(site.copy(e = site.e - step)) }, modifier = Modifier.testTag("session_objet_gauche")) { Text("←") }
+            Text("E %.2f\nN %.2f".format(site.e, site.n), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_decalage_valeur"))
+            OutlinedButton({ onMove(site.copy(e = site.e + step)) }, modifier = Modifier.testTag("session_objet_droite")) { Text("→") }
+        }
+        OutlinedButton({ onMove(site.copy(n = site.n - step)) }, modifier = Modifier.testTag("session_objet_bas")) { Text("↓") }
     }
 }
 

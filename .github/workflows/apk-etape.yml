@@ -57,8 +57,10 @@ jobs:
           echo "n=$N" >> "$GITHUB_OUTPUT"
           echo "short=$SHORT" >> "$GITHUB_OUTPUT"
           echo "vc=$VC" >> "$GITHUB_OUTPUT"
-          echo "apk=lumisite-etape${N}-v${VC}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
-          echo "tag=etape${N}-${SHORT}" >> "$GITHUB_OUTPUT"
+          # Paquets v176 : branche etape-3-v176a-…, etape-3-v176a-bis-… → tag etape3-v176a-<hash>, etape3-v176a-bis-<hash>.
+          PKT=$(echo "$BRANCH" | sed -nE 's/^etape-?[0-9]+-(v[0-9]+[a-z]*(-bis)?)-.*/\1/p')
+          echo "apk=lumisite-etape${N}${PKT:+-$PKT}-v${VC}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
+          echo "tag=etape${N}${PKT:+-$PKT}-${SHORT}" >> "$GITHUB_OUTPUT"
 
       - name: Tests JVM et APK debug signé
         run: ./gradlew --no-daemon -PversionCode=${{ steps.id.outputs.vc }} :core:test :app:assembleDebug

@@ -28,10 +28,11 @@ name: "v176a Nouveau site OSM recupere"
 - tapOn: { id: "nouveau_site_autour_de_l_origine" }
 - scrollUntilVisible: { element: { id: "nouveau_site_recuperer" } }
 - tapOn: { id: "nouveau_site_recuperer" }
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
-- extendedWaitUntil:
-    visible: { id: "nouveau_site_osm_etat", text: "Données OSM récupérées : [0-9]+ objets" }
+# La réponse OSM allonge le formulaire : descendre jusqu'à ce que le bandeau vert soit visible (bas du formulaire).
+- scrollUntilVisible:
+    element: { id: "nouveau_site_osm_etat", text: "Données OSM récupérées : [0-9]+ objets" }
     timeout: 90000
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - assertVisible: { id: "nouveau_site_creer" }
 - assertVisible: "Créer le site"
 - takeScreenshot: maestro-out/captures/v176_nouveau_site_osm_ok

@@ -60,21 +60,17 @@ class MainActivity : ComponentActivity() {
     private var live: SessionController? = null
     private var resuming = false
 
-    companion object {
-        /** Sessions being closed after an activity re-creation, by session id (process-wide: survives the activity). */
-        private val closing = java.util.concurrent.ConcurrentHashMap<String, Thread>()
-    }
 
     override fun onDestroy() {
         // Only on re-creation (night mode, language…): the restored state shows the Site screen, the old controller must not keep
         // its journal / sensors / copy worker open. Closed off the main thread (ARCore / copy can be slow); « Reprendre » waits for
-        // this close to finish (see [closing]) so two writers never share a session. A plain finish or process kill is unchanged:
+        // this close to finish (see [SessionController.closingThreads]) so two writers never share a session. A plain finish or process kill is unchanged:
         // the segments are already fsynced and repaired on the next start.
         val c = live
         live = null
         if (c != null && isChangingConfigurations) {
             DiagLog.i("SESSION", "Activité recréée pendant la session ${c.sessionId} : session fermée, reprise possible depuis l'écran Site")
-            closing[c.sessionId] = Thread({ runCatching { c.close("activity_recreated") }; closing.remove(c.sessionId) }, "lumisite-close-session").also { it.start() }
+            c.closeInBackground("activity_recreated")
         }
         super.onDestroy()
     }
@@ -153,7 +149,7 @@ class MainActivity : ComponentActivity() {
                                     // One resume at a time: further taps are ignored while waiting; if the activity goes away during the
                                     // wait, the coroutine is cancelled before any controller is created.
                                     try {
-                                        withContext(Dispatchers.IO) { closing[h.id]?.join(10_000) }
+                                        withContext(Dispatchers.IO) { SessionController.closingThreads[h.id]?.join(10_000) }
                                         screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
                                     } finally { resuming = false }
                                 } } },

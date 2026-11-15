@@ -176,11 +176,14 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         val running = ExportWorker.live[c.sessionId]
         if (running != null && !confirmed) { confirmExport = running; return }
         closing = true
+        val t0 = android.os.SystemClock.elapsedRealtime()
         running?.let { pct -> android.widget.Toast.makeText(activity, "Export en cours ($pct %), il continue en arrière-plan", android.widget.Toast.LENGTH_LONG).show() }
         c.ar.rendering = false
         runCatching { glView?.onPause() }
-        runCatching { c.close("user") }
+        // v176b: journal fsync, ARCore close and copy to Documents continue on a background thread; « Reprendre » waits for it.
+        runCatching { c.closeInBackground("user") }
         onClosed()
+        app.lumisite.android.data.DiagLog.i("SESSION", "Terminer : main rendue en ${android.os.SystemClock.elapsedRealtime() - t0} ms")
     }
     BackHandler { finish() }
     confirmExport?.let { pct ->

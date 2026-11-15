@@ -29,6 +29,7 @@ class PublicStore(private val ctx: Context) {
     companion object {
         const val ROOT = "LumiSite"
         const val INDEX = "copies.json"
+        const val STAMPS = "mirror_stamps.json"
         fun safe(s: String) = s.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').take(40).ifEmpty { "site" }
         fun siteFolder(site: Site) = "${safe(site.name)}_${site.id}"
         fun displayPath(parts: List<String>) = (listOf("Documents", ROOT) + parts).joinToString("/")
@@ -50,8 +51,7 @@ class PublicStore(private val ctx: Context) {
     }
 
     /** Copies [src] to Documents/LumiSite/<parts>/<name> (replacing an earlier copy made by this install) and verifies it. */
-    fun copy(src: File, parts: List<String>, name: String = src.name): Copied {
-        val expected = sha256(src)
+    fun copy(src: File, parts: List<String>, name: String = src.name, expected: String = sha256(src)): Copied {
         return src.inputStream().use { write(it, parts, name, expected) }
     }
 
@@ -105,11 +105,14 @@ class PublicStore(private val ctx: Context) {
     inner class SessionMirror(private val site: Site, private val sessionDir: File, private val onEvent: (String, Throwable?) -> Unit) {
         private val exec: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "mirror").apply { isDaemon = true } }
         private val stateFile = File(sessionDir, "mirror_state.json")
-        private val done: MutableMap<String, String> = runCatching { LumiJson.decodeFromString(indexSer, stateFile.readText()).toMutableMap() }.getOrDefault(mutableMapOf())
+        private val stampsFile = File(sessionDir, STAMPS)
+        private fun load(f: File) = runCatching { LumiJson.decodeFromString(indexSer, f.readText()) }.getOrDefault(emptyMap())
+        /** v176b: SHA-256 computed once per closed segment, remembered with its size and date (mirror_stamps.json). */
+        private val ledger = app.lumisite.core.journal.MirrorLedger(load(stateFile), load(stampsFile))
         val parts = listOf(siteFolder(site), sessionDir.name)
         val displayDir get() = displayPath(parts)
         @Volatile var failures = 0; private set
-        val copiedCount get() = synchronized(done) { done.size }
+        val copiedCount get() = ledger.size()
 
         fun enqueue(file: File) { if (!exec.isShutdown) runCatching { exec.execute { copyOne(file) } } }
 
@@ -123,29 +126,41 @@ class PublicStore(private val ctx: Context) {
                 runCatching { Segments.compress(f0) }.getOrElse { onEvent("Compression de ${f0.name} impossible (copiée telle quelle)", it); f0 } else f0
             val rel = file.relativeTo(sessionDir).invariantSeparatorsPath
             try {
+                val len = file.length(); val mtime = file.lastModified()
+                if (ledger.unchanged(rel, len, mtime)) return
                 val sha = sha256(file)
-                if (synchronized(done) { done[rel] } == sha) return
+                if (ledger.sha(rel) == sha) { ledger.touch(rel, len, mtime); saveLocal(stampsFile, ledger.stampsSnapshot()); return }
                 val sub = rel.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }
-                copy(file, parts + sub, file.name)
+                copy(file, parts + sub, file.name, sha)
                 // The public index is written first: a file is marked done locally only once copies.json lists it,
                 // so a failed index write is retried at the next sync.
-                writeText(LumiJson.encodeToString(indexSer, synchronized(done) { done.toMap() + (rel to sha) }), parts, INDEX)
-                val snapshot = synchronized(done) { done[rel] = sha; done.toMap() }
-                File(sessionDir, "mirror_state.json.tmp").apply { writeText(LumiJson.encodeToString(indexSer, snapshot)); check(renameTo(stateFile)) }
+                writeText(LumiJson.encodeToString(indexSer, ledger.doneSnapshot() + (rel to sha)), parts, INDEX)
+                ledger.record(rel, sha, len, mtime)
+                saveLocal(stampsFile, ledger.stampsSnapshot())
+                saveLocal(stateFile, ledger.doneSnapshot())
             } catch (e: Throwable) {
                 failures++
                 onEvent("Copie vers $displayDir/$rel impossible", e)
             }
         }
 
-        /** Queues every final file of the session (segments already closed, attachments, header, site). */
+        private fun saveLocal(f: File, m: Map<String, String>) {
+            File(sessionDir, f.name + ".tmp").apply { writeText(LumiJson.encodeToString(indexSer, m)); check(renameTo(f)) }
+        }
+
+        /**
+         * Queues every final file of the session (segments already closed, attachments, header, site). v176b: the folder walk
+         * itself runs on the copy thread, so a pause or « Terminer » never lists or hashes files on the caller's thread.
+         */
         fun syncAll() {
-            File(sessionDir, "site.json").apply { if (!exists()) writeText(LumiJson.encodeToString(Site.serializer(), site)) }
-            val files = sessionDir.walkTopDown().filter { f ->
-                f.isFile && !f.name.endsWith(".part") && !f.name.endsWith(".tmp") && f.name != "mirror_state.json" && f.name != INDEX &&
-                    !f.path.contains("/capture/")
-            }.toList()
-            files.forEach(::enqueue)
+            if (exec.isShutdown) return
+            runCatching { exec.execute {
+                File(sessionDir, "site.json").apply { if (!exists()) writeText(LumiJson.encodeToString(Site.serializer(), site)) }
+                sessionDir.walkTopDown().filter { f ->
+                    f.isFile && !f.name.endsWith(".part") && !f.name.endsWith(".tmp") && f.name != "mirror_state.json" && f.name != STAMPS &&
+                        f.name != INDEX && !f.path.contains("/capture/")
+                }.toList().forEach(::copyOne)
+            } }
         }
 
         fun drain(timeoutMs: Long = 30_000): Boolean {

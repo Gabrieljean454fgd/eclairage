@@ -136,8 +136,9 @@ class PublicStore(private val ctx: Context) {
                 // so a failed index write is retried at the next sync.
                 writeText(LumiJson.encodeToString(indexSer, ledger.doneSnapshot() + (rel to sha)), parts, INDEX)
                 ledger.record(rel, sha, len, mtime)
-                saveLocal(stampsFile, ledger.stampsSnapshot())
+                // Hash first, then stamp: if the app stops in between, the old stamp forces a re-hash (never a stale hash kept).
                 saveLocal(stateFile, ledger.doneSnapshot())
+                saveLocal(stampsFile, ledger.stampsSnapshot())
             } catch (e: Throwable) {
                 failures++
                 onEvent("Copie vers $displayDir/$rel impossible", e)

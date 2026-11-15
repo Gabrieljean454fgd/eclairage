@@ -149,8 +149,13 @@ class MainActivity : ComponentActivity() {
                                     // One resume at a time: further taps are ignored while waiting; if the activity goes away during the
                                     // wait, the coroutine is cancelled before any controller is created.
                                     try {
-                                        withContext(Dispatchers.IO) { SessionController.closingThreads[h.id]?.join(10_000) }
-                                        screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
+                                        // close() may wait up to 30 s for pending pause writes: wait longer, and never open a second
+                                        // writer on a session that is still being closed (the resume is refused, not silently overlapped).
+                                        val stillClosing = withContext(Dispatchers.IO) { SessionController.closingThreads[h.id]?.let { it.join(45_000); it.isAlive } == true }
+                                        if (stillClosing) {
+                                            DiagLog.w("SESSION", "Reprise de ${h.id} refusée : la fermeture précédente n'est pas terminée")
+                                            android.widget.Toast.makeText(this@MainActivity, "Fermeture de la session encore en cours, réessayez dans quelques secondes", android.widget.Toast.LENGTH_LONG).show()
+                                        } else screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
                                     } finally { resuming = false }
                                 } } },
                                 onBack = { screen = Screen.Home }, exportState = repo::exportState,

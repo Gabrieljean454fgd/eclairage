@@ -1,0 +1,17 @@
+# v176a A1 : Accueil > « Sync » (et non plus « Synchro »), sur une ligne, à côté de « Réglages ».
+appId: app.lumisite.android
+name: "v176a Accueil Sync"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- assertVisible: { id: "accueil_synchro" }
+- assertVisible: "Sync"
+- assertVisible: { id: "accueil_reglages" }
+- assertNotVisible: "Synchro"
+- tapOn: { id: "accueil_synchro" }
+- assertVisible: "Sync"
+- takeScreenshot: maestro-out/captures/v176_accueil_sync

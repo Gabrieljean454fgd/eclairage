@@ -246,7 +246,9 @@ object ResumableExport {
                     entry("media/" + f.name, "media", "audio/x-wav") { out -> f.inputStream().use { copyBlocks(it, out) { b -> done += b } }; 1 to emptyList() }
                 }
                 entry(LISEZMOI, "doc", "text/plain") { out -> out.write(Releves.lisezmoi(header, site).toByteArray()); 1 to emptyList() }
-                val sm = sessionManifestOf(m!!.entries, site, header, events, generator, nowUtcMs, m!!.notes)
+                val summary = TrajectoryCorrector.summarize(rawFiles.getValue(Streams.POSES).asSequence().flatMap { lines(it, snapLen.getValue(it)) }
+                    .mapNotNull { runCatching { LumiJson.decodeFromString(PoseSample.serializer(), it) }.getOrNull() }, events, ltp)
+                val sm = sessionManifestOf(m!!.entries, site, header, events, generator, nowUtcMs, m!!.notes, summary)
                 sessionManifest = sm
                 entry("session.json", "manifest", "SessionManifest") { out -> out.write(PrettyJson.encodeToString(SessionManifest.serializer(), sm).toByteArray()); 1 to emptyList() }
                 z.finish(m!!.entries)
@@ -289,12 +291,12 @@ object ResumableExport {
     const val RELEVES = "releves.geojson"
     const val LISEZMOI = "LISEZMOI.txt"
 
-    private fun sessionManifestOf(entries: List<ExportEntryRecord>, site: Site, header: SessionHeader, events: List<SessionEvent>, generator: String, now: Long, notes: List<String>): SessionManifest {
+    private fun sessionManifestOf(entries: List<ExportEntryRecord>, site: Site, header: SessionHeader, events: List<SessionEvent>, generator: String, now: Long, notes: List<String>, summary: TrajectoryCorrector.Summary): SessionManifest {
         val traj = entries.firstOrNull { it.name == "derived/trajectory_site.ndjson" }?.records ?: 0
         return SessionManifest(
             exportedUtcMs = now, generator = generator, site = site, session = header, events = events,
             files = entries.map { FileEntry(it.name, it.category, it.recordType, it.records, it.sha256, it.bytes) },
-            derivedSummary = DerivedSummary(traj, 0.0, 0, emptyMap(), listOf(
+            derivedSummary = DerivedSummary(traj, summary.lengthM, summary.withoutCalibration, summary.trackingStateCounts, listOf(
                 "Trajectory is an estimate from the platform tracker + user calibration/relocalizations; it is not ground truth.",
                 "Each pose and object uses the transform of its own segment (D13); a resume starts a new AR frame.",
             ) + notes),

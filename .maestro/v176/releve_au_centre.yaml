@@ -1,0 +1,22 @@
+# Sous-parcours v176a : site sans OSM, session, Relevé « Amplificateur » au point de la croix (centre de la carte),
+# photo automatique : l'appareil photo s'ouvre, retour sans photo, « Passer ». Puis l'objet est sélectionné sur la carte.
+appId: app.lumisite.android
+---
+- runFlow: ../scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+- back
+- extendedWaitUntil:
+    visible: { id: "session_photo_proposee" }
+    timeout: 15000
+- tapOn: { id: "session_photo_passer" }
+- tapOn: { id: "session_carte", point: "50%,50%" }
+- assertVisible: { id: "session_objet_coordonnees" }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -100,7 +101,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau_releve")) { Text("Nouveau relevé") }
             OutlinedButton(onClick = onSettings, modifier = Modifier.testTag("accueil_reglages")) { Text("Réglages") }
-            OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Synchro") }
+            OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Sync", maxLines = 1) }
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(16.dp))
@@ -155,10 +156,12 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     var showUrls by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // A2: null = not fetched, LOADING, OK, ERROR.
+    var osmState by remember { mutableStateOf<String?>(null) }
     val osm = fetched?.snapshot
 
     fun setOrigin(p: LatLon, src: String) { origin = p; originSource = src; center = p; recenter++; latText = "%.7f".format(Locale.ROOT, p.lat); lonText = "%.7f".format(Locale.ROOT, p.lon) }
-    fun setRect(b: BBox) { rect = b; fetched = null; staged = null; failure = null; tooLarge = !OsmGuard.areaOk(b); if (origin == null) setOrigin(Bboxes.center(b), "BBOX_CENTER") }
+    fun setRect(b: BBox) { rect = b; fetched = null; osmState = null; staged = null; failure = null; tooLarge = !OsmGuard.areaOk(b); if (origin == null) setOrigin(Bboxes.center(b), "BBOX_CENTER") }
 
     fun doSearch() {
         val q = query.trim()
@@ -179,7 +182,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         if (!OsmGuard.areaOk(b)) { tooLarge = true; status = "Rectangle trop grand (%.4f degré carré, maximum %.2f) : réduisez-le.".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2); return }
         if (!OsmClient.isHttps(apiUrl)) { status = "L'URL de l'API OSM doit commencer par https://"; return }
         OsmClient.osmApiBase = apiUrl.trim().trimEnd('/')
-        busy = true; failure = null
+        busy = true; failure = null; osmState = "LOADING"
         status = if (split) "Découpage en sous-zones (au plus ${OsmGuard.MAX_CALLS} appels)…" else "Requête API OSM…"
         scope.launch {
             val now = System.currentTimeMillis()
@@ -189,7 +192,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 staged = file; return r
             }
             fun show(f: OsmClient.Fetched, via: String) {
-                fetched = f
+                fetched = f; osmState = "OK"
                 val counts = f.snapshot.features.groupingBy { it.category }.eachCount()
                 status = "$via : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s)." +
                     (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
@@ -216,7 +219,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                     is CallCapReached -> "Plafond de ${e.calls} appels atteint : réduisez le rectangle. Le site est utilisable sans contours."
                     else -> "Contours indisponibles (${e.javaClass.simpleName}: ${e.message}). Le site est utilisable sans contours."
                 }
-            } finally { busy = false }
+            } finally { busy = false; if (osmState == "LOADING") osmState = "ERROR" }
         }
     }
 
@@ -311,6 +314,15 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             if (selected.isNotEmpty()) Text("Bâtiment(s) sélectionné(s) : ${selected.joinToString()}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("nouveau_site_batiments_selectionnes"))
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             HorizontalDivider()
+            osmState?.let { st ->
+                val (txt, col) = when (st) {
+                    "LOADING" -> "Récupération des données OSM…" to androidx.compose.ui.graphics.Color(0xFFE65100)
+                    "OK" -> "Données OSM récupérées : ${osm?.features?.size ?: 0} objets" to androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                    else -> "Données OSM non récupérées : « Créer sans contours OSM » reste possible." to androidx.compose.ui.graphics.Color(0xFFC62828)
+                }
+                Text(txt, color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth().background(col).padding(8.dp).testTag("nouveau_site_osm_etat"))
+            }
             if (missingOrigin) Text("Il manque l'origine du site : recherchez une adresse, saisissez latitude et longitude puis « Utiliser ces coordonnées », ou touchez la carte.",
                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nouveau_site_manque"))
             Row {

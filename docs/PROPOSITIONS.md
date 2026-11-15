@@ -2451,3 +2451,238 @@ Acceptation : en intérieur vide, pose au centimètre près à l'œil, et objets
 ---
 
 *Fin du document. Aucun fichier source n'a été modifié. Le dépôt n'a été ni cloné, ni modifié, ni poussé.*
+
+---
+
+## 17. Retour terrain v175 et plan v176 (15/11/2026, Grok Bot)
+
+> Ajout du 15/11/2026 (heure de Paris). Retour de test v175 de Sébastien (Pixel 7 maître, Xiaomi 13T Pro esclave), arbitrage de la revue de code de Claude, et décisions de Sébastien du 15/11 à 20:14. **Ces décisions priment sur les passages antérieurs de ce document et des prompts v4–v6** : aucun DXF dans l'appli (retour à D1, lot 5A annulé), codes `LS_*` + correspondance DWG au bureau, vue AR pleine largeur et dépouillée. Rien n'est retiré des sections précédentes.
+
+Base : v175 (`etape3-6f83c12`, branche `etape-3-paquet3-flows`, tête 5dfdcbe). Retour terrain de Sébastien du 15/11 (Pixel 7 maître + Xiaomi 13T Pro esclave), revue de code de Claude (Fable 5.2) arbitrée, décisions de Sébastien du 15/11 20:14.
+**Rien n'est envoyé à Devin.** Le brouillon de prompt est dans `PROMPT_DEVIN_V7_2026-11-15.md`.
+Vocabulaire : « anomalies constatées » (pas « régressions » sans test qui le prouve).
+
+---
+
+### 0. Décisions de Sébastien (15/11, 20:14) — appliquées partout
+
+| # | Décision | Conséquence |
+|---|---|---|
+| **DS1 — DXF** | **Aucun DXF dans l'application.** La conversion se fait au bureau avec un autre outil. | Le lot 5A (DXF R12 natif Kotlin) est **retiré**. `dxfPreparation.status` reste `NOT_GENERATED`. Retour à la décision D1 du document unique du 29/10. Le **détecteur d'ellipses (5B, fast_ellipse_detector, MIT)** reste au plan comme aide à la saisie (proposer des luminaires ronds sur une photo de plafond), en expérimental, après le lot 4. |
+| **DS2 — Catalogue** | Arbitrage laissé à Grok Bot : **codes `LS_*` dans l'appli** (légers, ASCII, stables) + **table de correspondance code → bloc DWG** utilisée au bureau. | Écart 25/78 résolu ci-dessous (§ 2.2). Le code de l'appli ne porte plus de nom de bloc DWG en dur ; `block_name` DWG devient un attribut de la table de correspondance. |
+| **DS3 — Vue AR** | Pas de « mode agrandi ». **La zone caméra prend toute la largeur de l'écran**, les infos (mesure, lampe, valeur) passent **en dessous**. AR **totalement dépouillée** : un trait pour les contours des murs, leurs arêtes verticales et les bords, plus les **drapeaux de calibrage** et le **symbole du luminaire**. Rien d'autre. | Paquet v176c. Pas de remplissage translucide, pas de nuage de points, pas de texte dans l'image. |
+
+---
+
+### 1. Arbitrage de la revue de Claude (vérifiée dans le code `etape-3-paquet3-flows` et dans le document unique du 29/10)
+
+| Point de Claude | Vérification | Verdict |
+|---|---|---|
+| Rien n'est validé ni fusionné : `main` du 29/10, 7 PR empilées, `ROADMAP_ETAPES.md` « à faire » partout | Exact : `main` = 66400a0 (29/10), PR #16 à #22 ouvertes, ROADMAP non mise à jour. | **Juste.** Proposition : Sébastien valide v176 sur téléphone, puis on fusionne la pile **en une fois** vers `main` (lui seul décide, jamais un agent) ; ROADMAP mise à jour dans v176a. |
+| Lot 5A (DXF dans l'appli, blocs `LS_*`, calques `LUMI-*`) contredit D1/D3/D5 | Exact par rapport au document unique (D1 « l'appli n'écrit PAS de DXF »). Mais Claude a manqué que Sébastien avait validé le lot 5 le **08/11** (journal de suivi, 18:02), après le 29/10, et que la mémoire retient un catalogue métier AC1009 avec calques `LUMI-*` (EasyClaw, 08/11). | **Sans objet** : DS1 (15/11) retire le DXF de l'appli. Le catalogue `LUMI-*`/AC1009 sert désormais **au bureau** (outil de conversion). |
+| « Le lot 5 prévoit AAMED » (formulation reprise dans certains échanges) | Faux : `LOT5_DXF_AAMED_2026-11-08.md` et la relance V6 excluent AAMED (GPL-2.0) et retiennent `h3ct0r/fast_ellipse_detector` (MIT). | **Corrigé.** |
+| Deux catalogues incompatibles (25 blocs DWG dans le code, 78 codes `LS_*` dans le dossier de reprise) | Exact : `catalog/equipment_catalog.json` = 25 blocs + « autre (à classer) », version `lumisite-catalog-1.0` ; le catalogue EasyClaw (08/11, Annexe B) = 78 codes en 6 familles (ELEC 13, ECLAIRAGE 15, CAMERA 12, SECOURS 12, SECURITE 11, INCENDIE 15). | **Juste** → résolu par DS2 (§ 2.2). Point que Claude ne voit pas : 6 des 25 blocs DWG sont de la **sonorisation** (Amplificateur, enceinte, haut-parleur, micro col, prise xlr, Diffuseur Sonore Radio), sans famille dans les 78 → ajouter une 7e famille **SON**. |
+| Deux numérotations « D » se chevauchent | Exact : D1–D12 (document unique) et D13–D28, « Décision A/B » (prompts v4–v6) coexistent dans le code. | **Juste.** v176a : renommer les décisions post-29/10 en **P-D13…P-D28** dans `docs/DECISIONS.md` (une seule table, source de chaque décision). |
+| La carte est reconstruite à chaque pose AR (`SessionController.kt:282`, `MapView.kt:216`) | Exact : `_state.update { it.copy(lastPose = pose) }` est hors du filtre 10 Hz, donc à chaque image ARCore ; `MapView` fait `mv.overlays.clear()` puis recrée bâtiments, trajectoire et marqueurs à chaque recomposition. | **Juste, prioritaire** (paquet v176b). |
+| « Terminer » et la pause sur le fil d'affichage ; copie vers Documents qui recalcule les empreintes | `pauseCapture()` enchaîne `flushAll`, `rotateAll`, `mirror.syncAll()` et est appelé depuis le cycle de vie (fil principal) ; `PublicStore` recalcule `sha256` à la copie et à la relecture. | **Juste** (v176b). Garder la vérification d'empreinte (règle « copie vérifiée »), mais une seule fois par segment fermé, hors fil principal. |
+| `ArTracker.kt:208` ne garde que le sol ; repli silencieux à 50 cm (`Aim.kt:68`) | Exact. **Preuve terrain du 15/11** : le luminaire noté « encastré plafond » est enregistré à `u = −0,447 m` avec la méthode `AR_PLANE` (plan de sol) : il a été projeté au sol. | **Juste, prioritaire** (v176c). |
+| « Le mode ARCore actuel détecte déjà les plafonds » | Partiellement : `PlaneFindingMode.HORIZONTAL` trouve les plans horizontaux vers le haut **et** vers le bas, mais le filtre l. 208 jette les plafonds ; les **murs** exigent `HORIZONTAL_AND_VERTICAL`. Plafond blanc uni : détection aléatoire (Claude a raison). | **Précisé.** |
+| Vue AR 200 × 150 dp (`SessionScreen.kt:334`) | Exact. | Remplacé par **DS3** : caméra pleine largeur, infos dessous. |
+| Aucun test unitaire dans `app/` | Exact (`app/src` ne contient que `main`). | **Juste.** Extraire la logique pure (résolution des points, annulation, projection AR → écran) vers `core/` et la tester en JVM ; pas d'instrumentation lourde. |
+| Note impossible à effacer (`SessionController.kt:725`) | Exact : `note?.ifBlank { null } ?: old.note` → une note vidée garde l'ancienne valeur. | **Juste** (v176a). |
+| Pas d'UUID v7 ; `clock_offset_ms` et sigmas à `null` | Exact (confirmé dans `releves.geojson` du 15/11). | UUID v7 : **non prioritaire** (les ids actuels sont stables). Sigmas : remplir `sigma_xy_m` avec le résidu du calibrage actif (v176f). `clock_offset_ms` : rempli par la synchro (v176d). |
+| Vocabulaire incohérent (« Nouveau relevé » / « Nouveau site » / « Nom de projet ») | Exact. | v176a : glossaire unique (Site, Session, Relevé, Repère, Annotation). |
+| Recommandation : paquet « fluidité » avant le fil de fer | Pertinent. | **Retenu** (v176b avant v176c). |
+
+**Constats supplémentaires (Grok Bot, sur l'export réel du 15/11)** : `derivedSummary.trajectoryLengthM = 0.0` alors que 2 488 points de trajectoire existent ; `trackingStateCounts = {}` alors que 16 changements d'état sont journalisés ; qualité « bonne » affichée pour un relevé alors que le résidu du calibrage est de 1,79 m.
+
+---
+
+### 2. Analyses des données du 15/11
+
+Sources : export de la session `ses-a59b3809-14b8` du 15/11 et copie en lecture des fichiers de l'appli sur le Pixel (`adb pull`, rien modifié sur le téléphone). Session « test5 », 26,6 min, Pixel 7.
+
+#### 2.1 Export de « 87 Mo »
+- Les 87 Mo sont le **dossier décompressé** (91,8 Mo = 87,5 Mio) dans `Download/Export_lumisite/`. Le **ZIP produit par l'appli fait 15,6 Mo** (`exports/ses-a59b3809-14b8_20261115-194338.zip`).
+- **`raw/imu.ndjson` = 86 Mo, soit 96 % du dossier** (81 % du ZIP compressé, 12,6 Mo). 388 343 lignes en 26,6 min ≈ 243 lignes/s : accéléromètre et gyroscope à ~120 Hz chacun, vecteur de rotation ~19 Hz, magnétomètre ~12 Hz, baromètre ~12 Hz ; ~233 octets par ligne (clés JSON répétées, horodatages complets).
+- Le reste : photo 1,1 Mo, 2 WAV de synchro 1,1 Mo chacun (12 s, 48 kHz, mono 16 bits), poses 1,3 Mo, trajectoire dérivée 0,8 Mo, `session.json` 86 Ko, `releves.geojson` 9 Ko.
+- Sur le téléphone, la même session existe **trois fois** : segments `seg/` (20 Mo, l'IMU y est déjà en `.ndjson.gz`), ZIP (15,6 Mo), dossier décompressé (92 Mo).
+
+**Mesures sur un échantillon de 3 000 lignes IMU** (projetées sur la session de 26,6 min) :
+
+| Format IMU dans l'export | Taille | Gain |
+|---|---|---|
+| NDJSON actuel | 90 Mo | 1× |
+| NDJSON gzip (comme `seg/`) | 8,8 Mo | 10× |
+| CSV à temps relatifs (µs) | 15 Mo | 6× |
+| **CSV à temps relatifs + gzip** (`imu.csv.gz`) | **4,1 Mo** | **22×** |
+| Binaire + gzip | 4,1 Mo | 22× |
+
+**Proposition** : `raw/imu.csv.gz` (colonnes `dt_us, sensor_dt_us, type, x, y, z`, en-tête avec la base de temps et le `t_mono_ns` initial) ; lisible par pandas/QGIS/Excel après décompression, sans format binaire maison. Garder le NDJSON brut dans `seg/` sur le téléphone (journal append-only inchangé) ; seule la forme d'**export** change. Pas de dossier décompressé : l'export est **un seul ZIP**. Cadences : accéléromètre/gyroscope 100 Hz par défaut (PF1 déjà décidé), baromètre et lumière ≤ 5 Hz. WAV de synchro : garder (preuve), éventuellement FLAC plus tard. **Estimation après correction : ZIP ≈ 7 Mo pour cette session (au lieu de 15,6), ≈ 15 Mo/h.**
+
+#### 2.2 `releves.geojson` dans JOSM
+- Le fichier est une **FeatureCollection RFC 7946 valide**, en **WGS84** (lon, lat), 4 objets : **1 Point = le luminaire** (`kind: equipment`, `block_name: "autre (à classer)"`, note « encastré plafond », photo et note vocale liées) + 3 rectangles d'annotation. Aucune géométrie nulle. Coordonnées locales en `properties.local` (pas dans `coordinates`).
+- **Le luminaire est donc bien présent** : c'est le « point d'annotation » vu dans JOSM. Il ne se distingue pas parce que (1) il est classé « autre (à classer) », (2) toutes ses propriétés utiles sont des **objets imbriqués** (`local`, `accuracy`, `time`, `provenance`, `photos`) que JOSM **ignore** (message « unsupported type 'JsonObjectImpl' … ignored », ticket JOSM #22254, toujours ouvert), (3) aucune clé « name » ni style.
+- **Les repères de calibrage ne sont pas dans le GeoJSON** : ils ne sont que des événements dans `session.json`/`events.ndjson`. Les 5 points `MAP_TAP` ont pourtant des lat/lon : ils doivent être exportés.
+- **Position du luminaire fausse en hauteur et décalée** : visé au plafond, projeté sur le plan de sol (`u = −0,447 m`, méthode `AR_PLANE`) : la position horizontale est donc déplacée le long du rayon de visée.
+- **Correction (v176f)** : ajouter des features `kind: control_point` (Point, lat/lon de la carte + résidu par point) ; ajouter des **propriétés plates** lisibles partout : `name` (libellé), `lumisite:kind`, `lumisite:code` (LS_*), `lumisite:famille`, `lumisite:methode`, `lumisite:qualite`, `lumisite:residu_m`, `lumisite:hauteur` ; garder les objets imbriqués pour l'outil de bureau ; ajouter un **second fichier** `releves_plat.geojson` (propriétés plates seulement) si JOSM reste gêné. Option `marker-symbol`/`marker-color` (simplestyle) pour les visionneuses web. Test : ouverture dans QGIS et JOSM (dernière version), le luminaire et les 5 repères visibles et nommés.
+
+#### 2.3 Calibrage du bureau (5 points)
+| Point | Après (s) | AR (x, −z) m | Carte E, N m | Écart après calibrage final |
+|---|---|---|---|---|
+| Calibrage 1 | 540 | (−0,72 ; 6,09) | (−19,05 ; 4,23) | 0,83 m |
+| Calibrage 2 | 659 | (2,47 ; 8,51) | (−13,40 ; 5,48) | 1,70 m |
+| Calibrage 3 | 694 | (1,54 ; −1,64) | (−15,00 ; −3,10) | 2,42 m |
+| Calibrage 4 | 706 | (−0,70 ; −2,38) | (−19,81 ; −2,76) | 0,94 m |
+| Calibrage 5 (opposé) | 783 | (12,29 ; 4,88) | (−8,13 ; 1,03) | 2,39 m |
+
+- Résidu affiché : 0,91 m (2 points) → 1,25 → 1,43 → **1,79 m (5 points)** ; échelle fixée à 1, rotation −10,3°, **aucun point rejeté**. Un ajustement libre (Helmert) donne échelle 0,82 et RMS 1,35 m : ce n'est **pas un problème d'échelle**.
+- Les distances entre points ne concordent pas : 1–2 = 4,0 m en AR contre 5,8 m sur la carte ; 3–4 = 2,4 m contre 4,8 m ; 2–5 = 10,5 m contre 6,9 m. Écarts de 1 à 3,5 m, donc **pointés incohérents**, pas une dérive régulière.
+- **Causes probables** : (1) la pose enregistrée est celle **du téléphone**, pas du point visé (le téléphone est à 0,5–1,5 m du coin désigné sur la carte) ; (2) pointé sur la carte au doigt sur un bâtiment OSM/cadastre de 2010, à une échelle où 1 mm d'écran ≈ 0,3–0,5 m ; (3) **suivi ARCore perdu pendant 7,6 min** avant le calibrage (`INSUFFICIENT_LIGHT` à t+57 s, retour à t+513 s) puis à nouveau de t+943 s jusqu'à la fin : bureau trop sombre pour ARCore ; (4) le point 5 a été intégré au solveur au lieu de servir de **contrôle indépendant** (recommandation V6 non appliquée).
+- GPS en intérieur : précision 19 m (réseau) à **384 m** (GPS, 4 satellites) au moment du relevé → **inutilisable** pour confirmer des repères.
+- **Corrections (v176c/v176f)** : calibrer **sur le point visé au réticule** (intersection du rayon avec le sol), pas sur la pose du téléphone ; afficher le résidu **par point** et proposer d'exclure le pire ; garder le 5e point comme **contrôle** (non utilisé dans le calcul, écart affiché) ; avertir si résidu > 0,5 m ; refuser « qualité bonne » au-delà ; torche/alerte lumière avant calibrage.
+
+---
+
+### 3. Paquets v176 (ordre d'envoi)
+
+Chaque paquet : branche `etape-3-v176x-…` empilée sur la précédente, CI verte, pré-release, compte rendu. Testés sur Pixel 7 (maître) + Xiaomi 13T Pro (esclave) après 23 h.
+
+#### v176a — Correctifs simples et rapides (Devin cloud ; SWE-2 Flash possible)
+| ID | Écran | Correction | Acceptation (téléphone) | Flow Maestro |
+|---|---|---|---|---|
+| A1 | Accueil | « Synchro » → **« Sync »**, bouton de même taille que « Réglages » | Libellé sur une ligne au Pixel 7 et au 13T Pro, police système 1,3× | `v176_accueil_sync.yaml` (assert texte « Sync », pas « Synchro ») |
+| A2 | Nouveau site | Indicateur **vert « Données OSM récupérées : N objets »** au-dessus de « Créer le site » ; orange pendant le chargement, rouge si échec ; « Créer sans contours » reste possible | Après « Récupérer », le bandeau vert apparaît avant d'appuyer sur Créer | `v176_nouveau_site_osm_ok.yaml` |
+| A3 | Relevé > Détail | Compteurs sur **Photo étiquette (n)**, **Photo vue (n)**, **Note vocale (n)** | Après une photo, le bouton affiche « Photo vue (1) » | `v176_detail_compteurs.yaml` |
+| A4 | Relevé > Détail | Remplacer « N +0.1 / N −0.1 / E +0.1 » par une **croix de décalage** ↑↓←→ libellée « Ajuster la position (10 cm / 50 cm) » avec la valeur E/N affichée | Un appui sur ↑ augmente N de 0,10 m, valeur visible | `v176_detail_decalage.yaml` |
+| A5 | Relevé > Détail | « Changer de famille » affiche **la famille et le type actuels** (« Éclairage › Downlight ») | Texte visible avant le changement | dans `v176_detail_compteurs.yaml` |
+| A6 | Relevé > Détail | « Pièces jointes » renommé « Photos et sons (n) » avec la liste ; ou retiré si redondant avec A3 | Plus de libellé ambigu | — |
+| A7 | Session > Annoter | Ouvrir Annoter **ferme le relevé ouvert** (sélection effacée) | Le panneau du relevé disparaît | `v176_annoter_ferme_releve.yaml` |
+| A8 | Relevé | Note vidée = note effacée (`SessionController.kt:725`) | Note vidée absente de l'export | test JVM |
+| A9 | Docs | `docs/DECISIONS.md` (table unique D1–D12 + P-D13…), `ROADMAP_ETAPES.md` à jour, glossaire | Relecture | — |
+| A10 | Export | `derivedSummary.trajectoryLengthM` et `trackingStateCounts` corrects | Valeurs non nulles sur l'export du 15/11 rejoué | test JVM sur fixture |
+
+#### v176b — Fluidité (Devin cloud)
+- **B1** `MapView` : ne plus vider/recréer les calques à chaque pose. Calques persistants (bâtiments OSM, trajectoire, symboles, repères) mis à jour seulement quand leur contenu change ; la pose du téléphone (flèche) seule bouge à ≤ 10 Hz (`distinctUntilChanged` + échantillonnage). Trajectoire : ajout incrémental de points, simplification au-delà de N points.
+- **B2** `pauseCapture()`/`close()` : flush/rotation/copie vers Documents sur `Dispatchers.IO` (ou WorkManager), fil principal libre ; empreinte calculée une fois par segment fermé et mémorisée.
+- **Acceptation** : session de 30 min en marchant, carte fluide (pas de saccade visible), « Terminer » rend la main en < 1 s, aucune ANR ; mesure `adb shell dumpsys gfxinfo app.lumisite.android` avant/après (janky frames réduites d'au moins 50 %) et temps de « Terminer » journalisé.
+- **Flows** : flows existants inchangés et verts ; `v176_terminer_rapide.yaml` (Terminer puis Accueil visible en < 3 s).
+
+#### v176c — AR dépouillée : caméra pleine largeur, contours, drapeaux, luminaire, visée plafond (Devin cloud ; calculs isolés possibles en SWE-2 local)
+Écran `Session` (DS3) : bloc caméra **pleine largeur** (ratio de l'image caméra, ~4:3), en haut ; **en dessous** : mesure, lampe/torche, valeurs (qualité, résidu, hauteur), puis la carte. Pas de bouton d'agrandissement.
+
+Rendu AR (OpenGL ES existant, `ArTracker`) — **uniquement** :
+1. **Contours** des plans suivis en **traits** (GL_LINE_LOOP, 2–3 px) : sol, murs, plafond ; **arêtes verticales** des murs (segments verticaux aux extrémités des polygones de murs) ; bords = contour du polygone. `planeFindingMode = HORIZONTAL_AND_VERTICAL`, plans `TRACKING` et `subsumedBy == null`. Pas de remplissage, pas de nuage de points.
+2. **Drapeaux de calibrage** : à chaque point de calibrage accepté, créer une **ancre ARCore** (`session.createAnchor(pose)` à l'intersection visée) et dessiner un petit drapeau (mât 30 cm + fanion triangle, couleur orange des repères) ; il reste fixé dans la pièce, **réapparaît quand la caméra revient** et sort du champ quand on tourne. Ancres détachées à la fermeture.
+3. **Symbole du luminaire** relevé : même principe (ancre), forme de la famille (§ v176e), couleur de la famille.
+- **Visée plafond (R3)** : utiliser les plans `HORIZONTAL_DOWNWARD_FACING` et `VERTICAL` dans `Aim.resolve` ; si aucun plan n'est touché : **« position à compléter »**, jamais de repli silencieux à 50 cm ; choix Sol / Mur / Plafond proposé au relevé. Pas de hauteur sans sol connu.
+- **Calibrage sur le point visé** (cf. § 2.3) : la référence AR d'un point de calibrage = intersection réticule/sol, pas la pose du téléphone ; 5e point = contrôle.
+- **Acceptation (Pixel 7, bureau éclairé)** : en 30 s de balayage, contour du sol puis d'au moins deux murs en traits, arêtes verticales visibles ; après calibrage de 4 points, 4 drapeaux visibles, qui disparaissent hors champ et réapparaissent au retour à ± 20 cm visuellement ; un luminaire visé au plafond est enregistré avec `methode` plafond et `u` > hauteur du téléphone ; aucune chute d'images notable (≥ 25 i/s), aucun crash.
+- **Tests** : JVM (projection monde → écran, construction des arêtes verticales à partir d'un polygone, intersection rayon/plafond/mur dans `core/compute/Aim`) ; flows `v176_ar_pleine_largeur.yaml` (bloc caméra = largeur écran), `v176_ar_contours.yaml` (interrupteur et compteurs de plans ; un testTag ne prouve pas le rendu : captures demandées).
+- **Approche et sources licites** : `hello_ar_java` d'ARCore (**Apache 2.0**, https://github.com/google-ar/arcore-android-sdk) : lecture de `PlaneRenderer` (transformation `Plane.getPolygon()` par `getCenterPose()`) et de la création d'ancres au toucher ; **réimplémenter** en lignes simples dans le renderer existant, attribution dans NOTICE. Docs : https://developers.google.com/ar/develop/anchors (ancres locales, rester < 8 m de l'ancre, détacher les ancres inutiles), https://developers.google.com/ar/reference/java/com/google/ar/core/Plane. Pas de SceneView/Filament.
+- Exemple (pseudo-code) : `for (p in planes) { val m = p.centerPose.toMatrix(); val poly = p.polygon /* x,z locaux */; dessinerLigneFermee(m, poly); if (p.type == VERTICAL) dessinerAretesVerticales(m, poly) }` ; drapeau : `anchor.pose.toMatrix()` × modèle de 5 sommets (mât + fanion).
+
+#### v176d — Synchro maître/esclave réelle (Devin cloud)
+Constat code : la **capture esclave** (Nearby `StartCapture`) enregistre seulement un WAV ; le **chirp** n'est émis que par « Session > Synchro > Synchroniser » sur **chaque** téléphone, sans lien avec Nearby. Le 15/11, le Pixel a émis 2 chirps et n'a entendu que lui-même (`heardIds = ["018A"]`, `peerChirpIndices = []`) ; le Xiaomi n'a rien émis car il n'avait pas de session ouverte. « Scène active » vide = aucun esclave dans la scène.
+- **D1** Le bouton « Synchroniser » du maître envoie un message Nearby `SyncRound(t_debut, fenetre=12 s)` à tous les esclaves ; chacun lance `AudioSync.round` (écoute 12 s + **émet son chirp + ID** à un instant aléatoire) et renvoie le résultat (chirps entendus, horodatages) au maître ; un signal sonore audible est attendu sur **chaque** téléphone.
+- **D2** Écran Sync verbeux : liste des téléphones **vus** (nom, modèle, signal), **connectés**, **synchronisés** (décalage ± incertitude), dernier ping (âge), capteurs actifs ; journal visible horodaté sur maître et esclave ; **contrôle périodique** (ping toutes les 5 s, « perdu » après 15 s, reconnexion automatique).
+- **D3** Rôle de « Synchroniser » clarifié : « Lancer un top de synchro (tous les téléphones émettent) » ; après le top, résultat par téléphone (« Xiaomi 13T Pro : entendu, décalage 12,3 ms ± 1,1 »).
+- **D4** Démarrage esclave : **détecter, journaliser et activer** tous les capteurs utiles (micro, accéléromètre, gyroscope, magnétomètre, baromètre, profondeur/ToF si présent via `CameraCharacteristics`/ARCore Depth support), afficher la liste et l'état ; le WAV continu de l'esclave est gardé et envoyé au maître.
+- **D5** « Scène active » (maître) : liste des esclaves avec rôle, capteurs, capture en cours, médias reçus.
+- **D6** « Estimer l'écart / export d'un autre appareil » : **verdict = à retirer de l'écran terrain** (le post-traitement multi-appareils se fait au bureau ; le calcul reste dans `core/` et dans l'outil de bureau). Garder seulement l'affichage du décalage mesuré en direct.
+- **Xiaomi (HyperOS)** : vérifier localisation système activée, permissions `BLUETOOTH_SCAN`/`NEARBY_WIFI_DEVICES`, exclusion de l'optimisation batterie (sinon découverte et scan coupés) ; afficher un message explicite si l'une manque.
+- **Acceptation** : Pixel maître + Xiaomi esclave à 2 m : l'esclave apparaît en < 20 s ; « Synchroniser » → deux chirps audibles, le maître affiche « 2 appareils synchronisés » et un décalage avec incertitude ; couper le Wi-Fi de l'esclave → « perdu » en < 20 s puis retour automatique ; journal visible des deux côtés.
+- **Tests** : JVM (protocole `SyncRound`, appariement des chirps, décalage sur signaux synthétiques) ; flows `v176_sync_esclave_capteurs.yaml` (liste des capteurs), `v176_sync_scene_active.yaml` (émulateur : 0 esclave → message clair). Le test à deux téléphones est manuel (coordinateur, après 23 h).
+- **Approche** : principe BeepBeep (déjà cité dans le code) ; Nearby Connections P2P_STAR (https://developers.google.com/nearby/connections/overview).
+
+#### v176e — Relevé, catalogue hiérarchique et symboles (Devin cloud ; table de correspondance en SWE-2 Flash)
+- **E1 Navigation hiérarchique** : Famille → Sous-famille → Type, avec **flèches** (›) et fil d'Ariane « Éclairage › Encastré › Downlight », **recherche** en haut (code, libellé, synonymes, sans accents), **favoris/récents** (12), « Autres » en dernier. Material3 + `LazyColumn`/`LazyVerticalGrid` natifs (décision V6), pas de bibliothèque de picker.
+- **E2 Autres** : commentaire, photo, **note audio** (bouton maintenu), et option **capture audio continue** (déjà la règle de la mémoire : l'audio de session tourne en permanence) avec **tag horodaté** posé à chaque relevé → transcription au bureau (Whisper local, D6).
+- **E3 Catalogue (DS2)** : `catalog/lumisite_catalog_2.json` avec les **codes `LS_*`** (78 + famille **SON** + quelques codes pour couvrir les 25 blocs DWG), ASCII, ≤ 31 caractères, uniques ; `catalog/correspondance_dwg.json` (code → `block_name` DWG, calque `RES - Elec` ou `LUMI-*`, attributs) **lue au bureau seulement** ; alias : les anciens `block_name` des sessions 0.x sont traduits à la lecture. Table de départ proposée (à valider par Sébastien) :
+
+| Bloc DWG (25) | Code LS_* |
+|---|---|
+| spot | LS_ECLAIRAGE_DOWNLIGHT |
+| lampe | LS_ECLAIRAGE_POINT_LUMINEUX *(nouveau)* |
+| projecteur | LS_ECLAIRAGE_PROJECTEUR |
+| projecteur thorn contrast | LS_ECLAIRAGE_PROJECTEUR (attribut modèle « Thorn Contrast ») |
+| Lustre | LS_ECLAIRAGE_LUSTRE |
+| bougeoir électrifié | LS_ECLAIRAGE_BOUGEOIR *(nouveau)* |
+| Lanterne EP moderne | LS_ECLAIRAGE_LANTERNE_EP *(nouveau)* |
+| hublot ecl | LS_ECLAIRAGE_HUBLOT *(nouveau)* |
+| lineaire fluo | LS_ECLAIRAGE_REGLE_IMMERSION (réglette) |
+| bloc secours | LS_SECOURS_BAES |
+| prise électrique | LS_ELEC_PRISE_2P_T_16A |
+| interrupteur | LS_ELEC_INTERRUPTEUR_SIMPLE |
+| boîte de dérivation | LS_ELEC_BOITE_DERIVATION |
+| tableau divisionnaire | LS_ELEC_TABLEAU_DIVISIONNAIRE |
+| tgbt | LS_ELEC_TABLEAU_GENERAL |
+| PDL | LS_ELEC_PDL *(nouveau, point de livraison)* |
+| Camera | LS_CAMERA_FIXE_INTERIEUR |
+| Déclencheur Manuel | LS_INCENDIE_DECLENCHEUR_MANUEL |
+| extincteur | LS_INCENDIE_EXTINCTEUR |
+| Diffuseur Sonore Radio | LS_SON_DIFFUSEUR_SONORE_RADIO *(famille SON, provisoire — à confirmer par Sébastien)* |
+| Amplificateur | LS_SON_AMPLIFICATEUR *(famille SON)* |
+| enceinte | LS_SON_ENCEINTE |
+| haut-parleur | LS_SON_HAUT_PARLEUR |
+| micro col | LS_SON_MICRO_COL |
+| prise xlr | LS_SON_PRISE_XLR |
+| autre (à classer) | LS_AUTRE_A_CLASSER |
+
+- **E4 Symboles sur la carte** (forme par catégorie, symboles de **plan d'implantation**, pas de schéma ; NF C 15-100 n'impose pas de catalogue graphique mais exige des symboles univoques et une légende ; références IEC/EN 60617 partie 11 « plans d'installation architecturaux » et NF X 08-070 pour la sécurité incendie) :
+
+| Famille | Symbole proposé (dessin vectoriel Compose/osmdroid) | Référence |
+|---|---|---|
+| Éclairage — point lumineux / downlight | **cercle barré d'une croix (×)** ; spot = petit cercle à croix ; applique = demi-cercle sur trait (mur) ; linéaire = rectangle allongé ; projecteur = cercle à croix + petit triangle de faisceau | IEC 60617 S00484 (luminaire) / S00481 (point d'éclairage) / S00482 (applique), usage français du plan électrique |
+| Éclairage de sécurité / secours (BAES, BAEH) | **rectangle** avec cercle à croix inscrit, rempli à moitié ; mention BAES | IEC 60617 S00491/S00492 (EN 60617 11-15-11/12) |
+| Électricité | **triangle** (prises : demi-cercle + trait = prise 2P+T sur le plan ; interrupteur : petit cercle + trait oblique ; tableau : rectangle plein) | usage NF C 15-100 / EN 60617-11 |
+| Caméra / sûreté | **rectangle + cône de vision** | usage plans de sûreté |
+| Incendie | **carré** (DM : carré + point ; détecteur : cercle + « DF » ; extincteur : triangle + point rouge) | NF X 08-070, NF S 61-932 |
+| Son | **losange** (haut-parleur : losange + arc) | — |
+
+  Couleur = famille (pas magenta pour tout) ; **repères de calibrage = drapeau orange** (forme réservée). **Sélection** : l'objet garde sa forme et sa couleur, avec un **contour de sélection** (halo blanc + trait bleu épais), jamais orange. Taille ≥ 7 mm à l'écran (cf. NF X 08-070 pour la lisibilité).
+- **Acceptation** : 3 appuis au plus pour poser un downlight depuis Relevé ; recherche « encastré » trouve Downlight ; chaque famille a une forme différente sur la carte ; un objet sélectionné garde sa couleur et prend un contour ; un repère ne ressemble à aucun symbole.
+- **Tests** : JVM (catalogue : unicité, ≤ 31 car., ASCII, correspondance couvre les 25 blocs DWG, alias) ; flows `v176_catalogue_navigation.yaml`, `v176_catalogue_recherche.yaml`, `v176_symbole_selection.yaml`.
+
+#### v176f — Annoter, export, reprise (Devin cloud)
+- **F1 Annoter** : toucher un objet → **barre horizontale** immédiate (icône + texte) : **Supprimer**, **Modifier**, Déplacer, Dupliquer, Fermer ; **Supprimer** avec Annuler (suppression logique) ; retirer « Se déplacer » (le pan à deux doigts suffit, ou le renommer « Carte libre ») ; « Poser » renommé « Poser un symbole » avec aide d'une ligne. Acceptation : créer, supprimer, annuler, reprendre ; flow `v176_annoter_barre.yaml`.
+- **F2 Export** : un seul ZIP ; IMU en `raw/imu.csv.gz` (§ 2.1) ; repères (`control_point`) dans le GeoJSON ; propriétés plates (`name`, `lumisite:*`) ; `sigma_xy_m` = résidu ; qualité alignée sur le résidu ; `LISEZMOI` à jour. Acceptation : export de 30 min < 20 Mo ; JOSM et QGIS montrent le luminaire et les 5 repères nommés ; tests JVM sur fixture synthétique ; flow `v176_export_zip_unique.yaml`.
+- **F3 Reprise** : afficher les **anciens repères** sur la carte (leurs coordonnées carte ne dépendent pas de l'AR) en **« à confirmer »** (pointillé) ; l'AR repart dans un nouveau segment (règle D13) : bouton **« Recaler sur 2 repères »** (viser 2 anciens repères → nouvelle transformation, contrôle sur un 3e) ; en option **cible imprimée** (Augmented Images, hors ligne, gratuit) collée au mur au premier calibrage pour une relocalisation automatique.
+  - **Verdict Cloud Anchors** : gratuites mais exigent réseau, projet Google Cloud et API ARCore (clé API = 24 h de vie ; > 24 h = autorisation sans clé, jusqu'à 365 j) et envoient des données visuelles à Google → **non retenues** (règle « aucun cloud », réseau absent en chantier). **GPS** : inutilisable à l'intérieur (19–384 m mesurés le 15/11) → seulement à l'extérieur, pour un pré-positionnement.
+  - Acceptation : reprise → repères visibles en pointillé ; après « Recaler sur 2 repères », écart du 3e < 0,5 m dans le bureau éclairé ; flow `v176_reprise_reperes.yaml`.
+
+#### Après v176 (inchangé)
+Lot 4 complet (C1–C4, R1–R2, AN1–AN4, EX1–EX4, PF1), puis **5B détecteur d'ellipses** (fast_ellipse_detector, MIT, NDK, expérimental, désactivé par défaut). **Plus de 5A DXF dans l'appli** (DS1). Rectangle de sélection du Nouveau site (point 3 de Sébastien) → **v176a-bis** ci-dessous.
+
+#### v176a-bis — Nouveau site : rectangle éditable (Devin cloud)
+- Bouton **« Tracer rectangle »** (bascule, **orange quand actif**). Actif : chaque glisser trace un rectangle ; toucher un rectangle existant → poignées (coins et côtés) pour l'**étirer/déplacer**, bouton **Supprimer** ; plusieurs rectangles autorisés. Inactif : pan/zoom normaux. La sélection reste éditable jusqu'à « Créer le site ».
+- Acceptation : tracer, désactiver, zoomer, réactiver, étirer, supprimer, créer ; le site créé correspond à l'union des rectangles ; flow `v176_nouveau_site_rectangle.yaml`.
+- Référence : comportement de la sélection de zone de JOSM (lecture d'usage, aucun code ; JOSM est GPL).
+
+---
+
+### 4. Répartition proposée
+| Travail | Outil |
+|---|---|
+| v176a, v176b, v176d, v176e (écrans), v176f, v176a-bis | **Devin cloud** (session unique `devin-820dbef…`), un paquet à la fois |
+| Calculs isolés de v176c (projection monde → écran, arêtes verticales, intersection rayon/plan) et calibrage sur point visé, dans `core/` avec tests JVM | **SWE-2 local** (`devin_swe2_avance.ps1`, gratuit jusqu'au 30/11), branche `petit/swe2-*`, puis reprise par Devin ou Claude Code |
+| A1, A6, A9, table de correspondance DWG (E3), propriétés plates GeoJSON, flows Maestro simples | **SWE-2 Flash local** (`devin_flash_base.ps1`, gratuit jusqu'au 4/12), branches `petit/flash-*` |
+| Relecture des PR, cohérence décisions | Claude Code |
+| Tests Pixel + Xiaomi après 23 h | coordinateur / @smartphone / EasyClaw |
+Jamais deux agents sur les mêmes fichiers.
+
+### 5. Licences et sources
+Lecture du code open source autorisée pour comprendre, **réimplémentation obligatoire**, jamais de copie ni de traduction de GPL/AGPL (JOSM, StreetComplete, OsmAnd, AAMED, ORB-SLAM3, ODM sont GPL/AGPL : usage = lecture du comportement seulement). Apache/MIT/BSD avec attribution (NOTICE).
+- ARCore SDK samples (Apache 2.0) : https://github.com/google-ar/arcore-android-sdk
+- ARCore Anchors : https://developers.google.com/ar/develop/anchors ; Plane : https://developers.google.com/ar/reference/java/com/google/ar/core/Plane
+- Cloud Anchors (quotas, durée de vie, clé) : https://developers.google.com/ar/develop/java/cloud-anchors/developer-guide
+- Augmented Images : https://developers.google.com/ar/develop/java/augmented-images
+- Nearby Connections : https://developers.google.com/nearby/connections/overview
+- JOSM GeoJSON, propriétés imbriquées : https://josm.openstreetmap.de/ticket/22254
+- Symboles de plan : https://www.installation-renovation-electrique.com/normes-electriques/schema-plan-electrique/symbole-electrique-identification-schema-electrique/ ; https://www.egpp-electricite.fr/plan-electrique-symboles/ ; IEC 60617 (luminaire S00484, sécurité S00491/S00492 = EN 60617 11-15-11/12) : https://gallery.proficad.eu/symbols/others/house-electrical-symbols/lightings/ ; NF X 08-070 (plans de sécurité) ; fast_ellipse_detector (MIT) : https://github.com/h3ct0r/fast_ellipse_detector
+
+### 6. Ce que Sébastien doit encore trancher
+1. Table de correspondance DWG (§ v176e E3) : « Diffuseur Sonore Radio » classé provisoirement en SON (à confirmer), et les nouveaux codes.
+2. Jeu de symboles (§ E4) : formes OK ?
+3. Ordre : v176a + v176b ensemble, puis v176c (AR) — ou v176c d'abord ?
+4. Fusion de la pile vers `main` après validation v176 (lui seul).

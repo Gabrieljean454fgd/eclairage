@@ -1,0 +1,10 @@
+# v176a A7 : un relevé est ouvert (panneau « Relevé sélectionné ») ; toucher « Annoter » le ferme.
+appId: app.lumisite.android
+name: "v176a Annoter ferme le releve ouvert"
+---
+- runFlow: v176/releve_au_centre.yaml
+- assertVisible: { id: "session_objet_fermer" }
+- tapOn: { id: "session_annoter" }
+- assertNotVisible: { id: "session_objet_coordonnees" }
+- assertNotVisible: { id: "session_objet_fermer" }
+- takeScreenshot: maestro-out/captures/v176_annoter_ferme_releve

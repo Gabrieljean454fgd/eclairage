@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 class ResumableExportTest {
     private val s = 1_000_000_000L
 
-    private fun session(imuSeconds: Int = 2): File {
+    private fun session(imuSeconds: Int = 2, more: (SessionJournal) -> Unit = {}): File {
         val dir = Files.createTempDirectory("lumi").toFile()
         SessionJournal(dir, Fixtures.header).use { j ->
             j.event(SessionStarted("e0", Fixtures.stamp(5 * s)))
@@ -37,6 +37,7 @@ class ResumableExportTest {
             for (k in 0 until imuSeconds * 100) j.imu(ImuSample(Fixtures.stamp(5 * s + k * 10_000_000L), 1, "accel", listOf(0.1f, 9.8f, 0.0f), 3))
             j.event(Calibrator.onePointHeading("cal", poses[0].t, LocalObservation(poses[0], ReferencePoint("A", Enu(10.0, 20.0), source = "MAP_TAP")), 0.0, "MANUAL", 5.0))
             listOf(5, 10, 15).forEachIndexed { i, k -> j.event(SurveyEvent("s$i", poses[k].t, "LUMINAIRE", null, poses[k], TrackingState.TRACKING, null, "AR_POSE")) }
+            more(j)
         }
         return dir
     }
@@ -65,6 +66,16 @@ class ResumableExportTest {
         // A third run on the same snapshot does nothing again.
         val r3 = ResumableExport.run(Fixtures.site, dir, out, "test", 1_700_000_000_000)
         assertEquals(emptyList(), r3.writtenNow)
+    }
+
+    @Test fun sessionJsonSummaryHasTrajectoryLengthAndTrackingCounts() {
+        val dir = session { j -> j.pose(Fixtures.pose(8 * s, 4.0, 10.0, state = TrackingState.LOST)) }
+        val r = ResumableExport.run(Fixtures.site, dir, Files.createTempDirectory("exp").toFile(), "test", 1_700_000_000_000)
+        val d = r.sessionManifest.derivedSummary
+        // 21 TRACKING poses 0.2 m E / 0.5 m N apart, calibrated from the first one.
+        assertEquals(21, d.trajectoryPoints)
+        assertEquals(20 * kotlin.math.hypot(0.2, 0.5), d.trajectoryLengthM, 1e-6)
+        assertEquals(mapOf("TRACKING" to 21, "LOST" to 1), d.trackingStateCounts)
     }
 
     @Test fun relevesGeojsonIsOneFeatureCollectionInWgs84WithLocalCoordinatesInProperties() {

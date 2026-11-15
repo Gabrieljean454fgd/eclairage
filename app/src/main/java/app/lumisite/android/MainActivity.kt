@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
                                         // writer on a session that is still being closed (the resume is refused, not silently overlapped).
                                         val stillClosing = withContext(Dispatchers.IO) { SessionController.closingThreads[h.id]?.let { it.join(45_000); it.isAlive } == true }
                                         if (stillClosing) {
-                                            DiagLog.w("SESSION", "Reprise de ${h.id} refusée : la fermeture précédente n'est pas terminée")
+                                            DiagLog.e("SESSION", "Reprise de ${h.id} refusée : la fermeture précédente n'est pas terminée")
                                             android.widget.Toast.makeText(this@MainActivity, "Fermeture de la session encore en cours, réessayez dans quelques secondes", android.widget.Toast.LENGTH_LONG).show()
                                         } else screen = Screen.Live(SessionController(applicationContext, repo, site, h.id, resume = true))
                                     } finally { resuming = false }

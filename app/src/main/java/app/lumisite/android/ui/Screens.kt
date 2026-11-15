@@ -192,7 +192,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 staged = file; return r
             }
             fun show(f: OsmClient.Fetched, via: String) {
-                fetched = f
+                fetched = f; osmState = "OK"
                 val counts = f.snapshot.features.groupingBy { it.category }.eachCount()
                 status = "$via : ${f.snapshot.features.size} objets $counts en ${f.calls} appel(s)." +
                     (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
@@ -219,7 +219,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                     is CallCapReached -> "Plafond de ${e.calls} appels atteint : réduisez le rectangle. Le site est utilisable sans contours."
                     else -> "Contours indisponibles (${e.javaClass.simpleName}: ${e.message}). Le site est utilisable sans contours."
                 }
-            } finally { busy = false; osmState = if (fetched != null) "OK" else "ERROR" }
+            } finally { busy = false; if (osmState == "LOADING") osmState = "ERROR" }
         }
     }
 

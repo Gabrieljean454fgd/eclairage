@@ -53,6 +53,8 @@ class AimTest {
         val down = Aim.resolve(cam, V3(0.0, -1.0, -0.3), listOf(floor, ceiling, wall), null, tracking = true) as AimResult.Hit
         assertEquals("AR_PLANE", down.source)
         assertEquals("AR_CEILING", Aim.sourceOf("PLAFOND")); assertEquals(null, Aim.sourceOf(null))
+        // Mur chosen, no wall detected: no floor estimate, « position à compléter ».
+        assertEquals(AimResult.ToComplete, Aim.resolve(cam, V3(0.0, -1.0, -0.3), emptyList(), 1.0, tracking = true, fallbacks = false))
     }
 
     @Test fun noTrackingNoPoint() {

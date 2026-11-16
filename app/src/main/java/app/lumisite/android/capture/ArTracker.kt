@@ -231,7 +231,7 @@ class ArTracker(
         }.filter { only == null || it.source == only }
         val p = cam.pose
         val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
-        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true)
+        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true, fallbacks = Aim.sourceOf(aimSurface.value).let { it == null || it == "AR_PLANE" })
     }
 
     @Suppress("DEPRECATION")

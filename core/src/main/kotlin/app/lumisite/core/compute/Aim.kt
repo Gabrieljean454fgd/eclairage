@@ -54,12 +54,13 @@ object Aim {
         if (plane.contains?.invoke(p) == false) Ray.Miss else Ray.At(p)
     }.getOrDefault(Ray.Miss)
 
-    fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean): AimResult {
+    /** [fallbacks] = false (v176c, Mur or Plafond chosen): no last-object / floor-estimate fallback. */
+    fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean, fallbacks: Boolean = true): AimResult {
         if (!tracking) return AimResult.NoTarget
         // Nearest detected plane along the ray (a wall in front of a farther floor wins), then the fallbacks.
         nearest(origin, dir, arPlanes)?.let { return it }
         val floorY = arPlanes.filter { it.source == "AR_PLANE" }.minOfOrNull { it.point.y } ?: (origin.y - DEFAULT_CAMERA_HEIGHT_M)
-        val chain = listOfNotNull(
+        val chain = if (!fallbacks) emptyList() else listOfNotNull(
             lastObjectY?.let { Plane(V3(origin.x, it, origin.z), UP, "AR_LAST_PLANE") },
             Plane(V3(origin.x, floorY, origin.z), UP, "AR_FLOOR_ESTIMATE"),
         )

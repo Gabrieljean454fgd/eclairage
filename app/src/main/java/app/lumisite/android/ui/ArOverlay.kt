@@ -50,20 +50,18 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     else -> Color(0xFFD50000) to "Point visé : pas de cible"
 }
 
-/** Drawn over the camera view (inside its Box): reticle coloured by tracking/aim state and calibration label. */
+/** Drawn over the camera view (inside its Box): only the reticle, coloured by tracking/aim state (v176c: no text in the image). */
 @Composable
 fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val (color, _) = aimState(st.tracking, aim)
     Text("+", Modifier.align(Alignment.Center), fontSize = 36.sp, color = color, style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)))
-    val calLabel = remember(st.events.size) { c.calibrationLabel() }
-    Text(calLabel, Modifier.align(Alignment.TopStart).background(Color(0x88000000)).padding(2.dp), color = Color.White, fontSize = 10.sp)
 }
 
 /** Below the camera view: aim hint, plane count, torch and two-aim measurement (P2, not journaled). */
 @Composable
-fun ArControls(c: SessionController) {
+fun ArControls(c: SessionController, compact: Boolean = false) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
@@ -74,7 +72,8 @@ fun ArControls(c: SessionController) {
     var measure by remember { mutableStateOf<String?>(null) }
     val (color, hint) = aimState(st.tracking, aim)
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(hint, style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.testTag("session_ar_visee"))
+        val calLabel = remember(st.events.size) { c.calibrationLabel() }
+        Text("$hint · $calLabel", style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.testTag("session_ar_visee"))
         val surfaces = listOf(null to "Tous", "SOL" to "Sol", "MUR" to "Mur", "PLAFOND" to "Plafond")
         Text("Plans : sol ${counts.first} · murs ${counts.second} · plafond ${counts.third} · visée : ${surfaces.first { it.first == surface }.second.lowercase()}",
             style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_plans"))
@@ -85,7 +84,7 @@ fun ArControls(c: SessionController) {
                     modifier = Modifier.testTag("session_ar_surface_" + (k?.lowercase() ?: "tous")))
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (!compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // « Contours » switch of the stripped AR lines (plane outlines, vertical wall edges).
             androidx.compose.material3.FilterChip(selected = contours, onClick = { c.ar.contoursOn.value = !contours },
                 label = { Text(if (contours) "Contours : affichés" else "Contours : masqués") }, modifier = Modifier.testTag("session_ar_contours"))

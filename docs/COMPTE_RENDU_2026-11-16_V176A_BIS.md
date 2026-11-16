@@ -21,4 +21,7 @@ Branche `etape-3-v176a-bis-rectangles`, empilée sur `etape-3-v176b-fluidite`. P
 - Maestro ne sait pas faire un geste à deux doigts : le zoom n'est pas couvert par le flow, seul le déplacement à un doigt hors mode l'est. Le zoom à deux doigts est à vérifier au téléphone.
 
 ## CI et pré-release
-- À compléter après la CI.
+- PR : https://github.com/Gabrieljean454fgd/eclairage/pull/25 (non fusionnée).
+- CI verte : https://github.com/Gabrieljean454fgd/eclairage/actions/runs/43968308172 (APK, tests JVM, tous les flows Maestro dont `v176_nouveau_site_rectangle`).
+- Pré-release : https://github.com/Gabrieljean454fgd/eclairage/releases/tag/etape3-v176a-bis-46707f1, APK `lumisite-etape3-v176a-bis-v189-46707f1.apk`, versionCode 189.
+- Revue automatique : sélection de bâtiments vidée quand les rectangles changent (corrigé) ; rectangles très éloignés : « Réduire » ne ramène pas l'enveloppe sous la limite OSM (signalé, à arbitrer : récupérer chaque rectangle séparément).

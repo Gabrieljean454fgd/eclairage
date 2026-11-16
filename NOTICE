@@ -1,0 +1,12 @@
+LumiSite
+========
+
+Ce dépôt réimplémente des comportements lus dans du code tiers sous licence permissive. Aucun fichier tiers n'est copié.
+
+- ARCore SDK for Android, sample « hello_ar_java » (https://github.com/google-ar/arcore-android-sdk),
+  Copyright 2017-2020 Google LLC, Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+  Comportements repris et réécrits (v176c) : rendu du fond caméra par texture externe OES, contours des plans détectés
+  à partir de Plane.getPolygon() et Plane.getCenterPose(), configuration HORIZONTAL_AND_VERTICAL, ancres locales
+  (Session.createAnchor) affichées seulement quand leur suivi est TRACKING.
+  Fichiers concernés : app/src/main/java/app/lumisite/android/capture/ArTracker.kt,
+  core/src/main/kotlin/app/lumisite/core/compute/ArGeometry.kt.

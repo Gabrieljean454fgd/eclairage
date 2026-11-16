@@ -70,27 +70,35 @@ class ArTracker(
     private var autoTorchChecked = false
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
-    private val planeRenderer = PlaneRenderer()
+    private val lineRenderer = LineRenderer()
     private var planes: List<Plane> = emptyList()
     private var frameNo = 0L
 
     /** D6: ARCore anchors (control points, object groups), created / detached on the GL thread, poses reported at most once per second. */
-    private val anchorAdds = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, PoseSample>>()
+    /** v176c: what is drawn at an anchor: calibration flag, luminaire symbol, nothing (object groups). */
+    enum class AnchorKind { FLAG, LUMINAIRE, GROUP }
+    private val anchorAdds = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, PoseSample, AnchorKind>>()
     private val anchorDrops = java.util.concurrent.ConcurrentLinkedQueue<String>()
     private val anchors = HashMap<String, com.google.ar.core.Anchor>()
+    private val anchorKinds = HashMap<String, AnchorKind>()
+    /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond) and surface chosen at the survey (SOL / MUR / PLAFOND, null = all). */
+    val contoursOn = MutableStateFlow(true)
+    val planeCounts = MutableStateFlow(Triple(0, 0, 0))
+    val aimSurface = MutableStateFlow<String?>(null)
     private var lastAnchorReportMs = 0L
     @Volatile var onAnchors: ((Map<String, Pair<List<Double>, List<Double>>>) -> Unit)? = null
-    fun requestAnchor(id: String, pose: PoseSample) { anchorAdds += id to pose }
+    fun requestAnchor(id: String, pose: PoseSample, kind: AnchorKind = AnchorKind.GROUP) { anchorAdds += Triple(id, pose, kind) }
     fun dropAnchor(id: String) { anchorDrops += id }
 
     private fun updateAnchors(s: Session, nowMs: Long) {
         while (true) {
-            val (id, p) = anchorAdds.poll() ?: break
+            val (id, p, kind) = anchorAdds.poll() ?: break
             runCatching {
                 anchors[id] = s.createAnchor(Pose(p.p.map { it.toFloat() }.toFloatArray(), p.q.map { it.toFloat() }.toFloatArray()))
+                anchorKinds[id] = kind
             }.onFailure { setError("ancre $id : ${it.message}") }
         }
-        while (true) { val id = anchorDrops.poll() ?: break; anchors.remove(id)?.let { a -> runCatching { a.detach() } } }
+        while (true) { val id = anchorDrops.poll() ?: break; anchorKinds.remove(id); anchors.remove(id)?.let { a -> runCatching { a.detach() } } }
         if (anchors.isEmpty() || nowMs - lastAnchorReportMs < 1_000) return
         lastAnchorReportMs = nowMs
         val out = anchors.filterValues { it.trackingState == com.google.ar.core.TrackingState.TRACKING }.mapValues { (_, a) ->
@@ -129,7 +137,7 @@ class ArTracker(
             val cfg = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
-                planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+                planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                 lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
                 depthMode = Config.DepthMode.DISABLED
             }
@@ -189,7 +197,7 @@ class ArTracker(
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1f)
         bg.create()
-        planeRenderer.create()
+        lineRenderer.create()
         session?.setCameraTextureName(bg.textureId)
     }
 
@@ -205,16 +213,22 @@ class ArTracker(
         if (state != TrackingState.TRACKING) { aim.value = AimResult.NoTarget; return }
         // Plane list sampled every 10 frames (getAllTrackables is costly); tracking state re-checked every frame.
         if (frameNo++ % 10 == 0L) {
-            planes = s.getAllTrackables(Plane::class.java).filter { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && it.subsumedBy == null }
+            planes = s.getAllTrackables(Plane::class.java).filter { it.subsumedBy == null }
         }
         val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
-        if (planeCount.value != planes.size) planeCount.value = planes.size
+        val counts = Triple(planes.count { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }, planes.count { it.type == Plane.Type.VERTICAL },
+            planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
+        if (planeCounts.value != counts) planeCounts.value = counts
+        if (planeCount.value != counts.first) planeCount.value = counts.first
+        val only = Aim.sourceOf(aimSurface.value)
         val ap = planes.map { pl ->
             val c = pl.centerPose
-            Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), Aim.UP, "AR_PLANE") { p ->
+            val n = c.yAxis
+            val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
+            Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), src) { p ->
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             }
-        }
+        }.filter { only == null || it.source == only }
         val p = cam.pose
         val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
         aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true)
@@ -256,8 +270,12 @@ class ArTracker(
             )
         } else null
         runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
-        if (state == TrackingState.TRACKING) runCatching { planeRenderer.draw(cam, planes) }
         runCatching { updateAnchors(s, nowMs) }
+        if (state == TrackingState.TRACKING) runCatching {
+            lineRenderer.draw(cam, if (contoursOn.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
+                anchors.filter { (id, a) -> a.trackingState == com.google.ar.core.TrackingState.TRACKING && anchorKinds[id] != AnchorKind.GROUP }
+                    .map { (id, a) -> anchorKinds.getValue(id) to V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()) })
+        }
         onFrame(pose, state, reason)
     }
 }
@@ -331,43 +349,62 @@ private class BackgroundRenderer {
         ByteBuffer.allocateDirect(a.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(a); position(0) }
 }
 
-/** Detected horizontal planes drawn as translucent cyan polygons (as in the ARCore samples), so the user sees what is aimed at. */
-private class PlaneRenderer {
+/**
+ * v176c stripped AR (decision 3): lines only, no fill, no point cloud, no text. Plane outlines (GL_LINE_LOOP), vertical
+ * wall edges, orange calibration flags and luminaire symbols at local anchors. Behaviour read in ARCore's hello_ar_java
+ * PlaneRenderer (Apache-2.0, see NOTICE), reimplemented with app.lumisite.core.compute.ArGeometry.
+ */
+private class LineRenderer {
     private var program = 0; private var aPos = 0; private var uMvp = 0; private var uColor = 0
-    private val proj = FloatArray(16); private val view = FloatArray(16); private val model = FloatArray(16)
-    private val vp = FloatArray(16); private val mvp = FloatArray(16)
+    private val proj = FloatArray(16); private val view = FloatArray(16); private val vp = FloatArray(16)
+    private val model = FloatArray(16)
 
     fun create() {
         fun shader(type: Int, src: String) = GLES20.glCreateShader(type).also { GLES20.glShaderSource(it, src); GLES20.glCompileShader(it) }
         program = GLES20.glCreateProgram().also {
-            GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, "uniform mat4 u_Mvp; attribute vec2 a_Pos; void main() { gl_Position = u_Mvp * vec4(a_Pos.x, 0.0, a_Pos.y, 1.0); }"))
+            GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, "uniform mat4 u_Mvp; attribute vec3 a_Pos; void main() { gl_Position = u_Mvp * vec4(a_Pos, 1.0); }"))
             GLES20.glAttachShader(it, shader(GLES20.GL_FRAGMENT_SHADER, "precision mediump float; uniform vec4 u_Color; void main() { gl_FragColor = u_Color; }"))
             GLES20.glLinkProgram(it)
         }
         aPos = GLES20.glGetAttribLocation(program, "a_Pos"); uMvp = GLES20.glGetUniformLocation(program, "u_Mvp"); uColor = GLES20.glGetUniformLocation(program, "u_Color")
     }
 
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>) {
-        if (program == 0 || planes.isEmpty()) return
+    private fun lines(mode: Int, pts: List<V3>, r: Float, g: Float, b: Float) {
+        if (pts.size < 2) return
+        val buf = ByteBuffer.allocateDirect(pts.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        pts.forEach { buf.put(it.x.toFloat()); buf.put(it.y.toFloat()); buf.put(it.z.toFloat()) }
+        buf.position(0)
+        GLES20.glUniform4f(uColor, r, g, b, 1f)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, buf)
+        GLES20.glDrawArrays(mode, 0, pts.size)
+    }
+
+    private fun segments(s: List<Pair<V3, V3>>, r: Float, g: Float, b: Float) = lines(GLES20.GL_LINES, s.flatMap { listOf(it.first, it.second) }, r, g, b)
+
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Pair<ArTracker.AnchorKind, V3>>) {
+        if (program == 0 || (planes.isEmpty() && marks.isEmpty())) return
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
         GLES20.glUseProgram(program)
-        GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-        GLES20.glUniform4f(uColor, 0f, 0.9f, 1f, 0.25f)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
+        GLES20.glLineWidth(3f)
+        GLES20.glEnableVertexAttribArray(aPos)
         for (pl in planes) {
             val poly = pl.polygon ?: continue
-            val n = poly.limit() / 2
-            if (n < 3) continue
-            pl.centerPose.toMatrix(model, 0)
-            android.opengl.Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
-            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
             poly.rewind()
-            GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, poly)
-            GLES20.glEnableVertexAttribArray(aPos)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, n)
-            GLES20.glDisableVertexAttribArray(aPos)
+            val xz = DoubleArray(poly.limit()) { poly.get(it).toDouble() }.toList()
+            if (xz.size < 6) continue
+            pl.centerPose.toMatrix(model, 0)
+            val world = app.lumisite.core.compute.ArGeometry.polygonToWorld(DoubleArray(16) { model[it].toDouble() }, xz)
+            lines(GLES20.GL_LINE_LOOP, world, 1f, 1f, 1f)
+            if (pl.type == Plane.Type.VERTICAL) segments(app.lumisite.core.compute.ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
-        GLES20.glDisable(GLES20.GL_BLEND)
+        for ((kind, at) in marks) when (kind) {
+            ArTracker.AnchorKind.FLAG -> segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f)
+            ArTracker.AnchorKind.LUMINAIRE -> segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f)
+            ArTracker.AnchorKind.GROUP -> {}
+        }
+        GLES20.glDisableVertexAttribArray(aPos)
     }
 }
 

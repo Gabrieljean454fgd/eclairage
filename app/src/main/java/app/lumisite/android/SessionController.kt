@@ -507,6 +507,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         return cur.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }
     }
 
+    /** v176c: the 5th calibration point is an independent control, never used in the solve. */
+    private fun isControlEvent(e: ControlPointEvent, active: List<ControlPointEvent> = activeControlEvents()): Boolean =
+        e.kind == "CALIBRATION" && CalibrationQuality.isControl(active.filter { it.kind == "CALIBRATION" }.indexOf(e))
+
+    private fun solveEvents(): List<ControlPointEvent> = activeControlEvents().let { a -> a.filter { !isControlEvent(it, a) } }
+
+    private fun controlEvent(): ControlPointEvent? = activeControlEvents().let { a -> a.firstOrNull { isControlEvent(it, a) } }
+
+    fun controlResidualM(): Double? = controlEvent()?.let(::toControlPoint)?.let { CalibrationQuality.controlResidual(_state.value.controlSolution, it) }
+
     /** D6: current pose of each control point's ARCore anchor (falls back to the pose recorded at validation). */
     private val anchorPoses = java.util.concurrent.ConcurrentHashMap<String, PoseSample>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -527,7 +537,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         if (!moved) return@post
         val seg = activeSegment() ?: return@post
-        val pts = activeControlEvents().mapNotNull(::toControlPoint)
+        val pts = solveEvents().mapNotNull(::toControlPoint)
         val sol = CalibrationSolver.solve(pts, stamps.now().monotonicNs, seg.transform.rotationRad, solverSettings) ?: return@post
         val here = trackedPose()?.let { PoseGeometry.plane(it) } ?: return@post
         val shift = (sol.transform.apply(here) - seg.transform.apply(here)).norm()
@@ -538,13 +548,17 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private fun toControlPoint(e: ControlPointEvent): ControlPoint? {
         val pose = observationNow(e).pose ?: return null
         val site = e.observation.reference.site
-        return ControlPoint(e.id, e.t.monotonicNs, PoseGeometry.plane(pose), Vec2(site.e, site.n), e.kind == "RELOCALIZATION",
+        // v176c: AR side = the point aimed at with the reticle (its anchor once ARCore reports it), else the phone pose.
+        val local = anchorPoses[e.id]?.let { PoseGeometry.plane(it) } ?: e.aimSession?.let { Vec2(it[0], -it[2]) } ?: PoseGeometry.plane(pose)
+        return ControlPoint(e.id, e.t.monotonicNs, local, Vec2(site.e, site.n), e.kind == "RELOCALIZATION",
             e.headingDeg?.let { Angles.wrapPi(Angles.headingDegToEnuRad(it) - PoseGeometry.forwardPlaneAngle(pose)) }, forced = e.forcedCause != null)
     }
 
     fun controlRows(kind: String): List<ControlRow> {
         val sol = _state.value.controlSolution
-        return activeControlEvents().filter { it.kind == kind }.mapIndexed { i, e ->
+        val active = activeControlEvents()
+        return active.filter { it.kind == kind }.mapIndexed { i, e ->
+            if (isControlEvent(e, active)) return@mapIndexed ControlRow(i + 1, e, controlResidualM(), "contrôle (hors calcul)")
             ControlRow(i + 1, e, sol?.residualsM?.get(e.id), when { sol == null -> "en attente"; e.id in sol.rejected -> "rejeté"; e.id == sol.anchorId -> "ancre"; else -> "retenu" } + if (e.forcedCause != null) " · forcé" else "")
         }
     }
@@ -568,9 +582,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = trackedPose() ?: return fail(poseUnavailable(if (reloc) "Recalage" else "Calibrage"))
         val before = activeSegment()
         if (reloc && before == null) return fail("Recalage impossible : aucun calibrage actif.")
+        // v176c: the AR side of the point is where the reticle hits the floor, not the phone (1 m away on 15/11). Simulated poses
+        // (debug/CI, no camera) keep the phone pose.
+        val aimNow = ar.aim.value
+        val floorHit = (aimNow as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_PLANE" || it.source == "AR_FLOOR_ESTIMATE" }
+        if (simThread == null && aimNow != null && floorHit == null)
+            return fail("${if (reloc) "Recalage" else "Calibrage"} : visez au sol, avec le réticule, le point touché sur la carte.")
+        val aimed = floorHit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z), q = listOf(0.0, 0.0, 0.0, 1.0)) }
         // Paquet v6: same map point reused, or contradictory pair (phone ~still, map points far apart), refused before recording.
         val active = activeControlEvents()
-        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(ref.site.e, ref.site.n), reloc)
+        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(aimed ?: pose), Vec2(ref.site.e, ref.site.n), reloc)
         val label: (ControlPoint) -> String = { p ->
             val e = active.first { it.id == p.id }
             "${active.filter { it.kind == e.kind }.indexOf(e) + 1} (${if (e.kind == "RELOCALIZATION") "recalage" else "calibrage"})"
@@ -581,9 +602,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             return fail(if (r.overridable) r.message + " Après une perte de suivi ARCore, « Recaler quand même » est possible." else r.message)
         }
         _state.update { it.copy(forcible = null) }
-        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource)
+        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource,
+            aimSession = aimed?.p, aimSource = floorHit?.source)
         record(e)
-        ar.requestAnchor(e.id, pose)
+        ar.requestAnchor(e.id, aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
         resolve(e, before, headingCorrectionDeg, note)
     }
 
@@ -605,7 +627,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId)
         DiagLog.i("POSITION", "Point forcé par l'utilisateur (${f.kind}) : cause « $cause » ; refus ignoré : ${f.refusal.message}")
         record(e)
-        ar.requestAnchor(e.id, pose)
+        ar.requestAnchor(e.id, pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
         resolve(e, before, f.headingCorrectionDeg, listOfNotNull(f.note, "forcé : $cause").joinToString(" · "))
         _state.update { it.copy(message = "Point forcé enregistré (cause : $cause). Les points précédents sont conservés : supprimez-les dans le tableau s'ils sont faux. " + (it.message ?: "")) }
     }
@@ -619,8 +641,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     /** Session > Calibrer: quality of the live calibration (bon / moyen / insuffisant), null before the first point. */
     fun calibrationGrade(): CalibrationQuality.Grade? {
-        val pts = activeControlEvents().mapNotNull(::toControlPoint)
-        return if (pts.isEmpty()) null else CalibrationQuality.grade(pts, _state.value.controlSolution)
+        val pts = solveEvents().mapNotNull(::toControlPoint)
+        return if (pts.isEmpty()) null else CalibrationQuality.grade(pts, _state.value.controlSolution, controlResidualM())
     }
 
     /** Session > Calibrer > « Contrôler ici »: distance between the phone position and a known map point, not used in the solve. */
@@ -651,7 +673,15 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     private fun resolve(trigger: ControlPointEvent?, before: TrajectoryCorrector.Segment?, headingCorrectionDeg: Double? = null, note: String? = null) {
-        val evs = activeControlEvents()
+        if (trigger != null && isControlEvent(trigger)) {
+            val d = controlResidualM()
+            val msg = "Point de contrôle (5e point, hors calcul) : écart " + (d?.let { "%.2f m".format(java.util.Locale.FRANCE, it) } ?: "non calculé") +
+                if (d != null && d > CalibrationQuality.ALERT_M) " : au-delà de 0,5 m, calibrage à vérifier." else "."
+            DiagLog.i("POSITION", msg)
+            _state.update { it.copy(message = msg) }
+            return
+        }
+        val evs = solveEvents()
         val pts = evs.mapNotNull(::toControlPoint)
         val now = stamps.now()
         if (pts.isEmpty()) {
@@ -666,7 +696,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         var tr = sol.transform
         val anchor = pts.firstOrNull { it.id == sol.anchorId }
         if (headingCorrectionDeg != null && anchor != null) tr = Similarity2D.fromPointAndRotation(anchor.local, anchor.target, tr.rotationRad - Math.toRadians(headingCorrectionDeg))
-        val summary = "${pts.size} point(s), ${sol.rejected.size} rejeté(s), résidu RMS " + "%.2f".format(sol.rmsM) + " m (${sol.method})"
+        val worst = sol.residualsM.filterKeys { it !in sol.rejected }.maxByOrNull { it.value }
+        val alert = if (worst != null && worst.value > CalibrationQuality.ALERT_M)
+            " Attention : point ${evs.indexOfFirst { it.id == worst.key } + 1} à " + "%.2f".format(java.util.Locale.FRANCE, worst.value) + " m (> 0,5 m), excluez-le ou revisez-le." else ""
+        val summary = "${pts.size} point(s), ${sol.rejected.size} rejeté(s), résidu RMS " + "%.2f".format(sol.rmsM) + " m (${sol.method})" + alert
         _state.update { it.copy(controlSolution = sol) }
         if (trigger?.kind == "RELOCALIZATION" && before != null) {
             val local = PoseGeometry.plane(observationNow(trigger).pose!!); val b = before.transform.apply(local); val a = tr.apply(local)
@@ -726,6 +759,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (manual == null && needsReposition()) { fail("Position du téléphone perdue à la fermeture : pas de point visé AR. Touchez le point sur la carte, ou touchez 2 points déjà calibrés (Calibrer, 2 points)."); return false }
         val aim = if (pose != null && seg != null) ar.aim.value else null
         if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
+        if (manual == null && aim == app.lumisite.core.compute.AimResult.ToComplete) { fail("Position à compléter : visez un plan détecté (sol, mur ou plafond), ou touchez le point sur la carte."); return false }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit
         val est = if (pose != null && seg != null) hit?.let { app.lumisite.core.compute.Aim.toSite(it.point, seg.transform) }
             ?: seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
@@ -742,6 +776,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         undoStack.addLast(e.id)
         lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        if (manual == null && hit != null && pose != null)
+            ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
         if (manual == null && pose != null) {
             val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
             val c = Vec2(at[0], -at[2])

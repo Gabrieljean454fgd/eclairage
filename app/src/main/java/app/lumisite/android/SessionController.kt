@@ -588,7 +588,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val floorHit = (aimNow as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_PLANE" || it.source == "AR_FLOOR_ESTIMATE" }
         if (simThread == null && aimNow != null && floorHit == null)
             return fail("${if (reloc) "Recalage" else "Calibrage"} : visez au sol, avec le réticule, le point touché sur la carte.")
-        val aimed = floorHit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z), q = listOf(0.0, 0.0, 0.0, 1.0)) }
+        // Anchor at the aimed point with the camera rotation: the one-point heading (toControlPoint) reads the anchor's yaw.
+        val aimed = floorHit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z)) }
         // Paquet v6: same map point reused, or contradictory pair (phone ~still, map points far apart), refused before recording.
         val active = activeControlEvents()
         val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(aimed ?: pose), Vec2(ref.site.e, ref.site.n), reloc)

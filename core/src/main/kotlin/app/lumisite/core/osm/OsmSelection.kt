@@ -14,6 +14,10 @@ object OsmSelection {
         }
     }.map { it.ref }
 
+    /** v176a-bis: buildings selected by any of the site rectangles (their union), in feature order, without duplicates. */
+    fun buildingsIn(rects: List<BBox>, features: List<OsmFeature>): List<String> =
+        rects.flatMap { buildingsIn(it, features) }.toSet().let { s -> features.map { it.ref }.filter { it in s }.distinct() }
+
     /** A tap adds the building if absent, removes it otherwise. */
     fun toggle(selected: List<String>, ref: String): List<String> = if (ref in selected) selected - ref else selected + ref
 }

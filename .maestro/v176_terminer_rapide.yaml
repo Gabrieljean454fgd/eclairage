@@ -1,0 +1,15 @@
+# v176b B2 : Session > « Terminer » rend la main tout de suite (fermeture du journal, d'ARCore et copie vers Documents en
+# arrière-plan) : l'écran Site est visible en moins de 3 s ; « Reprendre » attend la fin de la fermeture puis rouvre la session.
+appId: app.lumisite.android
+name: "v176b Terminer rapide"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_terminer_la_session" }
+- extendedWaitUntil:
+    visible: { id: "site_session_reprendre" }
+    timeout: 3000
+- tapOn: { id: "site_session_reprendre" }
+- extendedWaitUntil:
+    visible: { id: "session_terminer_la_session" }
+    timeout: 30000
+- takeScreenshot: maestro-out/captures/v176_terminer_rapide

@@ -143,6 +143,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private val stamps: StampFactory
     private val poses = ArrayList<PoseSample>()
     private var lastPoseMono = 0L
+    /** Latest ARCore pose (every frame) for calibration/survey; the UI state gets it at ≤ 10 Hz only (v176b). */
+    @Volatile private var latestPose: PoseSample? = null
     private var lastTracking: TrackingState? = null
     private var imuCount = 0L
 
@@ -228,17 +230,55 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     @Volatile var closed = false; private set
+    /** Set as soon as « Terminer » starts the background close: a later pause must not touch the session any more. */
+    @Volatile private var closing = false
+
+    /** v176b: fsync, segment rotation and copy to Documents run here, never on the main thread. */
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "lumisite-session-io").apply { isDaemon = true } }
 
     fun pauseCapture() {
-        if (closed) return
+        if (closed || closing) return
+        stopCapture()
+        runCatching { io.execute { persistPaused() } }
+    }
+
+    private fun stopCapture() {
         runCatching { sensors.stop() }; runCatching { gps.stop() }; ar.pause()
         tick.removeCallbacks(gnssTick)
         logTracking(TrackingState.STOPPED, "APP_PAUSED")
         if (!paused) { paused = true; streamState(listOf("imu", "gps", "arcore"), "STOPPED", "APP_PAUSED") }
+    }
+
+    private fun persistPaused() {
+        if (closed) return
+        val t0 = AndroidClock.monotonicNs()
         journal.flushAll()
         runCatching { journal.rotateAll() }
         mirror.syncAll()
         DiagLog.memory("pause de session"); DiagLog.mirrorNow()
+        DiagLog.i("SESSION", "Pause : écriture et rotation des segments en ${(AndroidClock.monotonicNs() - t0) / 1_000_000} ms (hors fil principal)")
+    }
+
+    /**
+     * « Terminer » (v176b): the session is closed on a background thread and the screen is given back at once. « Reprendre »
+     * waits for [closingThreads] so that two writers never share a session. The caller has paused the GLSurfaceView first.
+     */
+    fun closeInBackground(reason: String = "user") {
+        if (closed || closing) return
+        closing = true
+        ar.rendering = false
+        val t0 = AndroidClock.monotonicNs()
+        closingThreads[sessionId] = Thread({
+            try { close(reason) } finally {
+                DiagLog.i("SESSION", "Terminer : session fermée en arrière-plan en ${(AndroidClock.monotonicNs() - t0) / 1_000_000} ms")
+                closingThreads.remove(sessionId)
+            }
+        }, "lumisite-close-session").also { it.start() }
+    }
+
+    companion object {
+        /** Sessions being closed off the main thread, by session id (process-wide: survives the screen and the activity). */
+        val closingThreads = java.util.concurrent.ConcurrentHashMap<String, Thread>()
     }
 
     /**
@@ -249,7 +289,11 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (closed) return
         ar.rendering = false
         tick.removeCallbacks(gnssTick)
-        runCatching { pauseCapture() }
+        closing = true
+        runCatching { stopCapture() }
+        // Pending pause writes first (same order as before), then the final fsync/rotation.
+        io.shutdown(); runCatching { io.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS) }
+        runCatching { journal.flushAll() }; runCatching { journal.rotateAll() }
         closed = true
         ar.close()
         runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
@@ -272,14 +316,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (simThread != null && pose?.source != "SIMULATED_DEBUG") return
         logTracking(state, reason)
         if (pose != null) {
+            latestPose = pose
             // 10 Hz pose recording is enough for walking trajectories; every frame is still used by ARCore.
+            // v176b: the screen (and the map) is refreshed at the same 10 Hz, not at every camera frame.
             if (pose.t.monotonicNs - lastPoseMono >= 100_000_000L) {
                 lastPoseMono = pose.t.monotonicNs
                 journal.pose(pose)
                 synchronized(poses) { poses += pose }
                 appendLive(pose)
+                _state.update { it.copy(lastPose = pose) }
             }
-            _state.update { it.copy(lastPose = pose) }
         }
     }
 
@@ -292,7 +338,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             journal.event(ev)
             if (state != TrackingState.TRACKING) {
                 // explicit raw marker in the pose stream too (no pose values are valid while not tracking)
-                _state.value.lastPose?.let { journal.pose(it.copy(t = stamps.now(), tracking = state, failureReason = reason)) }
+                latestPose?.let { journal.pose(it.copy(t = stamps.now(), tracking = state, failureReason = reason)) }
             }
             _state.update { it.copy(tracking = state, trackingReason = reason, events = it.events + ev) }
         } else if (reason != _state.value.trackingReason) {
@@ -425,7 +471,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         return "$what impossible : pose AR indisponible (${st.tracking}${st.trackingReason?.let { " : $it" } ?: ""}) : éclairez la scène ou bougez lentement."
     }
 
-    private fun trackedPose(): PoseSample? = _state.value.lastPose?.takeIf { _state.value.tracking == TrackingState.TRACKING }
+    private fun trackedPose(): PoseSample? = latestPose?.takeIf { _state.value.tracking == TrackingState.TRACKING }
 
     // ------------------------------------------------------------------ user actions
 
@@ -687,7 +733,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
         if (manual == null && hit != null && hit.source != "ESTIMATED") ar.lastObjectY = hit.point.y
         val e = SurveyEvent(
-            id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: st.lastPose,
+            id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: latestPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
             dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,

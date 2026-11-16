@@ -3,6 +3,7 @@ package app.lumisite.android.ui
 import android.graphics.Color
 import androidx.compose.ui.platform.testTag
 import android.graphics.Paint
+import kotlin.math.roundToInt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -115,6 +116,10 @@ fun OsmMap(
 ) {
     val fingerCb = rememberUpdatedState(onFinger)
     val scaleCb = rememberUpdatedState(onScale)
+    val tapCb = rememberUpdatedState(onTap)
+    val featureCb = rememberUpdatedState(onFeatureTap)
+    val pointCb = rememberUpdatedState(onPointTap)
+    val layers = remember { MapLayers() }
     val ctx = LocalContext.current
     val basemap = MapPrefs.basemap
     var widthM by remember { mutableStateOf<Double?>(null) }
@@ -216,99 +221,150 @@ fun OsmMap(
     Box(modifier.clipToBounds()) {
     AndroidView(factory = { map }, modifier = Modifier.fillMaxSize(), update = { mv ->
         mv.overlayManager.tilesOverlay.setColorFilter(MapFilters.of(tone))
-        mv.overlays.clear()
-        // Cadastre (D12): re-added on every rebuild, first in the list = drawn right above the base tiles, whatever the base map.
-        if (MapPrefs.cadastre) mv.overlays += cadastreOverlay
-        mv.overlays += MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { onTap(LatLon(p.latitude, p.longitude)); return true }
+        // v176b: persistent layers. Each group of overlays is rebuilt only when its own content changed (value equality);
+        // the overlay list is reassembled only then. The phone position moves the existing marker (≤ 10 Hz, see SessionController).
+        val L = layers
+        var changed = false
+        fun group(name: String, key: Any?, build: () -> List<org.osmdroid.views.overlay.Overlay>): List<org.osmdroid.views.overlay.Overlay> {
+            val g = L.groups.getOrPut(name) { LayerGroup() }
+            if (!g.built || g.key != key) { g.key = key; g.overlays = build(); g.built = true; changed = true }
+            return g.overlays
+        }
+        val all = ArrayList<org.osmdroid.views.overlay.Overlay>()
+        // Cadastre (D12): first in the list = drawn right above the base tiles, whatever the base map.
+        all += group("cadastre", MapPrefs.cadastre) { if (MapPrefs.cadastre) listOf(cadastreOverlay) else emptyList() }
+        all += group("events", Unit) { listOf(MapEventsOverlay(object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { tapCb.value(LatLon(p.latitude, p.longitude)); return true }
             override fun longPressHelper(p: GeoPoint) = false
-        })
-        content.features.forEach { f ->
-            if (f.geometry.size >= 3 && f.category in setOf("building", "indoor")) {
-                val sel = f.ref == content.selectedFeatureRef || f.ref in content.selectedFeatureRefs
-                mv.overlays += Polygon(mv).apply {
-                    points = f.geometry.map(::gp)
-                    holes = f.holes.map { r -> r.map(::gp) }
-                    fillPaint.color = if (sel) Color.argb(90, 255, 160, 0) else Color.argb(40, 60, 90, 200)
-                    outlinePaint.color = if (sel) Color.rgb(230, 120, 0) else Color.rgb(60, 90, 200)
-                    outlinePaint.strokeWidth = if (sel) 5f else 2f
-                    title = f.tags["name"] ?: f.ref
-                    setOnClickListener { _, _, _ -> onFeatureTap?.invoke(f); onFeatureTap != null }
-                }
-            } else if (f.geometry.size >= 2 && f.category == "path") {
-                mv.overlays += Polyline(mv).apply { setPoints(f.geometry.map(::gp)); outlinePaint.color = Color.argb(120, 120, 120, 120); outlinePaint.strokeWidth = 2f }
-            } else if (f.geometry.size == 1) {
-                mv.overlays += Marker(mv).apply {
-                    position = gp(f.geometry[0]); title = "${f.category} ${f.ref}"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon = dot(mv, if (f.category == "street_lamp") Color.rgb(250, 200, 0) else Color.rgb(120, 120, 120), 14)
+        })) }
+        all += group("features", Triple(content.features, content.selectedFeatureRef, content.selectedFeatureRefs)) { buildList {
+            content.features.forEach { f ->
+                if (f.geometry.size >= 3 && f.category in setOf("building", "indoor")) {
+                    val sel = f.ref == content.selectedFeatureRef || f.ref in content.selectedFeatureRefs
+                    add(Polygon(mv).apply {
+                        points = f.geometry.map(::gp)
+                        holes = f.holes.map { r -> r.map(::gp) }
+                        fillPaint.color = if (sel) Color.argb(90, 255, 160, 0) else Color.argb(40, 60, 90, 200)
+                        outlinePaint.color = if (sel) Color.rgb(230, 120, 0) else Color.rgb(60, 90, 200)
+                        outlinePaint.strokeWidth = if (sel) 5f else 2f
+                        title = f.tags["name"] ?: f.ref
+                        setOnClickListener { _, _, _ -> val cb = featureCb.value; cb?.invoke(f); cb != null }
+                    })
+                } else if (f.geometry.size >= 2 && f.category == "path") {
+                    add(Polyline(mv).apply { setPoints(f.geometry.map(::gp)); outlinePaint.color = Color.argb(120, 120, 120, 120); outlinePaint.strokeWidth = 2f })
+                } else if (f.geometry.size == 1) {
+                    add(Marker(mv).apply {
+                        position = gp(f.geometry[0]); title = "${f.category} ${f.ref}"
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        icon = dot(mv, if (f.category == "street_lamp") Color.rgb(250, 200, 0) else Color.rgb(120, 120, 120), 14)
+                    })
                 }
             }
-        }
-        content.features.forEach { f ->
-            if (f.category == "building") f.outers.forEach { r ->
-                mv.overlays += Polygon(mv).apply { points = r.map(::gp); fillPaint.color = Color.argb(40, 60, 90, 200); outlinePaint.color = Color.rgb(60, 90, 200); outlinePaint.strokeWidth = 2f }
+            content.features.forEach { f ->
+                if (f.category == "building") f.outers.forEach { r ->
+                    add(Polygon(mv).apply { points = r.map(::gp); fillPaint.color = Color.argb(40, 60, 90, 200); outlinePaint.color = Color.rgb(60, 90, 200); outlinePaint.strokeWidth = 2f })
+                }
             }
-        }
-        content.rect?.let { b ->
-            mv.overlays += Polyline(mv).apply {
+        } }
+        all += group("rect", content.rect) { listOfNotNull(content.rect?.let { b ->
+            Polyline(mv).apply {
                 setPoints(listOf(GeoPoint(b.south, b.west), GeoPoint(b.south, b.east), GeoPoint(b.north, b.east), GeoPoint(b.north, b.west), GeoPoint(b.south, b.west)))
                 outlinePaint.color = Color.rgb(220, 0, 120); outlinePaint.strokeWidth = 4f
                 outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(16f, 10f), 0f)
                 title = "Rectangle du site"
             }
-        }
-        content.uncorrected.forEach { seg ->
-            if (seg.size >= 2) mv.overlays += Polyline(mv).apply {
+        }) }
+        all += group("uncorrected", content.uncorrected) { content.uncorrected.filter { it.size >= 2 }.map { seg ->
+            Polyline(mv).apply {
                 setPoints(seg.mapNotNull { it.latLon?.let(::gp) })
                 outlinePaint.color = Color.argb(150, 130, 130, 130); outlinePaint.strokeWidth = 4f
                 outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(12f, 10f), 0f)
                 title = "Sans recalage (calibration seule)"
             }
-        }
-        content.trajectory.forEach { seg ->
-            if (seg.size >= 2) mv.overlays += Polyline(mv).apply {
-                setPoints(seg.mapNotNull { it.latLon?.let(::gp) })
-                outlinePaint.color = Color.rgb(0, 160, 90); outlinePaint.strokeWidth = 6f
-                outlinePaint.strokeCap = Paint.Cap.ROUND
-                title = "Trajectoire estimée"
+        } }
+        // Trajectory: one Polyline per segment, kept and updated in place; long segments are simplified for display only.
+        if (L.trajectory != content.trajectory) {
+            L.trajectory = content.trajectory
+            val segs = content.trajectory.filter { it.size >= 2 }
+            while (L.trajLines.size > segs.size) { L.trajLines.removeAt(L.trajLines.size - 1); L.trajSimplifiers.removeAt(L.trajSimplifiers.size - 1); changed = true }
+            segs.forEachIndexed { i, seg ->
+                if (i >= L.trajLines.size) {
+                    L.trajLines += Polyline(mv).apply {
+                        outlinePaint.color = Color.rgb(0, 160, 90); outlinePaint.strokeWidth = 6f
+                        outlinePaint.strokeCap = Paint.Cap.ROUND
+                        title = "Trajectoire estimée"
+                    }
+                    L.trajSimplifiers += app.lumisite.core.map.GrowingSegmentSimplifier()
+                    L.trajDrawn += null
+                    changed = true
+                }
+                if (L.trajDrawn.getOrNull(i) !== seg) {
+                    L.trajDrawn[i] = seg
+                    L.trajLines[i].setPoints(L.trajSimplifiers[i].render(seg).mapNotNull { it.latLon?.let(::gp) })
+                    L.dirty = true
+                }
             }
+            while (L.trajDrawn.size > L.trajLines.size) L.trajDrawn.removeAt(L.trajDrawn.size - 1)
         }
-        content.lines.forEach { l ->
-            mv.overlays += Polyline(mv).apply { setPoints(listOf(gp(l.a), gp(l.b))); outlinePaint.color = l.color; outlinePaint.strokeWidth = 5f; title = l.title }
-        }
-        content.origin?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }
-        content.points.forEach { p ->
-            mv.overlays += Marker(mv).apply {
+        all += L.trajLines
+        all += group("lines", content.lines) { content.lines.map { l ->
+            Polyline(mv).apply { setPoints(listOf(gp(l.a), gp(l.b))); outlinePaint.color = l.color; outlinePaint.strokeWidth = 5f; title = l.title }
+        } }
+        all += group("origin", content.origin) { listOfNotNull(content.origin?.let { Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }) }
+        all += group("points", content.points) { content.points.map { p ->
+            Marker(mv).apply {
                 position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
                 val id = p.id
-                setOnMarkerClickListener { m, _ -> if (id != null && onPointTap != null) onPointTap(id) else m.showInfoWindow(); true }
+                setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }
-        }
-        if (content.headingSector.size >= 3) mv.overlays += Polygon(mv).apply {
+        } }
+        all += group("sector", content.headingSector) { if (content.headingSector.size >= 3) listOf(Polygon(mv).apply {
             points = content.headingSector.map(::gp)
             fillPaint.color = Color.argb(90, 0, 120, 255); outlinePaint.color = Color.rgb(0, 120, 255); outlinePaint.strokeWidth = 2f
             setOnClickListener { _, _, _ -> false }
-        }
-        if (content.preview.size >= 2) mv.overlays += Polyline(mv).apply {
+        }) else emptyList() }
+        all += group("preview", content.preview) { if (content.preview.size >= 2) listOf(Polyline(mv).apply {
             setPoints(content.preview.map(::gp))
             outlinePaint.color = Color.rgb(255, 87, 34); outlinePaint.strokeWidth = 5f
             outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 8f), 0f)
             title = "Tracé en cours"
-        }
-        content.arrows.forEach { a ->
-            mv.overlays += Marker(mv).apply {
-                position = gp(a.pos); title = a.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                icon = arrowIcon(mv, a.headingDeg, a.color)
+        }) else emptyList() }
+        // Arrows (phone position + direction): markers are kept and moved; icons are cached per 2° of heading and colour.
+        val arrows = content.arrows
+        if (L.arrowsKey != arrows) {
+            L.arrowsKey = arrows
+            if (L.arrowMarkers.size != arrows.size) {
+                L.arrowMarkers.clear()
+                arrows.forEach { _ -> L.arrowMarkers += Marker(mv).apply { setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER) } }
+                changed = true
             }
+            arrows.forEachIndexed { i, a ->
+                val m = L.arrowMarkers[i]
+                m.position = gp(a.pos); m.title = a.title
+                val bucket = a.headingDeg?.let { ((it / 2.0).roundToInt() * 2) % 360 }
+                m.icon = L.arrowIcons.getOrPut(bucket to a.color) { arrowIcon(mv, bucket?.toDouble(), a.color) }
+            }
+            L.dirty = true
         }
+        all += L.arrowMarkers
         // The picked pin never intercepts taps: an object lying under it stays directly selectable.
-        content.picked?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Point choisi"; setOnMarkerClickListener { _, _ -> false } } }
-        content.current?.let { mv.overlays += Marker(mv).apply { position = gp(it); title = "Position estimée"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 120, 255), 26) } }
-        content.follow?.let { mv.controller.setCenter(gp(it)) }
-        mv.overlays += ScaleBarOverlay(mv)
-        mv.overlays += CopyrightOverlay(ctx).apply { setTextSize(12) }
-        mv.invalidate()
+        all += group("picked", content.picked) { listOfNotNull(content.picked?.let { Marker(mv).apply { position = gp(it); title = "Point choisi"; setOnMarkerClickListener { _, _ -> false } } }) }
+        val cur = content.current
+        if (cur == null) L.currentMarker = null
+        else {
+            val m = L.currentMarker ?: Marker(mv).apply { title = "Position estimée"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 120, 255), 26) }.also { L.currentMarker = it; changed = true }
+            if (L.currentPos != cur) { m.position = gp(cur); L.dirty = true }
+        }
+        if (L.currentPos != cur) { if ((L.currentPos == null) != (cur == null)) changed = true; L.currentPos = cur }
+        L.currentMarker?.let { all += it }
+        if (content.follow != null && content.follow != L.followed) mv.controller.setCenter(gp(content.follow))
+        L.followed = content.follow
+        all += group("scale", Unit) { listOf(ScaleBarOverlay(mv), CopyrightOverlay(ctx).apply { setTextSize(12) }) }
+        if (changed || L.dirty || L.tone != tone) {
+            if (changed) { mv.overlays.clear(); mv.overlays.addAll(all) }
+            L.dirty = false; L.tone = tone
+            mv.invalidate()
+        }
     })
     if (reticle) Text("+", Modifier.align(Alignment.Center), fontSize = 40.sp, color = androidx.compose.ui.graphics.Color.Red,
         style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(androidx.compose.ui.graphics.Color.White, blurRadius = 6f)))
@@ -372,6 +428,25 @@ private fun downloadZone(mv: MapView, basemap: Basemap, b: BBox) {
     } catch (e: Exception) {
         Toast.makeText(ctx, "Téléchargement impossible : ${e.message}", Toast.LENGTH_LONG).show()
     }
+}
+
+private class LayerGroup { var built = false; var key: Any? = null; var overlays: List<org.osmdroid.views.overlay.Overlay> = emptyList() }
+
+/** v176b: overlays kept between recompositions (see the AndroidView update of [OsmMap]). */
+private class MapLayers {
+    val groups = HashMap<String, LayerGroup>()
+    var trajectory: List<List<CorrectedPoint>>? = null
+    val trajLines = ArrayList<Polyline>()
+    val trajSimplifiers = ArrayList<app.lumisite.core.map.GrowingSegmentSimplifier>()
+    val trajDrawn = ArrayList<List<CorrectedPoint>?>()
+    var arrowsKey: List<MapArrow>? = null
+    val arrowMarkers = ArrayList<Marker>()
+    val arrowIcons = HashMap<Pair<Int?, Int>, android.graphics.drawable.Drawable>()
+    var currentMarker: Marker? = null
+    var currentPos: LatLon? = null
+    var followed: LatLon? = null
+    var tone: Any? = null
+    var dirty = false
 }
 
 private class Gesture { var multi = false; var reentry = false; var x = 0f; var y = 0f }

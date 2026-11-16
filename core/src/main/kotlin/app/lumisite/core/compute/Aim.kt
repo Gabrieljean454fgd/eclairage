@@ -18,21 +18,23 @@ data class V3(val x: Double, val y: Double, val z: Double) {
 }
 
 sealed interface AimResult {
-    /** [source]: "AR_PLANE" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE" | "ESTIMATED" (50 cm fallback). */
+    /** [source]: "AR_PLANE" (floor) | "AR_CEILING" | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE"; "ESTIMATED" only in older sessions. */
     data class Hit(val point: V3, val source: String) : AimResult
     /** Every candidate plane was seen at a grazing angle: refuse rather than return a jumping point. */
     data object Grazing : AimResult
     data object NoTarget : AimResult
+    /** v176c: tracking but no plane hit (e.g. aiming at a ceiling not detected yet): « position à compléter », no silent 50 cm point. */
+    data object ToComplete : AimResult
 }
 
 /**
- * Aiming from the camera centre (lot 10). Fallback chain: ARCore planes (with polygon test) → plane of the last object
- * → central floor plane → "no target"; analytic ray/plane intersection, grazing rejection |n·d| < 0.03.
+ * Aiming from the camera centre (lot 10, v176c). Fallback chain: ARCore planes, floor, ceiling and walls (with polygon
+ * test, nearest hit first) → plane of the last object → central floor plane → « position à compléter » ([AimResult.ToComplete]);
+ * analytic ray/plane intersection, grazing rejection |n·d| < 0.03.
  * Every level returns null instead of throwing.
  */
 object Aim {
     const val GRAZING = 0.03
-    const val FALLBACK_M = 0.5
     const val MAX_RANGE_M = 20.0
     /** Floor assumed this far below the camera when no plane is known (phone held at chest height). */
     const val DEFAULT_CAMERA_HEIGHT_M = 1.4
@@ -54,19 +56,28 @@ object Aim {
 
     fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean): AimResult {
         if (!tracking) return AimResult.NoTarget
-        val floorY = arPlanes.minOfOrNull { it.point.y } ?: (origin.y - DEFAULT_CAMERA_HEIGHT_M)
-        val chain = arPlanes + listOfNotNull(
+        // Nearest detected plane along the ray (a wall in front of a farther floor wins), then the fallbacks.
+        nearest(origin, dir, arPlanes)?.let { return it }
+        val floorY = arPlanes.filter { it.source == "AR_PLANE" }.minOfOrNull { it.point.y } ?: (origin.y - DEFAULT_CAMERA_HEIGHT_M)
+        val chain = listOfNotNull(
             lastObjectY?.let { Plane(V3(origin.x, it, origin.z), UP, "AR_LAST_PLANE") },
             Plane(V3(origin.x, floorY, origin.z), UP, "AR_FLOOR_ESTIMATE"),
         )
-        var grazing = false
+        var grazing = arPlanes.any { intersect(origin, dir, it) == Ray.Grazing }
         for (pl in chain) when (val r = intersect(origin, dir, pl)) {
             is Ray.At -> return AimResult.Hit(r.p, pl.source)
             Ray.Grazing -> grazing = true
             Ray.Miss -> {}
         }
-        return if (grazing) AimResult.Grazing else AimResult.Hit(origin + dir.unit() * FALLBACK_M, "ESTIMATED")
+        return if (grazing) AimResult.Grazing else AimResult.ToComplete
     }
+
+    private fun nearest(origin: V3, dir: V3, planes: List<Plane>): AimResult.Hit? =
+        planes.mapNotNull { pl -> (intersect(origin, dir, pl) as? Ray.At)?.let { AimResult.Hit(it.p, pl.source) } }
+            .minByOrNull { it.point.distanceTo(origin) }
+
+    /** v176c, surface chosen by the user at the survey (Sol / Mur / Plafond): keeps only the detected planes of that kind. */
+    fun sourceOf(surface: String?): String? = when (surface) { "SOL" -> "AR_PLANE"; "MUR" -> "AR_WALL"; "PLAFOND" -> "AR_CEILING"; else -> null }
 
     /** Camera forward (-Z) rotated by quaternion (x, y, z, w). */
     fun forward(q: List<Double>): V3 {

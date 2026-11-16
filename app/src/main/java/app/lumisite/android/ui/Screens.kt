@@ -170,7 +170,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     fun setOrigin(p: LatLon, src: String) { origin = p; originSource = src; center = p; recenter++; latText = "%.7f".format(Locale.ROOT, p.lat); lonText = "%.7f".format(Locale.ROOT, p.lon) }
     fun envelope() = app.lumisite.core.osm.SiteRects.envelope(rects)
     fun setRects(l: List<BBox>) {
-        rects = l; selRect = selRect?.takeIf { it < l.size }; fetched = null; osmState = null; staged = null; failure = null
+        rects = l; selRect = selRect?.takeIf { it < l.size }; fetched = null; osmState = null; staged = null; failure = null; selected = emptyList()
         val e = app.lumisite.core.osm.SiteRects.envelope(l)
         tooLarge = e != null && !OsmGuard.areaOk(e)
         if (origin == null && e != null) setOrigin(Bboxes.center(e), "BBOX_CENTER")

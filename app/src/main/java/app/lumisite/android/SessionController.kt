@@ -116,7 +116,9 @@ data class LiveState(
 data class ForcibleControlPoint(val kind: String, val ref: ReferencePoint, val headingDeg: Double?, val headingSource: String?,
                                 val headingCorrectionDeg: Double?, val note: String?, val refusal: ControlPointCheck.Refusal,
                                 /** Phone pose when the user confirmed the point (forcing later must not use a newer pose). */
-                                val pose: PoseSample)
+                                val pose: PoseSample,
+                                /** v176c: point aimed at with the reticle when the user confirmed the point (null = phone pose). */
+                                val aimed: PoseSample? = null, val aimSource: String? = null)
 
 /** One row of Session > Calibrer / Recaler > tableau. */
 data class ControlRow(val n: Int, val e: ControlPointEvent, val residualM: Double?, val status: String)
@@ -599,7 +601,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         ControlPointCheck.refusal(active.mapNotNull(::toControlPoint), cand, label)?.let { r ->
             DiagLog.i("POSITION", "Point refusé : ${r.message}")
-            _state.update { it.copy(forcible = if (r.overridable) ForcibleControlPoint(kind, ref, headingDeg, headingSource, headingCorrectionDeg, note, r, pose) else null) }
+            _state.update { it.copy(forcible = if (r.overridable) ForcibleControlPoint(kind, ref, headingDeg, headingSource, headingCorrectionDeg, note, r, pose, aimed, floorHit?.source) else null) }
             return fail(if (r.overridable) r.message + " Après une perte de suivi ARCore, « Recaler quand même » est possible." else r.message)
         }
         _state.update { it.copy(forcible = null) }
@@ -621,14 +623,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val pose = f.pose
         val before = activeSegment()
         val active = activeControlEvents()
-        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(pose), Vec2(f.ref.site.e, f.ref.site.n), f.kind == "RELOCALIZATION")
+        val cand = ControlPoint("nouveau", stamps.now().monotonicNs, PoseGeometry.plane(f.aimed ?: pose), Vec2(f.ref.site.e, f.ref.site.n), f.kind == "RELOCALIZATION")
         ControlPointCheck.sameMapPoint(active.mapNotNull(::toControlPoint), cand)?.let { _state.update { s -> s.copy(forcible = null) }; return fail(it.message) }
         _state.update { it.copy(forcible = null) }
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), f.kind, LocalObservation(pose, f.ref), f.headingDeg, f.headingSource,
-            forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId)
+            forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId, aimSession = f.aimed?.p, aimSource = f.aimSource)
         DiagLog.i("POSITION", "Point forcé par l'utilisateur (${f.kind}) : cause « $cause » ; refus ignoré : ${f.refusal.message}")
         record(e)
-        ar.requestAnchor(e.id, pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
+        ar.requestAnchor(e.id, f.aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
         resolve(e, before, f.headingCorrectionDeg, listOfNotNull(f.note, "forcé : $cause").joinToString(" · "))
         _state.update { it.copy(message = "Point forcé enregistré (cause : $cause). Les points précédents sont conservés : supprimez-les dans le tableau s'ils sont faux. " + (it.message ?: "")) }
     }

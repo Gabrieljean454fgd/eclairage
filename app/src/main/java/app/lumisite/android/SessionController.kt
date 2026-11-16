@@ -510,8 +510,12 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     /** v176c: the 5th calibration point is an independent control, never used in the solve. */
-    private fun isControlEvent(e: ControlPointEvent, active: List<ControlPointEvent> = activeControlEvents()): Boolean =
-        e.kind == "CALIBRATION" && CalibrationQuality.isControl(active.filter { it.kind == "CALIBRATION" }.indexOf(e))
+    @Suppress("UNUSED_PARAMETER")
+    private fun isControlEvent(e: ControlPointEvent, active: List<ControlPointEvent> = emptyList()): Boolean = e.independentControl
+
+    /** The point about to be recorded is the control when it is the 5th active calibration point and there is no control yet. */
+    private fun nextIsControl(kind: String, active: List<ControlPointEvent>): Boolean =
+        kind == "CALIBRATION" && active.none { it.independentControl } && CalibrationQuality.isControl(active.count { it.kind == "CALIBRATION" })
 
     private fun solveEvents(): List<ControlPointEvent> = activeControlEvents().let { a -> a.filter { !isControlEvent(it, a) } }
 
@@ -606,7 +610,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         _state.update { it.copy(forcible = null) }
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), kind, LocalObservation(pose, ref), headingDeg, headingSource,
-            aimSession = aimed?.p, aimSource = floorHit?.source)
+            aimSession = aimed?.p, aimSource = floorHit?.source, independentControl = nextIsControl(kind, active))
         record(e)
         ar.requestAnchor(e.id, aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
         resolve(e, before, headingCorrectionDeg, note)
@@ -627,7 +631,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         ControlPointCheck.sameMapPoint(active.mapNotNull(::toControlPoint), cand)?.let { _state.update { s -> s.copy(forcible = null) }; return fail(it.message) }
         _state.update { it.copy(forcible = null) }
         val e = ControlPointEvent(Ids.new("cp"), stamps.now(), f.kind, LocalObservation(pose, f.ref), f.headingDeg, f.headingSource,
-            forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId, aimSession = f.aimed?.p, aimSource = f.aimSource)
+            forcedCause = cause, forcedRefusal = f.refusal.message, forcedAgainst = f.refusal.conflictId, aimSession = f.aimed?.p, aimSource = f.aimSource, independentControl = nextIsControl(f.kind, active))
         DiagLog.i("POSITION", "Point forcé par l'utilisateur (${f.kind}) : cause « $cause » ; refus ignoré : ${f.refusal.message}")
         record(e)
         ar.requestAnchor(e.id, f.aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)

@@ -140,7 +140,14 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     var center by remember { mutableStateOf(LatLon(46.6, 2.4)) }
     var recenter by remember { mutableStateOf(0) }
     var zoom by remember { mutableStateOf(5.5) }
-    var rect by remember { mutableStateOf<BBox?>(null) }
+    // v176a-bis: several rectangles; the site is their union (bbox = envelope).
+    var rects by remember { mutableStateOf<List<BBox>>(emptyList()) }
+    var selRect by remember { mutableStateOf<Int?>(null) }
+    var grab by remember { mutableStateOf<app.lumisite.core.osm.SiteRects.Hit?>(null) }
+    var downAt by remember { mutableStateOf<LatLon?>(null) }
+    var moved by remember { mutableStateOf(false) }
+    var editPreview by remember { mutableStateOf<BBox?>(null) }
+    var metersPerDp by remember { mutableStateOf(1.0) }
     var cornerA by remember { mutableStateOf<LatLon?>(null) }
     var tapMode by remember { mutableStateOf(TapMode.ORIGIN) }
     // Snapshot only: the raw bodies are written to a pending file at once and never kept in UI state.
@@ -161,7 +168,14 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     val osm = fetched?.snapshot
 
     fun setOrigin(p: LatLon, src: String) { origin = p; originSource = src; center = p; recenter++; latText = "%.7f".format(Locale.ROOT, p.lat); lonText = "%.7f".format(Locale.ROOT, p.lon) }
-    fun setRect(b: BBox) { rect = b; fetched = null; osmState = null; staged = null; failure = null; tooLarge = !OsmGuard.areaOk(b); if (origin == null) setOrigin(Bboxes.center(b), "BBOX_CENTER") }
+    fun envelope() = app.lumisite.core.osm.SiteRects.envelope(rects)
+    fun setRects(l: List<BBox>) {
+        rects = l; selRect = selRect?.takeIf { it < l.size }; fetched = null; osmState = null; staged = null; failure = null; selected = emptyList()
+        val e = app.lumisite.core.osm.SiteRects.envelope(l)
+        tooLarge = e != null && !OsmGuard.areaOk(e)
+        if (origin == null && e != null) setOrigin(Bboxes.center(e), "BBOX_CENTER")
+    }
+    fun setRect(b: BBox) { selRect = null; setRects(listOf(b)) }
 
     fun doSearch() {
         val q = query.trim()
@@ -178,7 +192,8 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     val unavailable = "Le serveur de contours est indisponible. Le site est utilisable sans contours."
 
     fun fetch(split: Boolean) {
-        val b = rect ?: return
+        val b = envelope() ?: return
+        val rs = rects
         if (!OsmGuard.areaOk(b)) { tooLarge = true; status = "Rectangle trop grand (%.4f degré carré, maximum %.2f) : réduisez-le.".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2); return }
         if (!OsmClient.isHttps(apiUrl)) { status = "L'URL de l'API OSM doit commencer par https://"; return }
         OsmClient.osmApiBase = apiUrl.trim().trimEnd('/')
@@ -198,7 +213,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                     (if (f.capped) " Plafond de ${Overpass.MAX_ELEMENTS} éléments atteint : contours incomplets, réduisez le rectangle." else "") +
                     (if (f.missing.isEmpty()) "" else " Résultat PARTIEL : ${f.missing.size} sous-zone(s) encore trop dense(s) non récupérée(s).") +
                     " Les contours OSM peuvent être absents ou imprécis."
-                selected = app.lumisite.core.osm.OsmSelection.buildingsIn(b, f.snapshot.features)
+                selected = app.lumisite.core.osm.OsmSelection.buildingsIn(rs, f.snapshot.features)
                 status += if (selected.isEmpty()) " Aucun bâtiment dans le rectangle : touchez un bâtiment pour l'ajouter (facultatif)."
                     else " ${selected.size} bâtiment(s) sélectionné(s) par le rectangle : touchez un bâtiment pour l'ajouter ou le retirer, ou créez le site."
             }
@@ -226,20 +241,41 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     val mapView: @Composable (Modifier) -> Unit = { m ->
         OsmMap(
             m, center, zoom,
-            MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRefs = selected.toSet(), rect = dragRect ?: rect, picked = cornerA),
+            MapContent(origin = origin, features = osm?.features.orEmpty(), selectedFeatureRefs = selected.toSet(), picked = cornerA,
+                rects = rects.mapIndexed { i, r -> if (i == grab?.index) editPreview ?: r else r } + listOfNotNull(dragRect), selectedRect = selRect),
             recenterKey = recenter,
             onTap = { focusManager.clearFocus(); setOrigin(it, "MAP_TAP"); missingOrigin = false },
             onFeatureTap = { f -> selected = app.lumisite.core.osm.OsmSelection.toggle(selected, f.ref) },
             // Sélection OSM (stage 2.7): press and drag one finger, the rectangle is drawn live; two fingers move the map.
+            onScale = { metersPerDp = it },
+            // v176a-bis « Tracer rectangle » active: one finger draws a new rectangle, or grabs a corner/side of the selected
+            // one (stretch) or the inside of a rectangle (move); a tap selects/deselects. Two fingers still move the map.
             onFinger = if (tapMode == TapMode.RECT) { phase, ll ->
+                val sr = app.lumisite.core.osm.SiteRects
+                fun reset() { grab = null; downAt = null; cornerA = null; dragRect = null; editPreview = null; moved = false }
+                fun autoFetch() { envelope()?.let { if (OsmGuard.areaOk(it)) fetch(split = false) } }
                 when (phase) {
-                    FingerPhase.DOWN -> { cornerA = ll; dragRect = null }
-                    FingerPhase.MOVE -> cornerA?.let { a -> dragRect = Bboxes.fromCorners(a, ll) }
-                    FingerPhase.UP -> cornerA?.let { a ->
-                        val b = Bboxes.fromCorners(a, ll); cornerA = null; dragRect = null; tapMode = TapMode.ORIGIN
-                        setRect(b); if (OsmGuard.areaOk(b)) fetch(split = false)
+                    FingerPhase.DOWN -> {
+                        reset(); downAt = ll
+                        val (tLat, tLon) = sr.tolerance(ll, 24 * metersPerDp)
+                        grab = sr.hit(rects, ll, tLat, tLon, selRect)
+                        if (grab == null) cornerA = ll
                     }
-                    FingerPhase.CANCEL -> { cornerA = null; dragRect = null }
+                    FingerPhase.MOVE -> downAt?.let { a ->
+                        val (tLat, tLon) = sr.tolerance(a, 6 * metersPerDp)
+                        if (!moved && (kotlin.math.abs(ll.lat - a.lat) > tLat || kotlin.math.abs(ll.lon - a.lon) > tLon)) moved = true
+                        if (moved) grab?.let { g -> editPreview = sr.drag(rects[g.index], g.handle, a, ll) } ?: run { dragRect = Bboxes.fromCorners(a, ll) }
+                    }
+                    FingerPhase.UP -> {
+                        val a = downAt; val g = grab
+                        if (a != null) when {
+                            !moved -> selRect = g?.index
+                            g != null -> { val r = sr.drag(rects[g.index], g.handle, a, ll); setRects(rects.toMutableList().also { it[g.index] = r }); selRect = g.index; autoFetch() }
+                            else -> { setRects(rects + Bboxes.fromCorners(a, ll)); selRect = rects.size - 1; autoFetch() }
+                        }
+                        reset()
+                    }
+                    FingerPhase.CANCEL -> reset()
                 }
             } else null,
         )
@@ -285,9 +321,13 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             HorizontalDivider()
             Text("2. Rectangle du site (conservé même sans OSM)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { focusManager.clearFocus(); tapMode = if (tapMode == TapMode.RECT) TapMode.ORIGIN else TapMode.RECT; cornerA = null }, modifier = Modifier.testTag("nouveau_site_tracer_le_rectangle")) {
-                    Text(if (tapMode == TapMode.RECT) "Glissez un doigt sur la carte…" else "Tracer le rectangle")
-                }
+                val drawing = tapMode == TapMode.RECT
+                OutlinedButton(
+                    onClick = { focusManager.clearFocus(); tapMode = if (drawing) TapMode.ORIGIN else TapMode.RECT; cornerA = null },
+                    colors = if (drawing) androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF9800), contentColor = androidx.compose.ui.graphics.Color.Black)
+                        else androidx.compose.material3.ButtonDefaults.outlinedButtonColors(),
+                    modifier = Modifier.testTag("nouveau_site_tracer_le_rectangle"),
+                ) { Text(if (drawing) "Tracer rectangle : actif" else "Tracer rectangle") }
                 OutlinedTextField(radius, { radius = it }, label = { Text("Demi-côté (m)") }, modifier = Modifier.testTag("nouveau_site_demi_cote_m").width(110.dp), singleLine = true)
                 OutlinedButton(enabled = origin != null, onClick = { setRect(OsmClient.bboxAround(origin!!, radius.toDoubleOrNull()?.coerceIn(10.0, 500.0) ?: 80.0)) }, modifier = Modifier.testTag("nouveau_site_autour_de_l_origine")) { Text("Autour de l'origine") }
             }
@@ -295,17 +335,29 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
                 recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
             }
-            rect?.let { b ->
-                val hM = (b.north - b.south) * 111_320.0
-                val wM = (b.east - b.west) * 111_320.0 * kotlin.math.cos(Math.toRadians((b.north + b.south) / 2))
-                Text("Rectangle : environ %.0f × %.0f m%s".format(wM, hM, if (tooLarge) " — trop grand (%.4f degré carré, max %.2f)".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2) else ""), style = MaterialTheme.typography.bodySmall)
+            fun sizeM(b: BBox) = "%.0f × %.0f m".format((b.east - b.west) * 111_320.0 * kotlin.math.cos(Math.toRadians((b.north + b.south) / 2)), (b.north - b.south) * 111_320.0)
+            if (tapMode == TapMode.RECT) Text("Glissez un doigt pour tracer un rectangle ; touchez un rectangle pour le sélectionner, puis glissez un coin ou un côté pour l'étirer, l'intérieur pour le déplacer. Deux doigts : déplacer ou zoomer la carte.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("nouveau_site_aide_rectangle"))
+            envelope()?.let { b ->
+                Text((if (rects.size == 1) "Rectangle : environ ${sizeM(b)}" else "Rectangles : ${rects.size}, ensemble d'environ ${sizeM(b)}") +
+                    (if (tooLarge) " — trop grand (%.4f degré carré, max %.2f)".format(Bboxes.areaDeg2(b), OsmGuard.MAX_AREA_DEG2) else ""),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("nouveau_site_rectangles"))
             }
+            selRect?.let { i -> rects.getOrNull(i)?.let { r ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Rectangle ${i + 1} sélectionné : environ ${sizeM(r)}", Modifier.weight(1f).testTag("nouveau_site_rectangle_selection"), style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = {
+                        setRects(rects.filterIndexed { k, _ -> k != i }); selRect = null
+                        envelope()?.let { if (OsmGuard.areaOk(it)) fetch(split = false) }
+                    }, modifier = Modifier.testTag("nouveau_site_supprimer_rectangle")) { Text("Supprimer") }
+                }
+            } }
             HorizontalDivider()
             Text("3. (Optionnel) Contours OSM du rectangle (API OSM v0.6)", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && rect != null, onClick = { fetch(split = false) }, modifier = Modifier.testTag("nouveau_site_recuperer")) { Text("Récupérer") }
+                Button(enabled = !busy && rects.isNotEmpty(), onClick = { fetch(split = false) }, modifier = Modifier.testTag("nouveau_site_recuperer")) { Text("Récupérer") }
                 if (tooLarge || failure == OsmGuard.Failure.TOO_MANY_NODES || failure == OsmGuard.Failure.BBOX_TOO_LARGE)
-                    OutlinedButton(enabled = !busy, onClick = { rect?.let { setRect(Bboxes.scaled(it, 0.5)) }; status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }, modifier = Modifier.testTag("nouveau_site_reduire")) { Text("Réduire") }
+                    OutlinedButton(enabled = !busy, onClick = { setRects(rects.map { Bboxes.scaled(it, 0.5) }); status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }, modifier = Modifier.testTag("nouveau_site_reduire")) { Text("Réduire") }
                 if (failure == OsmGuard.Failure.TOO_MANY_NODES)
                     OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }, modifier = Modifier.testTag("nouveau_site_decouper_et_fusionner")) { Text("Découper et fusionner") }
             }
@@ -336,7 +388,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                             app.lumisite.core.geo.CrsInfo("EPSG:4326", "GEOGRAPHIC", "WGS84 lat/lon degrees", axes = listOf("lat", "lon"), units = "deg"),
                             LocalTangentPlane(o).crsInfo(),
                         ),
-                        osm = osm, selectedBuildingOsmRef = selected.firstOrNull(), selectedBuildingOsmRefs = selected, bbox = rect ?: osm?.bbox,
+                        osm = osm, selectedBuildingOsmRef = selected.firstOrNull(), selectedBuildingOsmRefs = selected, bbox = envelope() ?: osm?.bbox, rects = rects,
                     ), staged)
                 }, modifier = Modifier.testTag("nouveau_site_creer")) { Text(if (osm == null) "Créer sans contours OSM" else "Créer le site") }
                 Spacer(Modifier.width(8.dp))
@@ -359,7 +411,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
         val map = @Composable { mapMod: Modifier ->
             OsmMap(mapMod, site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
             origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef, selectedFeatureRefs = site.selectedBuildingOsmRefs.toSet(),
-            rect = site.bbox ?: site.osm?.bbox,
+            rect = if (site.rects.size > 1) null else site.bbox ?: site.osm?.bbox, rects = if (site.rects.size > 1) site.rects else emptyList(),
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },
         ), onTap = {}, siteBbox = site.bbox ?: site.osm?.bbox)
         }

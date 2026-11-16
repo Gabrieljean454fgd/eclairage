@@ -29,6 +29,8 @@ data class Site(
     val selectedBuildingOsmRefs: List<String> = emptyList(),
     /** Site rectangle chosen by the user, kept even when the site was created without OSM data. */
     val bbox: BBox? = null,
+    /** v176a-bis: the site rectangles drawn by the user (the site is their union; [bbox] is their envelope). Empty for older sites. */
+    val rects: List<BBox> = emptyList(),
     /** Reserved for imported architectural plans (none in this slice). */
     val plans: List<PlanReference> = emptyList(),
     val notes: String? = null,

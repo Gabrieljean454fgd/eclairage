@@ -88,6 +88,9 @@ data class MapContent(
     /** Elastic preview of the drawing in progress (follows the finger). */
     val preview: List<LatLon> = emptyList(),
     val arrows: List<MapArrow> = emptyList(),
+    /** v176a-bis: several site rectangles (Nouveau site); the selected one is drawn solid with its stretch handles. */
+    val rects: List<BBox> = emptyList(),
+    val selectedRect: Int? = null,
 )
 
 private fun gp(p: LatLon) = GeoPoint(p.lat, p.lon)
@@ -274,6 +277,23 @@ fun OsmMap(
                 title = "Rectangle du site"
             }
         }) }
+        all += group("rects", content.rects to content.selectedRect) { buildList {
+            content.rects.forEachIndexed { i, b ->
+                val sel = i == content.selectedRect
+                add(Polyline(mv).apply {
+                    setPoints(listOf(GeoPoint(b.south, b.west), GeoPoint(b.south, b.east), GeoPoint(b.north, b.east), GeoPoint(b.north, b.west), GeoPoint(b.south, b.west)))
+                    outlinePaint.color = if (sel) Color.rgb(0, 110, 230) else Color.rgb(220, 0, 120)
+                    outlinePaint.strokeWidth = if (sel) 6f else 4f
+                    if (!sel) outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(16f, 10f), 0f)
+                    title = "Rectangle ${i + 1}"
+                })
+            }
+            content.rects.getOrNull(content.selectedRect ?: -1)?.let { b ->
+                app.lumisite.core.osm.SiteRects.handles(b).forEach { h ->
+                    add(Marker(mv).apply { position = gp(h); setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.rgb(0, 110, 230), 22); setOnMarkerClickListener { _, _ -> false } })
+                }
+            }
+        } }
         all += group("uncorrected", content.uncorrected) { content.uncorrected.filter { it.size >= 2 }.map { seg ->
             Polyline(mv).apply {
                 setPoints(seg.mapNotNull { it.latLon?.let(::gp) })

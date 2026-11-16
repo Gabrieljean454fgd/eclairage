@@ -9,7 +9,7 @@ Branche `etape-3-v176a-bis-rectangles`, empilée sur `etape-3-v176b-fluidite`. P
 - **Créer le site** : le site garde la liste des rectangles (`Site.rects`, nouveau champ, vide pour les anciens sites). `Site.bbox` reste l'enveloppe des rectangles. Les bâtiments OSM présélectionnés sont ceux de l'union des rectangles (`OsmSelection.buildingsIn(rects, …)`), pas ceux de l'enveloppe. La requête OSM porte sur l'enveloppe (limites de l'API inchangées).
 - **Site** : la carte affiche les rectangles du site quand il y en a plusieurs.
 - **Logique pure** dans `core/osm/SiteRects.kt` (touche coin/côté/intérieur avec une tolérance en mètres, étirement et déplacement, enveloppe, poignées). Comportement inspiré de la sélection de zone de JOSM, sans code (JOSM est GPL).
-- **Tests JVM** : `SiteRectsTest`, 7 tests. La suite `:core:test` passe : 175 tests.
+- **Tests JVM** : `SiteRectsTest`, 3 tests. La suite `:core:test` passe : 175 tests.
 - **Flow Maestro** `v176_nouveau_site_rectangle` : tracer 2 rectangles, désactiver, déplacer la carte (toujours 2 rectangles), réactiver, tracer un 3e, l'étirer par un coin (la taille change), le déplacer (la taille ne change pas), le supprimer, créer le site. Vérifié sur l'émulateur : le `site-….json` créé contient 2 rectangles et une `bbox` égale à leur enveloppe.
 
 ## Captures (émulateur Pixel 7 API 34)

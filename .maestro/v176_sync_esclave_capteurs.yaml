@@ -1,0 +1,37 @@
+# v176d (D4) — Accueil > Sync > Captation-synchro (esclave) : l'esclave détecte, journalise et active ses capteurs ;
+# la liste montre chaque capteur (absent compris). Le maître n'existe pas sur l'émulateur (Nearby ne fonctionne pas
+# entre émulateurs) : le test à deux téléphones (top audible, décalage ± incertitude) est manuel.
+appId: app.lumisite.android
+name: "v176d esclave : liste des capteurs"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_esclave" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+- assertVisible: "Mode : Captation-synchro \\(esclave\\)"
+- scrollUntilVisible:
+    element: { id: "synchro_capteur_depth" }
+    direction: DOWN
+- assertVisible: { id: "synchro_capteurs" }
+- assertVisible: "Micro : actif"
+- assertVisible: "Accéléromètre : actif.*"
+- assertVisible: "Magnétomètre : .*"
+- assertVisible: "Baromètre : .*"
+- assertVisible: "Profondeur \\(ToF\\) : .*"
+- takeScreenshot: v176_sync_esclave_capteurs
+- scrollUntilVisible:
+    element: { text: ".*local · capteurs : Micro : actif.*" }
+    direction: DOWN
+- scrollUntilVisible:
+    element: { id: "synchro_arreter" }
+    direction: UP
+- tapOn: { id: "synchro_arreter" }
+- assertVisible: { id: "synchro_mode_maitre" }

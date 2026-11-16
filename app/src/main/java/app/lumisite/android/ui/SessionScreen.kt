@@ -772,7 +772,9 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
                     val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
                     prefs.edit().putInt("counter", counter).apply()
                     val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
-                    val r = AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
+                    // v176d: with Accueil > Sync running as master, every slave is asked over Nearby to listen and emit too.
+                    val r = if (app.lumisite.android.sync.NearbyMesh.masterActive) app.lumisite.android.sync.NearbyMesh.masterRound(activity, counter, wav)
+                        else AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS),
                         c.ownSyncId(), counter, wav, AudioSync.unprocessedSupported(activity))
                     val n = c.syncRound(label, r, counter); cale = n
                     val phases = r.phasesMs.entries.joinToString(" · ") { "${it.key} ${it.value} ms" }
@@ -791,7 +793,7 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
         OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme_2"))
         OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }, modifier = Modifier.testTag("session_synchro_top_manuel_appuyer_au_signal")) { Text("TOP manuel (appuyer au signal)") }
     }
-    OutlinedButton(onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream")) }, modifier = Modifier.testTag("session_synchro_estimer_l_ecart_avec_l")) { Text("Estimer l'écart avec l'export d'un autre appareil…") }
+    // v176d D6: « Estimer l'écart avec l'export d'un autre appareil » removed from the field screen (desktop post-processing).
     val st by c.state.collectAsState()
     Text("Événements de synchro : " + st.events.filterIsInstance<SyncEvent>().joinToString { "${it.syncCode}/${it.method}" }.ifEmpty { "aucun" }, style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

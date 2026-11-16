@@ -1,0 +1,34 @@
+# v176d (D2, D5) — Accueil > Sync > Saisie (maître) sur l'émulateur, 0 esclave : « Scène active » le dit clairement,
+# le top de synchro attend un esclave, et le journal horodaté est visible.
+appId: app.lumisite.android
+name: "v176d maître : scène active sans esclave"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_maitre" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+- assertVisible: { id: "synchro_resume", text: "0 appareil" }
+- scrollUntilVisible:
+    element: { id: "synchro_scene_active" }
+    direction: DOWN
+- assertVisible: "Scène active : aucun esclave.*"
+- assertVisible: "Lancer un top de synchro \\(tous les téléphones émettent\\)"
+- assertVisible: "Aucun esclave connecté.*"
+- takeScreenshot: v176_sync_scene_active
+- scrollUntilVisible:
+    element: { id: "synchro_journal" }
+    direction: DOWN
+- assertVisible: ".*rôle : Saisie \\(maître\\)"
+- scrollUntilVisible:
+    element: { id: "synchro_arreter" }
+    direction: UP
+- tapOn: { id: "synchro_arreter" }
+- assertVisible: { id: "synchro_mode_maitre" }

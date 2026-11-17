@@ -6,8 +6,8 @@ name: "Scénario 1.2 — Session, Annoter"
 - tapOn: { id: "session_annoter" }
 - tapOn: { id: "session_annoter_polygon" }
 # Appuis relatifs à la carte (id session_carte), pas à l'écran : en portrait la carte n'occupe qu'une bande.
-- tapOn: { id: "session_carte", point: "35%,45%" }
-- tapOn: { id: "session_carte", point: "65%,45%" }
+- tapOn: { id: "session_carte", point: "40%,45%" }
+- tapOn: { id: "session_carte", point: "57%,45%" }
 - tapOn: { id: "session_carte", point: "50%,70%" }
 - assertVisible: ".*3 sommets. Touchez à nouveau le dernier sommet.*"
 - tapOn: { id: "session_carte", point: "50%,70%" }   # étape 2 : toucher à nouveau le dernier sommet ferme le polygone

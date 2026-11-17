@@ -37,12 +37,24 @@ class AimTest {
         assertEquals(AimResult.Grazing, Aim.resolve(cam, d, listOf(floor), 1.0, tracking = true))
     }
 
-    @Test fun upwardAimGivesEstimatedPointAt50cm() {
+    @Test fun upwardAimWithoutCeilingIsToCompleteNeverA50cmPoint() {
         val d = V3(0.0, 1.0, -1.0)
-        val r = Aim.resolve(cam, d, listOf(floor), null, tracking = true) as AimResult.Hit
-        assertEquals("ESTIMATED", r.source)
-        assertEquals(0.5, r.point.distanceTo(cam), 1e-9)
-        assertEquals(1.5 + 0.5 / sqrt(2.0), r.point.y, 1e-9)
+        assertEquals(AimResult.ToComplete, Aim.resolve(cam, d, listOf(floor), null, tracking = true))
+    }
+
+    @Test fun ceilingAndWallPlanesAreAimedNearestFirst() {
+        val ceiling = Aim.Plane(V3(0.0, 2.8, 0.0), V3(0.0, -1.0, 0.0), "AR_CEILING")
+        val wall = Aim.Plane(V3(0.0, 0.0, -3.0), V3(0.0, 0.0, 1.0), "AR_WALL")
+        val up = Aim.resolve(cam, V3(0.0, 1.0, -0.5), listOf(floor, ceiling, wall), null, tracking = true) as AimResult.Hit
+        assertEquals("AR_CEILING", up.source); assertEquals(2.8, up.point.y, 1e-9)
+        assertEquals(true, up.point.y > cam.y)
+        val ahead = Aim.resolve(cam, V3(0.0, -0.2, -1.0), listOf(floor, ceiling, wall), null, tracking = true) as AimResult.Hit
+        assertEquals("AR_WALL", ahead.source); assertEquals(-3.0, ahead.point.z, 1e-9)
+        val down = Aim.resolve(cam, V3(0.0, -1.0, -0.3), listOf(floor, ceiling, wall), null, tracking = true) as AimResult.Hit
+        assertEquals("AR_PLANE", down.source)
+        assertEquals("AR_CEILING", Aim.sourceOf("PLAFOND")); assertEquals(null, Aim.sourceOf(null))
+        // Mur chosen, no wall detected: no floor estimate, « position à compléter ».
+        assertEquals(AimResult.ToComplete, Aim.resolve(cam, V3(0.0, -1.0, -0.3), emptyList(), 1.0, tracking = true, fallbacks = false))
     }
 
     @Test fun noTrackingNoPoint() {

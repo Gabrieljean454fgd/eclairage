@@ -37,8 +37,8 @@ name: "Scénario 2 — Un petit relevé sans blocage"
 - tapOn: { id: "session_annoter" }
 - tapOn: { id: "session_annoter_polygon" }
 # Appuis relatifs à la carte (id session_carte) : en portrait la carte n'occupe qu'une bande de l'écran.
-- tapOn: { id: "session_carte", point: "35%,45%" }
-- tapOn: { id: "session_carte", point: "65%,45%" }
+- tapOn: { id: "session_carte", point: "40%,45%" }
+- tapOn: { id: "session_carte", point: "57%,45%" }
 - tapOn: { id: "session_carte", point: "50%,70%" }
 - assertVisible: ".*3 sommets. Touchez à nouveau le dernier sommet.*"
 - tapOn: { id: "session_carte", point: "50%,70%" }

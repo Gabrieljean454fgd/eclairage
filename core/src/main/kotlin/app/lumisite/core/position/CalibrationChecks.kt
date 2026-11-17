@@ -92,7 +92,18 @@ object CalibrationQuality {
         return if (l1 <= 1e-9) 0.0 else sqrt(max(0.0, l2) / l1)
     }
 
-    fun grade(points: List<ControlPoint>, sol: Solution?): Grade {
+    /** v176c: residual above which a point (or the independent control point) is flagged and « bon » is refused. */
+    const val ALERT_M = 0.5
+    /** v176c: the 5th calibration point (index 4) is an independent control, never used in the solve. */
+    const val CONTROL_INDEX = 4
+
+    fun isControl(calibrationIndex: Int) = calibrationIndex == CONTROL_INDEX
+
+    /** Distance (m) between the control point mapped by the transform and its map point. */
+    fun controlResidual(sol: Solution?, control: ControlPoint?): Double? =
+        if (sol == null || control == null) null else CalibrationSolver.residual(sol.transform, control)
+
+    fun grade(points: List<ControlPoint>, sol: Solution?, controlResidualM: Double? = null): Grade {
         val calib = points.filter { !it.relocalization }
         if (sol == null) return Grade(Level.INSUFFISANT, listOf("aucune transformation calculée"))
         val kept = calib.filter { it.id !in sol.rejected }
@@ -107,6 +118,13 @@ object CalibrationQuality {
         if (sol.rmsM > IMPRECISE_RMS_M) atMost(Level.INSUFFISANT, "imprécis : résidu %.2f m".format(java.util.Locale.FRANCE, sol.rmsM))
         else if (sol.rmsM > GOOD_RMS_M) atMost(Level.MOYEN, "résidu %.2f m".format(java.util.Locale.FRANCE, sol.rmsM))
         if (sol.rejected.isNotEmpty()) atMost(Level.MOYEN, "${sol.rejected.size} point(s) écarté(s)")
+        // v176c: the quality follows the residual of every point, not only the RMS.
+        val worst = kept.maxOfOrNull { sol.residualsM[it.id] ?: 0.0 } ?: 0.0
+        if (worst > ALERT_M && sol.rmsM <= GOOD_RMS_M) atMost(Level.MOYEN, "un point à %.2f m".format(java.util.Locale.FRANCE, worst))
+        if (controlResidualM != null) {
+            if (controlResidualM > IMPRECISE_RMS_M) atMost(Level.INSUFFISANT, "contrôle : écart %.2f m".format(java.util.Locale.FRANCE, controlResidualM))
+            else if (controlResidualM > ALERT_M) atMost(Level.MOYEN, "contrôle : écart %.2f m".format(java.util.Locale.FRANCE, controlResidualM))
+        }
         return Grade(level, reasons)
     }
 }

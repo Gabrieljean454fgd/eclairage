@@ -2,6 +2,11 @@
 
 package app.lumisite.android.ui
 
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.semantics.contentDescription
+
 import app.lumisite.core.position.CalibrationQuality
 import app.lumisite.core.export.ResumableExport
 import app.lumisite.android.ExportWorker
@@ -328,26 +333,29 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         app.lumisite.android.BuildConfig.DEBUG && android.provider.Settings.Global.getString(activity.contentResolver, "lumisite_simuler_entete_ar") == "1"
     }
     val header: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // v176c (decision 3): camera on the whole width of the screen (4:3), aim / plans / torch / measure below it. While a panel
+        // is open the frame stays full width but is cropped to 2:1, so the panel and the map keep room.
+        val camAspect = if (mode == Mode.NONE) 4f / 3f else 2f
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!arReady && simulatedArHeader) {
                 // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real camera block.
-                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp).background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
-                ArControls(c)
+                CameraFrame(camAspect, Modifier.background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
+                ArControls(c, compact = mode != Mode.NONE)
             }
             if (arReady) {
-                androidx.compose.foundation.layout.Box(Modifier.width(200.dp).height(150.dp)) {
+                CameraFrame(camAspect, Modifier) {
                     AndroidView(factory = { ctx ->
                         GLSurfaceView(ctx).apply {
                             preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
                             setRenderer(c.ar); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
                             glView = this
                         }
-                    }, modifier = Modifier.width(200.dp).height(150.dp))
+                    }, modifier = Modifier.fillMaxSize())
                     ArReticle(c)
                 }
-                ArControls(c)
+                ArControls(c, compact = mode != Mode.NONE)
             }
-            if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall)
+            if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp))
         }
     }
     // Last message (confirmation / refusal) fixed above the action bar, so it stays visible whatever the panel scroll.
@@ -446,7 +454,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to nothing
         // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
         val short = maxHeight < 480.dp && maxWidth <= maxHeight
-        val topMax = if (short) 0.dp else maxHeight * 0.25f
+        val topMax = if (short) 0.dp else if (maxWidth > maxHeight) maxHeight * 0.6f else maxHeight * 0.55f
         val statusBlock: @Composable (Modifier) -> Unit = { m ->
             Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
         }
@@ -463,15 +471,27 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow(); statusBlock(Modifier) }
-                map(Modifier.fillMaxWidth().weight(if (short) 0.25f else 0.6f))
-                panel(Modifier.weight(if (short) 0.75f else 0.4f).padding(horizontal = 8.dp, vertical = 4.dp))
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow() }
+                statusBlock(Modifier)
+                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else 0.55f
+                map(Modifier.fillMaxWidth().weight(1f - panelW))
+                panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
                 resumeBanner()
                 messageBar()
                 actionBar()
             }
         }
     }
+}
+
+/** v176c: 4:3 camera frame on the full available width; its description states the share of the screen width (checked by Maestro). */
+@Composable
+private fun CameraFrame(aspect: Float, modifier: Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    var ratio by remember { mutableStateOf(0f) }
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().aspectRatio(aspect)
+        .onGloballyPositioned { ratio = it.size.width.toFloat() / maxOf(1, it.findRootCoordinates().size.width) }
+        .semantics { contentDescription = if (ratio >= 0.98f) "Caméra pleine largeur" else "Caméra ${(ratio * 100).toInt()} % de la largeur" }
+        .then(modifier), content = content)
 }
 
 /** TRK pill colour (green = tracking, orange = limited, red = lost, grey = off) and the full label shown on tap. */

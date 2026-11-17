@@ -298,6 +298,12 @@ data class ControlPointEvent(
     /** Refusal message the user overrode, and the point it contradicted. */
     val forcedRefusal: String? = null,
     val forcedAgainst: String? = null,
+    /** v176c: point aimed at with the reticle (session frame x, y, z) used as the AR side of the point instead of the phone pose; null = phone pose (older sessions, simulated poses). */
+    val aimSession: List<Double>? = null,
+    /** v176c: plane hit by the reticle ("AR_PLANE" floor, …), null with the phone pose. */
+    val aimSource: String? = null,
+    /** v176c: recorded as the independent control (5th calibration point); stays the control if earlier points are removed. */
+    val independentControl: Boolean = false,
 ) : SessionEvent
 
 /** « Supprimer » on a row of the table: the point is ignored from now on (the journal keeps it). */

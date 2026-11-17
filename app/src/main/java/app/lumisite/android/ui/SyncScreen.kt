@@ -34,6 +34,12 @@ import app.lumisite.android.sync.NearbyMesh
 import app.lumisite.core.sync.Clock
 import app.lumisite.core.sync.Link
 import app.lumisite.core.sync.SyncRole2
+import app.lumisite.core.sync.MasterMesh
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /** Accueil > Synchro (paquet 2): role choice, then the 4 separate states (connexion, alignement, capture, repère). */
 @Composable
@@ -66,13 +72,14 @@ fun SyncScreen(onBack: () -> Unit) {
             Text("Mode : " + if (st.role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)",
                 style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_mode_actif"))
             Text(st.radio, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_radio"))
+            Prerequisites()
             if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st) else SlavePanel(st)
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
         OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("Retour") }
         if (st.log.isNotEmpty()) {
-            Text("Journal", style = MaterialTheme.typography.titleSmall)
-            st.log.takeLast(10).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
+            Text("Journal (horodaté, le plus récent en haut)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("synchro_journal"))
+            st.log.takeLast(15).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
@@ -85,6 +92,21 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
         color = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
     Text(if (ok) "synchronisé" else "non synchronisé", modifier = Modifier.testTag("synchro_etat_global"),
         color = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val connected = st.peers.count { it.link == Link.CONNECTED }
+    Button(enabled = !st.roundBusy && connected > 0, onClick = {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@Button
+        scope.launch(Dispatchers.IO) {
+            val prefs = ctx.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
+            val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
+            prefs.edit().putInt("counter", counter).apply()
+            runCatching { NearbyMesh.masterRound(ctx, counter, null) }
+        }
+    }, modifier = Modifier.fillMaxWidth().testTag("synchro_top")) { Text("Lancer un top de synchro (tous les téléphones émettent)") }
+    Text(if (connected == 0) "Aucun esclave connecté : le top attend au moins un téléphone en « Captation-synchro (esclave) »." else (st.round ?: "Chaque téléphone écoute ${app.lumisite.android.capture.AudioSync.WINDOW_MS / 1000} s et émet son chirp ; le décalage s'affiche par téléphone."),
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_top_etat"))
+    SceneActive(st)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button({ NearbyMesh.startCapture() }, enabled = !st.capturing, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Démarrer les captures") }
         OutlinedButton({ NearbyMesh.stopCapture() }, enabled = st.capturing, modifier = Modifier.testTag("synchro_arreter_captures")) { Text("Arrêter") }
@@ -96,6 +118,9 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
                 Text("Connexion : ${p.link.label}", color = if (p.link == Link.LOST) MaterialTheme.colorScheme.error else Color.Unspecified)
                 Text("Alignement temporel : ${p.clock.label}" + (if (p.clock == Clock.ALIGNED) " (décalage %.1f ms ± %.1f ms)".format((p.offsetNs ?: 0) / 1e6, (p.uncertaintyNs ?: 0) / 1e6) else ""))
                 Text("Capture : ${if (p.link == Link.LOST) "inconnue (perdu)" else p.capture.label}" + if (p.media > 0) " · ${p.media} média(s)" else "")
+                Text("Dernier message : il y a ${((app.lumisite.android.data.AndroidClock.monotonicNs() - p.lastHeardNs) / 1_000_000_000).coerceAtLeast(0)} s (ping toutes les ${MasterMesh.PING_PERIOD_NS / 1_000_000_000} s, perdu après ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s)", style = MaterialTheme.typography.bodySmall)
+                p.audio?.let { a -> Text("Top : " + a.text(p.name), color = if (a.offsetNs != null) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error) }
+                if (p.sensors.isNotEmpty()) Text("Capteurs : " + p.sensors.filter { it.active }.joinToString { it.label }.ifEmpty { "aucun actif" }, style = MaterialTheme.typography.bodySmall)
                 Text("Repère spatial : ${p.frame.label}", style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -108,4 +133,43 @@ private fun SlavePanel(st: NearbyMesh.UiState) {
     Text("Alignement temporel : calculé par le maître (pings reçus)" + if (st.slaveLastPingNs > 0) "" else " · aucun ping reçu")
     Text("Capture : ${st.slaveCapture.label}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_esclave_capture"))
     Text("Repère spatial : non partagé (horodatage seul)", style = MaterialTheme.typography.bodySmall)
+    st.round?.let { Text(it, modifier = Modifier.testTag("synchro_esclave_top")) }
+    Text("Capteurs de ce téléphone", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("synchro_capteurs"))
+    st.sensors.forEach { c -> Text(c.text, color = if (c.active) Color(0xFF2E7D32) else Color.Unspecified, modifier = Modifier.testTag("synchro_capteur_${c.kind.lowercase()}")) }
+}
+
+/** v176d D5: « Scène active » on the master: slaves with role, sensors, capture, received media. */
+@Composable
+private fun SceneActive(st: NearbyMesh.UiState) {
+    val live = st.peers.filter { it.link != Link.LOST }
+    Text("Scène active", style = MaterialTheme.typography.titleSmall)
+    if (live.isEmpty()) Text("Scène active : aucun esclave. Lancez « Captation-synchro (esclave) » sur l'autre téléphone, à quelques mètres, localisation activée.",
+        color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("synchro_scene_active"))
+    else Column(Modifier.testTag("synchro_scene_active")) {
+        live.forEach { p ->
+            Text("${p.name} · esclave (captation) · capture ${p.capture.label} · ${p.media} média(s) reçu(s) · capteurs : " +
+                p.sensors.filter { it.active }.joinToString { it.label }.ifEmpty { "non reçus" }, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** v176d: explicit messages when location, BLUETOOTH_SCAN / NEARBY_WIFI_DEVICES or the battery exemption are missing (HyperOS). */
+@Composable
+private fun Prerequisites() {
+    val ctx = LocalContext.current
+    val tick by produceState(0) { while (true) { kotlinx.coroutines.delay(3000); value++ } }
+    val msgs = remember(tick) {
+        val lm = ctx.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        val loc = if (Build.VERSION.SDK_INT >= 28) lm.isLocationEnabled else true
+        fun granted(p: String) = ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
+        val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        app.lumisite.core.sync.SyncPrereq.messages(loc, Build.VERSION.SDK_INT < 31 || granted(Manifest.permission.BLUETOOTH_SCAN),
+            Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.NEARBY_WIFI_DEVICES), pm.isIgnoringBatteryOptimizations(ctx.packageName), Build.VERSION.SDK_INT)
+    }
+    if (msgs.isEmpty()) return
+    Column(Modifier.testTag("synchro_prerequis")) {
+        msgs.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+            modifier = Modifier.testTag("synchro_reglages_batterie")) { Text("Ouvrir les réglages de batterie") }
+    }
 }

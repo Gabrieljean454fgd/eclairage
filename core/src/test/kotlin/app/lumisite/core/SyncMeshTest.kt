@@ -52,8 +52,8 @@ class SyncMeshTest {
         master.start("cap1", t).forEach { (id, msg) -> deliverToSlave(id, msg, t) }
         assertEquals("2/2 synchronisé(s) · 2 en capture", master.summary().text)
         assertTrue(slaves.values.all { it.capture == Capture.CAPTURING })
-        // e2 goes silent: lost after 6 s, never shown as synchronised.
-        repeat(4) { t += MasterMesh.PING_PERIOD_NS; master.pings(t).filter { it.first == "e1" }.forEach { (id, p) -> deliverToSlave(id, p, t) }; master.tick(t) }
+        // e2 goes silent: lost after 15 s (v176d), never shown as synchronised.
+        repeat((MasterMesh.LOST_AFTER_NS / MasterMesh.PING_PERIOD_NS).toInt() + 2) { t += MasterMesh.PING_PERIOD_NS; master.pings(t).filter { it.first == "e1" }.forEach { (id, p) -> deliverToSlave(id, p, t) }; master.tick(t) }
         assertEquals(Link.LOST, master.peers.getValue("e2").link)
         assertEquals("1/1 synchronisé(s) · 1 en capture · 1 perdu(s)", master.summary().text)
     }
@@ -75,13 +75,13 @@ class SyncMeshTest {
     fun silentPeerIsStillPingedAndRecovers() {
         val master = MasterMesh("maitre")
         master.onConnecting("e1", "E1", 0); master.onConnected("e1", 0)
-        master.tick(7_000 * ms)
+        master.tick(16_000 * ms)
         assertEquals(Link.LOST, master.peers.getValue("e1").link)
-        assertEquals(listOf("e1"), master.pings(7_000 * ms).map { it.first })
-        master.onMessage("e1", MeshMsg.Pong(1, 7_000 * ms, 7_010 * ms, 7_011 * ms), 7_021 * ms)
+        assertEquals(listOf("e1"), master.pings(16_000 * ms).map { it.first })
+        master.onMessage("e1", MeshMsg.Pong(1, 16_000 * ms, 16_010 * ms, 16_011 * ms), 16_021 * ms)
         assertEquals(Link.CONNECTED, master.peers.getValue("e1").link)
-        master.onDisconnected("e1", 8_000 * ms)
-        assertTrue(master.pings(8_000 * ms).isEmpty())
+        master.onDisconnected("e1", 17_000 * ms)
+        assertTrue(master.pings(17_000 * ms).isEmpty())
     }
 
     /** Review: a slave that reconnects after a reboot (Hello with a new time base) loses its old clock samples. */

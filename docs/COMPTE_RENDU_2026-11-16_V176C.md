@@ -24,4 +24,12 @@ Branche `etape-3-v176c-ar-depouillee`, empilée sur `etape-3-v176a-bis-rectangle
 - La carte de Session est plus petite en portrait (caméra prioritaire, décision 3).
 
 ## CI / pré-release
-À compléter.
+- PR : https://github.com/Gabrieljean454fgd/eclairage/pull/26 (vers v176a-bis, non fusionnée).
+- CI verte (APK, tests JVM, tous les flows Maestro, release) : https://github.com/Gabrieljean454fgd/eclairage/actions/runs/43981089089
+- Pré-release : https://github.com/Gabrieljean454fgd/eclairage/releases/tag/etape3-v176c-2837aa8 — APK `lumisite-etape3-v176c-v199-2837aa8.apk`, versionCode 199.
+
+## Revue automatique (4 cas, tous corrigés)
+- Calibrage à 1 point : l'ancre du point visé effaçait la rotation de la caméra (cap faux) → l'ancre garde la rotation de la caméra (3bcda74).
+- « Recaler quand même » : le point forcé prenait la position du téléphone → il garde le point visé (1caa46e).
+- 5e point de contrôle : la suppression d'un point antérieur le faisait entrer dans le calcul → rôle journalisé à l'enregistrement, `independentControl` (003618f).
+- Visée Mur / Plafond sans plan : un sol estimé était enregistré → « position à compléter » (2837aa8, test JVM).

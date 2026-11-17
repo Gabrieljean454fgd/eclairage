@@ -1,0 +1,24 @@
+# Retour terrain build 199 (17/11), point 8 — SPÉCIFICATION (paquet v176e). Session > Relevé : familles d'abord
+# (catégories), puis types ; recherche ; « Ajouter un type… » crée une entrée locale (à classer au bureau) qui
+# apparaît dans la liste et reste après redémarrage.
+appId: app.lumisite.android
+name: "build199 Relevé : catégories et ajout de type"
+---
+- runFlow: ../scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- assertVisible: { id: "session_releve_categorie_ECLAIRAGE" }
+- assertVisible: { id: "session_releve_categorie_ELEC" }
+- assertVisible: { id: "session_releve_categorie_INCENDIE" }
+- assertVisible: { id: "session_releve_categorie_SON" }
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Éclairage.*" }
+- assertVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- tapOn: { id: "session_releve_recherche" }
+- inputText: "encastr"
+- assertVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- tapOn: { id: "session_releve_ajouter_type" }
+- tapOn: { id: "session_releve_nouveau_type_nom" }
+- inputText: "Plafonnier test 199"
+- tapOn: { id: "session_releve_nouveau_type_valider" }
+- assertVisible: "Plafonnier test 199"
+- takeScreenshot: maestro-out/captures/b199_releve_catalogue

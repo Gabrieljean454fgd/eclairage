@@ -1,0 +1,184 @@
+name: Carte Graphify
+
+# Régénère la carte du code (docs/graphify/) et la commite sur outils/graphify.
+# Aucun LLM, aucune clé d'API : extract --code-only puis cluster-only --no-label.
+#
+# Le schedule GitHub Actions ne part que si ce fichier est aussi sur la branche
+# par défaut (main), ce qui demande l'accord du propriétaire. Tant que ce n'est
+# pas le cas, lancer le workflow à la main (workflow_dispatch).
+
+on:
+  workflow_dispatch:
+    inputs:
+      branche_source:
+        description: "Branche source à cartographier. Vide = branche etape-3-* au commit le plus récent."
+        required: false
+        type: string
+        default: ""
+  schedule:
+    - cron: "30 3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: graphify-outils-graphify
+  cancel-in-progress: false
+
+jobs:
+  carte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GRAPHIFY_VERSION: "0.9.112"
+      GRAPHIFY_BACKEND: none
+    steps:
+      - name: Checkout de outils/graphify
+        uses: actions/checkout@v4
+        with:
+          ref: outils/graphify
+          fetch-depth: 1
+
+      - name: Résoudre la branche source
+        id: src
+        env:
+          INPUT_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branche_source || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_BRANCH" ]; then
+            BRANCH="$INPUT_BRANCH"
+          else
+            git fetch origin --prune '+refs/heads/etape-3-*:refs/remotes/origin/etape-3-*'
+            mapfile -t _branches < <(git for-each-ref --sort=-committerdate --format='%(refname:short)' 'refs/remotes/origin/etape-3-*')
+            if [ ${#_branches[@]} -eq 0 ]; then
+              echo "Aucune branche etape-3-*." >&2
+              exit 1
+            fi
+            BRANCH="${_branches[0]#origin/}"
+          fi
+          if [ -z "$BRANCH" ]; then
+            echo "Aucune branche source." >&2
+            exit 1
+          fi
+          case "$BRANCH" in
+            *..*|-*|*/|*' '*|*[$'\n\t']*)
+              echo "Nom de branche refusé : $BRANCH" >&2
+              exit 1
+              ;;
+          esac
+          if ! printf '%s' "$BRANCH" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "Nom de branche refusé : $BRANCH" >&2
+            exit 1
+          fi
+          git fetch origin --prune "refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+          SHA=$(git rev-parse "refs/remotes/origin/${BRANCH}^{commit}")
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "Source : ${BRANCH} @ ${SHA}"
+
+      - name: Extraire l'arbre source
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/src" "${{ steps.src.outputs.sha }}"
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer graphifyy
+        run: |
+          set -euo pipefail
+          python -m pip install "graphifyy==${GRAPHIFY_VERSION}"
+          graphify --version
+          test "$(graphify --version)" = "graphify ${GRAPHIFY_VERSION}"
+
+      - name: Générer la carte sans LLM
+        env:
+          SOURCE_SHA: ${{ steps.src.outputs.sha }}
+          SOURCE_BRANCH: ${{ steps.src.outputs.branch }}
+        run: |
+          set -euo pipefail
+          unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY \
+            MOONSHOT_API_KEY DEEPSEEK_API_KEY OPENAI_BASE_URL ANTHROPIC_BASE_URL \
+            OLLAMA_BASE_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY || true
+          cd "$RUNNER_TEMP/src"
+          graphify extract . --code-only --out "$RUNNER_TEMP/eclairage" \
+            --exclude 'build/' \
+            --exclude '.gradle/' \
+            --exclude 'docs/graphify/'
+          graphify cluster-only "$RUNNER_TEMP/eclairage" --no-label
+          OUT="$RUNNER_TEMP/eclairage/graphify-out"
+          test -f "$OUT/graph.json"
+          test -f "$OUT/graph.html"
+          test -f "$OUT/GRAPH_REPORT.md"
+          python3 - "$OUT" "$SOURCE_SHA" << 'PY'
+          import json, sys
+          from pathlib import Path
+          out, expected = Path(sys.argv[1]), sys.argv[2]
+          graph = json.loads((out / "graph.json").read_text(encoding="utf-8"))
+          nodes, links = graph.get("nodes") or [], graph.get("links") or graph.get("edges") or []
+          if not nodes or not links:
+              sys.exit("graphe vide")
+          stamped = graph.get("built_at_commit") or ""
+          if stamped != expected:
+              sys.exit(f"built_at_commit={stamped} != {expected}")
+          forbidden = ("/home/", "/tmp/", "/agent/", "/Users/", "/opt/hostedtoolcache", "x-access-token", "ghs_", "github_pat_")
+          for name in ("graph.json", "graph.html", "GRAPH_REPORT.md"):
+              text = (out / name).read_text(encoding="utf-8")
+              for needle in forbidden:
+                  if needle in text:
+                      sys.exit(f"{name} contient {needle!r}")
+          for node in nodes:
+              source = node.get("source_file") or ""
+              if source.startswith("/") or source.startswith("\\") or (len(source) > 2 and source[1] == ":"):
+                  sys.exit(f"chemin absolu : {source}")
+          communities = {n.get("community") for n in nodes if n.get("community") is not None}
+          print(f"{len(nodes)} nœuds, {len(links)} arêtes, {len(communities)} communautés")
+          PY
+          mkdir -p "$GITHUB_WORKSPACE/docs/graphify"
+          cp "$OUT/graph.json" "$OUT/graph.html" "$OUT/GRAPH_REPORT.md" "$GITHUB_WORKSPACE/docs/graphify/"
+          python3 - "$GITHUB_WORKSPACE/docs/graphify/GENERATION.md" "$SOURCE_BRANCH" "$SOURCE_SHA" "$GRAPHIFY_VERSION" << 'PY'
+          import sys
+          from pathlib import Path
+          path, branch, sha, version = sys.argv[1:]
+          Path(path).write_text(
+              "\n".join([
+                  "# Génération de la carte",
+                  "",
+                  f"- Branche source : `{branch}`",
+                  f"- Commit source : `{sha}`",
+                  f"- Version de Graphify : `{version}` (paquet PyPI `graphifyy`, dépôt [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify), licence Apache-2.0)",
+                  "- Commandes : `graphify extract . --code-only --out <répertoire> --exclude build/ --exclude .gradle/ --exclude docs/graphify/` puis `graphify cluster-only <répertoire> --no-label`",
+                  "- Exclusions : `build/`, `.gradle/`, `docs/graphify/` (en plus de ce que `.gitignore` ignore déjà)",
+                  "- Aucun LLM, aucune clé d'API. Coût de jetons relevé par l'outil : 0.",
+                  "",
+                  "L'extracteur Kotlin de cette version signale des erreurs de syntaxe sur une partie des fichiers `.kt` : ces fichiers restent partiellement représentés. La carte sert à naviguer (appels, dépendances, communautés), elle ne garantit pas que chaque symbole du dépôt y figure.",
+                  "",
+                  "Les chemins enregistrés dans `graph.json`, `graph.html` et `GRAPH_REPORT.md` sont relatifs à la racine du dépôt.",
+                  "",
+              ]),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Committer sur outils/graphify
+        env:
+          SOURCE_SHA: ${{ steps.src.outputs.sha }}
+          SOURCE_BRANCH: ${{ steps.src.outputs.branch }}
+        run: |
+          set -euo pipefail
+          if [ "$(git branch --show-current)" != "outils/graphify" ]; then
+            echo "Refus : le commit doit partir de outils/graphify, pas de $(git branch --show-current)." >&2
+            exit 1
+          fi
+          git add docs/graphify/graph.json docs/graphify/graph.html docs/graphify/GRAPH_REPORT.md docs/graphify/GENERATION.md
+          if git diff --cached --quiet; then
+            echo "Carte inchangée, rien à committer."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          SHORT=$(git rev-parse --short=12 "$SOURCE_SHA")
+          git commit -m "docs(graphify): régénère la carte (${SOURCE_BRANCH} @ ${SHORT})"
+          git push origin HEAD:outils/graphify

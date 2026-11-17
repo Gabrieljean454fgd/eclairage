@@ -36,6 +36,6 @@ Le workflow [`.github/workflows/graphify.yml`](../../.github/workflows/graphify.
 - à la main, avec `workflow_dispatch` (entrée optionnelle `branche_source` ; si elle est vide, la branche `etape-3-*` dont le commit est le plus récent) ;
 - chaque jour à 03:30 UTC (`30 3 * * *`).
 
-Le planning GitHub Actions ne s'exécute que pour un workflow présent sur la branche par défaut (`main`). Tant que ce fichier n'y est pas — ce qui demande l'accord du propriétaire du dépôt — le schedule ne part pas. En attendant, lancer la carte à la main avec `workflow_dispatch`.
+GitHub n'exécute le planning (`schedule`) que si le workflow est présent sur la branche par défaut (`main`). Le lancement manuel (`workflow_dispatch`) a la même condition : tant que le fichier n'est pas sur `main`, l'API répond que le workflow est introuvable sur la branche par défaut. Les deux demandent donc l'accord du propriétaire pour ajouter `.github/workflows/graphify.yml` sur `main` (sans y merger la carte). Une fois le fichier sur `main`, `workflow_dispatch` peut viser la branche `outils/graphify`.
 
 La régénération installe `graphifyy` 0.9.112, lance `graphify extract . --code-only` puis `graphify cluster-only <répertoire> --no-label`, et pousse `docs/graphify/` avec le `GITHUB_TOKEN` (`contents: write`). Aucun secret supplémentaire. Les répertoires `build/`, `.gradle/` et `docs/graphify/` sont exclus de l'analyse. Le code de l'application n'est pas modifié : le commit ne porte que la carte, sur `outils/graphify`.

@@ -3,9 +3,10 @@ name: Carte Graphify
 # Régénère la carte du code (docs/graphify/) et la commite sur outils/graphify.
 # Aucun LLM, aucune clé d'API : extract --code-only puis cluster-only --no-label.
 #
-# Le schedule GitHub Actions ne part que si ce fichier est aussi sur la branche
-# par défaut (main), ce qui demande l'accord du propriétaire. Tant que ce n'est
-# pas le cas, lancer le workflow à la main (workflow_dispatch).
+# schedule et workflow_dispatch ne partent que si ce fichier est aussi sur la
+# branche par défaut (main) : GitHub répond 404 tant qu'il n'y est pas. L'ajout
+# sur main demande l'accord du propriétaire. Le résultat, lui, reste commité
+# sur outils/graphify.
 
 on:
   workflow_dispatch:

@@ -60,7 +60,7 @@ class SyncRoundTest {
         val m = MasterMesh("A"); m.onConnecting("e1", "X", 0); m.onConnected("e1", 0)
         m.tick(14_000_000_000L); assertEquals(Link.CONNECTED, m.peers["e1"]!!.link)
         m.tick(16_000_000_000L); assertEquals(Link.LOST, m.peers["e1"]!!.link)
-        val s = SlaveMesh("B", "X", "tb"); s.onConnected(); s.onMessage(MeshMsg.Ping(1, 0), 1_000L) { 2_000L }
+        val s = SlaveMesh("B", "X", "tb"); s.onConnected(0L); s.onMessage(MeshMsg.Ping(1, 0), 1_000L) { 2_000L }
         assertFalse(s.masterSilent(10_000_000_000L)); assertTrue(s.masterSilent(16_000_001_000L))
     }
 
@@ -84,5 +84,12 @@ class SyncRoundTest {
     @Test fun listeningWindowIsBounded() {
         assertTrue(SyncRoundCalc.windowOk(12_000))
         assertFalse(SyncRoundCalc.windowOk(Int.MAX_VALUE)); assertFalse(SyncRoundCalc.windowOk(0)); assertFalse(SyncRoundCalc.windowOk(-1))
+    }
+
+    @Test fun reconnectionRestartsTheSilenceDeadline() {
+        val s = SlaveMesh("B", "X", "tb"); s.onConnected(0L); s.onMessage(MeshMsg.Ping(1, 0), 1_000_000_000L) { 0L }
+        s.onDisconnected(); s.onConnected(30_000_000_000L)
+        assertFalse(s.masterSilent(31_000_000_000L))
+        assertTrue(s.masterSilent(46_000_000_000L)) // no ping at all after the reconnection: lost after 15 s as well
     }
 }

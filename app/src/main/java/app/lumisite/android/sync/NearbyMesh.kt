@@ -200,7 +200,7 @@ object NearbyMesh {
             synchronized(lock) {
                 master?.let { logs(if (ok) it.onConnected(id, now()) else it.onDisconnected(id, now())) }
                 slave?.let { s ->
-                    if (ok) { masterEndpoint = id; s.onConnected(); client?.stopDiscovery(); send(id, s.hello()); send(id, MeshMsg.Sensors(_state.value.sensors))
+                    if (ok) { masterEndpoint = id; s.onConnected(now()); client?.stopDiscovery(); send(id, s.hello()); send(id, MeshMsg.Sensors(_state.value.sensors))
                         _state.value = _state.value.copy(slaveMaster = _state.value.slaveMaster?.replace("(connexion…)", "(connecté)")); journal(id, "connexion : connecté") }
                     else journal(id, "connexion refusée : ${r.status.statusMessage}")
                 }

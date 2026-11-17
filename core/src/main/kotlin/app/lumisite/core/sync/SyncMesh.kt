@@ -295,12 +295,13 @@ class SlaveMesh(val deviceId: String, val name: String, var timeBaseId: String) 
 
     fun hello() = MeshMsg.Hello(deviceId, name, SyncRole2.CAPTATION_ESCLAVE, timeBaseId)
 
-    fun onConnected() { masterConnected = true }
+    /** The silence deadline restarts at connection: an expired one from before an outage never rejects a fresh link. */
+    fun onConnected(tNs: Long) { masterConnected = true; lastPingNs = tNs }
     fun onDisconnected() { masterConnected = false }
 
     /** Returns the reply to send (pong / status), or null. [tRxNs] = reception time, [now] gives the send time. */
     /** The master is « perdu » for the slave when no ping arrived for [MasterMesh.LOST_AFTER_NS]: reconnect. */
-    fun masterSilent(tNs: Long): Boolean = masterConnected && lastPingNs > 0 && tNs - lastPingNs > MasterMesh.LOST_AFTER_NS
+    fun masterSilent(tNs: Long): Boolean = masterConnected && tNs - lastPingNs > MasterMesh.LOST_AFTER_NS
 
     fun onMessage(m: MeshMsg, tRxNs: Long, now: () -> Long): MeshMsg? = when (m) {
         is MeshMsg.Ping -> { lastPingNs = tRxNs; MeshMsg.Pong(m.seq, m.tMasterTxNs, tRxNs, now()) }

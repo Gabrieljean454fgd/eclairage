@@ -12,6 +12,7 @@ import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.Ids
 import app.lumisite.core.sync.Capture
 import app.lumisite.core.sync.MasterMesh
+import app.lumisite.core.sync.SyncRoundCalc
 import app.lumisite.core.sync.MeshLog
 import app.lumisite.core.sync.MeshMsg
 import app.lumisite.core.sync.SlaveMesh
@@ -316,6 +317,11 @@ object NearbyMesh {
 
     private fun slaveRound(masterId: String, m: MeshMsg.SyncRound) {
         val ctx = appCtx ?: return
+        if (!SyncRoundCalc.windowOk(m.windowMs)) {
+            val err = "fenêtre d'écoute refusée (${m.windowMs} ms, attendu ${SyncRoundCalc.MIN_WINDOW_MS}–${SyncRoundCalc.MAX_WINDOW_MS} ms)"
+            synchronized(lock) { send(masterId, MeshMsg.SyncResult(m.roundId, "%04X".format(ownId(ctx)), emptyList(), slave?.timeBaseId ?: "", err)); journal("local", "top refusé : $err") }
+            return
+        }
         journal("local", "top de synchro reçu : écoute ${m.windowMs / 1000} s et émission du chirp")
         _state.value = _state.value.copy(roundBusy = true, round = "Top reçu : écoute et émission…")
         scope.launch(Dispatchers.IO) {

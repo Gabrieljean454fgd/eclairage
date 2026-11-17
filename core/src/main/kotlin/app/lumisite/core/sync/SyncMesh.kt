@@ -80,6 +80,10 @@ data class AudioOffset(val roundId: String, val masterHeardSlave: Boolean, val s
 object SyncRoundCalc {
     /** Conservative uncertainty for 4 detections (~0.5 ms each); experimental, not a measured σ. */
     const val UNCERTAINTY_NS = 1_000_000L
+    /** Listening window accepted from the master: a peer cannot make a slave record (and allocate) for minutes. */
+    const val MIN_WINDOW_MS = 3_000
+    const val MAX_WINDOW_MS = 30_000
+    fun windowOk(ms: Int): Boolean = ms in MIN_WINDOW_MS..MAX_WINDOW_MS
 
     fun offset(roundId: String, counter: Int, masterHex: String, masterHeard: List<HeardChirp>, slaveHex: String, r: MeshMsg.SyncResult): AudioOffset {
         if (r.error != null) return AudioOffset(roundId, false, false, null, null, r.error)

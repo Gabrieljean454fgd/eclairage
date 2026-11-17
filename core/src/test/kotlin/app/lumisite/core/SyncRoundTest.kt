@@ -80,4 +80,9 @@ class SyncRoundTest {
         assertEquals(4, SyncPrereq.messages(false, false, false, false, 34).size)
         assertEquals(1, SyncPrereq.messages(false, false, false, true, 30).size)
     }
+
+    @Test fun listeningWindowIsBounded() {
+        assertTrue(SyncRoundCalc.windowOk(12_000))
+        assertFalse(SyncRoundCalc.windowOk(Int.MAX_VALUE)); assertFalse(SyncRoundCalc.windowOk(0)); assertFalse(SyncRoundCalc.windowOk(-1))
+    }
 }

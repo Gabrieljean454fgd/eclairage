@@ -13,6 +13,6 @@ object SurveyEdits {
         attachments.groupingBy { it.role ?: if (it.mediaType.startsWith("audio/")) "voix" else "vue" }.eachCount()
 
     /** « Éclairage › spot » for the current family and type of a record. */
-    fun familyPath(entry: CatalogEntry?, kind: String): String =
-        entry?.let { "${it.famille.replaceFirstChar(Char::uppercaseChar)} › ${it.label}" } ?: kind
+    fun familyPath(entry: CatalogEntry?, kind: String, catalog: app.lumisite.core.catalog.EquipmentCatalog? = null): String =
+        entry?.let { e -> catalog?.breadcrumb(e) ?: "${e.famille} › ${e.label}" } ?: kind
 }

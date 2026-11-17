@@ -633,9 +633,7 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_releve_famille_" + f.blockName)) }
-    }
+    FamilyQuickGrid(c, c.catalog.find(selected ?: "")?.code ?: selected, onPick)
 }
 
 @Composable
@@ -649,7 +647,7 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     // While the photo is proposed the panel shows only that (short, so it is on screen without scrolling).
     photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
-    Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
+    Text("Relevé : type du catalogue ${c.catalog.version} (Famille › Sous-famille › Type, ou recherche), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
     FamilyQuickGrid(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
     DetailsForm(family, details)
@@ -698,7 +696,7 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
             Button({ c.editSurvey(r.event.id, note = note); onDone() }, modifier = Modifier.testTag("session_objet_enregistrer")) { Text("Enregistrer") }
             OutlinedButton({ changeFamily = !changeFamily }, modifier = Modifier.testTag("session_objet_changer_de_famille")) { Text("Changer de famille") }
         }
-        Text("Famille et type actuels : " + app.lumisite.core.survey.SurveyEdits.familyPath(c.catalog.find(r.event.kind), r.event.kind),
+        Text("Famille et type actuels : " + app.lumisite.core.survey.SurveyEdits.familyPath(c.catalog.find(r.event.kind), r.event.kind, c.catalog),
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_famille_actuelle"))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }, modifier = Modifier.testTag("session_objet_supprimer")) { Text("Supprimer", color = Color.Red) }

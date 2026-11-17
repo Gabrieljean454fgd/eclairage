@@ -127,7 +127,7 @@ class Repository(private val ctx: Context) {
     fun exportProject(site: Site): File {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
         val work = File(exportsDir, "project_${site.id}_$stamp").apply { mkdirs() }
-        val catalog = runCatching { ctx.assets.open("equipment_catalog.json").bufferedReader().use { it.readText() } }.getOrNull()
+        val catalog = runCatching { ctx.assets.open(app.lumisite.core.catalog.EquipmentCatalog.ASSET).bufferedReader().use { it.readText() } }.getOrNull()
         val root = ExportPackage.build(
             site, sessions(site.id).map { ExportPackage.SessionInput(sessionDir(it.id)) }, catalog,
             File(sitesDir, "${site.id}/osm_source.json"), work, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}",

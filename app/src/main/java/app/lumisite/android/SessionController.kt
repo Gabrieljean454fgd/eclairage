@@ -749,7 +749,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     private fun equipmentPayload(fam: CatalogEntry, details: JsonObject?) = buildJsonObject {
         put("catalog_version", catalog.version)
-        put("block_name", fam.blockName)
+        put("code", fam.code)
+        put("famille", fam.famille)
         if (details != null) put("details", details)
     }
 
@@ -774,10 +775,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
         if (manual == null && hit != null && hit.source != "ESTIMATED") ar.lastObjectY = hit.point.y
         val e = SurveyEvent(
-            id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: latestPose,
+            id = Ids.new("srv"), t = stamps.now(), kind = fam.code, note = note?.ifBlank { null }, pose = pose ?: latestPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
             payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
-            dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
+            dxf = null, // DS1/DS2: no DWG hint in the app, the office maps the LS_* code (catalog/correspondance_dwg.json)
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         undoStack.addLast(e.id)
@@ -814,10 +815,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             note = app.lumisite.core.survey.SurveyEdits.note(old.note, note),
             positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
             manualSite = if (moved) pos else old.manualSite,
-            kind = fam?.blockName ?: old.kind,
+            kind = fam?.code ?: old.kind,
             payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
             payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
-            dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
+            dxf = if (fam != null) null else old.dxf,
             attachments = if (attach != null) old.attachments.filterNot { it.file == replacePath } + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })

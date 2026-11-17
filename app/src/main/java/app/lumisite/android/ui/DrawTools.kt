@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -332,28 +333,57 @@ private fun StyleSheet(d: DrawState) {
     }
 }
 
-/** Catalogue grid with pinned favourites and the 6 last used families first. */
+/**
+ * v176e E1: catalogue Famille › Sous-famille › Type with arrows and breadcrumb, accent-insensitive search on top,
+ * pinned favourites and the 12 last used types first, « Autres » last. Types keep the tag session_annoter_famille_<code>.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FamilyQuickGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
     val ctx = LocalContext.current
+    val cat = c.catalog
     val prefs = remember { ctx.getSharedPreferences("lumisite_quick", Context.MODE_PRIVATE) }
     var pins by remember { mutableStateOf(prefs.getStringSet("pins", emptySet())!!.toSet()) }
+    var fam by remember { mutableStateOf<String?>(null) }
+    var sub by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
     val events = c.state.collectAsState().value.events
-    val recent = events.filterIsInstance<SurveyEvent>().filter { it.supersedes == null }.map { it.kind }.reversed().distinct().take(6)
-    fun label(k: String) = c.catalog.entries.firstOrNull { it.blockName == k }?.label ?: k
+    // Former DWG block names of old sessions are shown with their LS_* type (alias read, the event is not rewritten).
+    val recent = events.filterIsInstance<SurveyEvent>().filter { it.supersedes == null }.mapNotNull { cat.find(it.kind)?.code }.reversed().distinct().take(12)
+    fun label(k: String) = cat.find(k)?.label ?: k
+    @Composable fun typeChip(e: app.lumisite.core.catalog.CatalogEntry, tag: String = "session_annoter_famille_" + e.code) =
+        FilterChip(selected == e.code, { onPick(e.code) }, { Text(e.label) }, modifier = Modifier.testTag(tag))
     @Composable fun row(title: String, keys: List<String>) {
         if (keys.isEmpty()) return
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelMedium)
-            keys.forEach { k -> FilterChip(selected == k, { onPick(k) }, { Text(label(k)) }, modifier = Modifier.testTag("session_annoter_famille_" + title.take(4).lowercase().replace("é", "e") + "_" + k)) }
+            keys.mapNotNull { cat.find(it) }.forEach { e -> typeChip(e, "session_annoter_famille_" + title.take(4).lowercase().replace("é", "e") + "_" + e.code) }
         }
     }
-    row("Épinglés :", pins.filter { p -> c.catalog.entries.any { it.blockName == p } }.sorted())
-    row("Récents :", recent)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_annoter_famille_" + f.blockName)) }
+    OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Rechercher (code, libellé, sans accents)") },
+        modifier = Modifier.fillMaxWidth().testTag("session_catalogue_recherche"))
+    if (query.isNotBlank()) {
+        val hits = cat.search(query)
+        Text(if (hits.isEmpty()) "Aucun type pour « $query »" else "${hits.size} résultat(s)", style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag("session_catalogue_resultats"))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) { hits.take(20).forEach { typeChip(it) } }
+    } else {
+        row("Épinglés :", pins.filter { cat.find(it) != null }.sorted())
+        row("Récents :", recent)
+        val crumb = listOfNotNull("Catalogue", fam?.let { cat.family(it)?.label ?: it }, sub).joinToString(" › ")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (fam != null) TextButton({ if (sub != null) sub = null else fam = null }, modifier = Modifier.testTag("session_catalogue_retour")) { Text("‹ Retour") }
+            Text(crumb, style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_catalogue_fil"))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            val f = fam; val sf = sub
+            when {
+                f == null -> cat.familles.forEach { x -> AssistChip({ fam = x.code; sub = cat.sousFamilles(x.code).singleOrNull() }, { Text(x.label + " ›") }, modifier = Modifier.testTag("session_catalogue_famille_" + x.code)) }
+                sf == null -> cat.sousFamilles(f).forEach { x -> AssistChip({ sub = x }, { Text("$x ›") }, modifier = Modifier.testTag("session_catalogue_sous_famille_" + app.lumisite.core.catalog.EquipmentCatalog.slug(x))) }
+                else -> cat.types(f, sf).forEach { typeChip(it) }
+            }
+        }
     }
+    selected?.let { k -> cat.find(k)?.let { Text("Choisi : " + cat.breadcrumb(it), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_catalogue_choisi")) } }
     if (selected != null) TextButton({
         pins = if (selected in pins) pins - selected else pins + selected
         prefs.edit().putStringSet("pins", pins).apply()

@@ -277,7 +277,7 @@ object ExportPackage {
     ): File {
         val root = File(parent, "LumiSite_${site.id}").apply { deleteRecursively(); mkdirs() }
         val ltp = LocalTangentPlane(site.origin)
-        catalogJson?.let { File(root, "catalog/equipment_catalog.json").apply { parentFile.mkdirs() }.writeText(it) }
+        catalogJson?.let { File(root, "catalog/" + app.lumisite.core.catalog.EquipmentCatalog.ASSET).apply { parentFile.mkdirs() }.writeText(it) }
         osmSource?.takeIf { it.exists() }?.copyTo(File(root, "refs/osm_source.json"))
         val out = ArrayList<PackageSession>(); val devices = LinkedHashSet<String>(); var catalogVersion: String? = null
         for (si in sessions) {

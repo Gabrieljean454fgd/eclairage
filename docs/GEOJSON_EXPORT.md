@@ -54,3 +54,11 @@ Le schéma JSON publié ne couvre que les Features `equipment`.
 - À côté de chaque photo, `media/<photo>.json` (sidecar) reprend la photo, son SHA-256, son rôle et les tags métier du relevé (catégorie, type, propriétés). Les EXIF (GPS, orientation, date) restent dans le JPEG.
 - Les enregistrements de synchro `sync_*.wav` présents dans la session sont exportés dans `media/`.
 - Les segments encore ouverts (session non terminée) sont exportés jusqu'à leur dernière ligne complète, et signalés dans les notes du manifeste ; ils ne sont plus exclus silencieusement.
+
+## v176f F2 — `releves.geojson` de l'export ZIP de session (JOSM/QGIS)
+
+Le `releves.geojson` du ZIP de session (pas le `.geojsonl` du paquet bureau) gagne :
+
+- **Repères de calibrage** : une Feature `Point` par point actif de `control_point` du journal, `id = "cp-<event_id>"`, `properties.name` = étiquette (« Calibrage 1 », « Recalage 2 », « Contrôle »…), `properties."lumisite:kind" = "control_point"`, `lumisite:role` = `CALIBRATION`/`RELOCALIZATION`, `lumisite:statut` = retenu / rejeté / ancre / contrôle / en attente / session précédente, `lumisite:residu_m` = écart résidu. `properties.accuracy.sigma_xy_m` = ce résidu ; la qualité (`lumisite:qualite` et le libellé) suit les seuils de `CalibrationQuality` : bon ≤ 0,5 m, moyen ≤ 1 m, insuffisant au-delà. `marker-symbol = "flag"`, `marker-color = "#FF8C00"` (style JOSM). Les repères d'un épisode AR précédent (après reprise) sont « session précédente » sans résidu.
+- **Propriétés plates** sur toutes les Features : `name` (note du relevé sinon famille, ou `label` pour les formes) et `lumisite:kind|code|methode|qualite|hauteur|residu_m`. `lumisite:code` = nom de bloc catalogue en attendant les codes `LS_*`. Pour un équipement positionné par AR, `accuracy.sigma_xy_m` = résidu RMS de la calibration qui l'a positionné (`null` pour les points carte et les recalages).
+- Le résidu des repères est recalculé à l'export depuis le journal (visée/pose enregistrée) ; l'app affine en direct avec les ancres ARCore, qui ne sont pas journalisées — voir `docs/LOCAL_EXPORT_ZIP.md`.

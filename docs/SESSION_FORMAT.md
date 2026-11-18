@@ -1,13 +1,15 @@
-# Format d'export `lumisite.session` v0.2.1
+# Format d'export `lumisite.session` v0.2.2
 
-Versions : 0.2.1 (étape 1) ajoute l'événement `stream_state`, les champs `bootId`/`bootCount` des bases de temps et la catégorie de fichiers `media` (pièces jointes copiées dans `media/`) ; un lecteur 0.2.0 lit un export 0.2.1 (champs inconnus ignorés, un `stream_state` lui apparaît comme une ligne illisible). 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone.
+Versions : 0.2.2 (v176f F2) remplace `raw/imu.ndjson` par `raw/imu.csv.gz` (IMU en CSV compacté gzip, `lumisite-imu-csv/1`) dans les exports de session ; un lecteur 0.2.x lit les deux (le NDJSON reste produit par l'export de projet). 0.2.1 (étape 1) ajoute l'événement `stream_state`, les champs `bootId`/`bootCount` des bases de temps et la catégorie de fichiers `media` (pièces jointes copiées dans `media/`) ; un lecteur 0.2.0 lit un export 0.2.1 (champs inconnus ignorés, un `stream_state` lui apparaît comme une ligne illisible). 0.2.0 ajoute l'événement typé `shape` (`ShapeEvent`, lot 7) et, au lot 13, `zone` (`ZoneEvent`). Un lecteur 0.2 lit les exports 0.1.x sans conversion (ils n'ont simplement pas ces événements) et refuse, avec un message clair, un export de version supérieure (0.3 et plus, 1.x). Les Features GeoJSON sont décrites par `docs/lumisite-feature.schema.json` : `properties` suit un `oneOf` équipement | forme/annotation | zone ; v176f F2 y ajoute les repères `control_point` et les propriétés plates `name`/`lumisite:*`.
 
 Un export est un dossier (ou le ZIP de ce dossier) :
 
 ```
 session.json                 manifeste versionné : site, OSM, CRS, session, appareil, bases de temps, événements, index des fichiers
 raw/poses.ndjson             poses brutes du suivi de plateforme (ARCore), repère de session AR, jamais modifiées
-raw/imu.ndjson               échantillons capteurs bruts (accéléro, gyro, magnéto, rotation vector, pression, lumière…)
+raw/imu.csv.gz               échantillons capteurs bruts en CSV gzipé (accéléro, gyro, magnéto, rotation vector, pression, lumière…) :
+                             « # lumisite-imu-csv/1 », colonnes dt_us,sensor_dt_us,type,x,y,z,w ; dt relatifs à la base de temps
+                             (commentaire « # time_base=… t_mono_ns_initial=… » par base), arrondi 6 décimales
 raw/gps.ndjson               positions GNSS/réseau avec précision
 raw/gps_status.ndjson        statut des fournisseurs (désactivé, pas de fix, satellites…)
 raw/events.ndjson            copie du journal d'événements tel qu'enregistré
@@ -23,12 +25,12 @@ Schéma JSON du manifeste : [`session.schema.json`](session.schema.json). Exempl
 
 | Catégorie | Où | Nature |
 |---|---|---|
-| Brut | `raw/*.ndjson`, `files[].category = "raw"` | Ce que la plateforme a fourni, avec les horodatages d'origine. Jamais réécrit. |
+| Brut | `raw/*` (`raw/*.ndjson`, `raw/imu.csv.gz`, `raw/captation.jsonl`), `files[].category = "raw"` | Ce que la plateforme a fourni, avec les horodatages d'origine. Jamais réécrit. |
 | Corrections | événements `calibration` et `relocalization` dans `events` | Saisie utilisateur (point de référence, cap, distance) + pose brute au moment de la saisie + transformation avant/après. Append-only. |
 | Calculé | `derived/*`, `derivedSummary`, champs `transform`, `estimatedBefore`, `estimatedSite` | Recalculable à partir du brut et des corrections. `files[].category = "derived"`. |
 
 Chaque fichier est listé dans `files[]` avec nombre d'enregistrements, taille et SHA-256 ; `SessionImporter.load()` vérifie ces valeurs à la relecture.
-Une ligne NDJSON tronquée ou illisible (arrêt brutal pendant l'écriture) n'est jamais réécrite : à la reprise, elle est simplement terminée par un saut de ligne pour que les enregistrements suivants restent lisibles. À l'export, ses numéros de ligne sont déclarés dans `integrity` (clé = chemin dans l'export, ex. `raw/imu.ndjson`). L'export est calculé sur un instantané des lignes complètes : nombres d'enregistrements, hashes et fichiers dérivés décrivent exactement les octets exportés, même si l'enregistrement continue pendant l'export.
+Une ligne NDJSON tronquée ou illisible (arrêt brutal pendant l'écriture) n'est jamais réécrite : à la reprise, elle est simplement terminée par un saut de ligne pour que les enregistrements suivants restent lisibles. À l'export, ses numéros de ligne sont déclarés dans `integrity` (clé = chemin dans l'export, ex. `raw/imu.csv.gz` ; pour l'IMU ce sont les numéros de ligne du journal source). L'export est calculé sur un instantané des lignes complètes : nombres d'enregistrements, hashes et fichiers dérivés décrivent exactement les octets exportés, même si l'enregistrement continue pendant l'export.
 
 ## Horodatage (`Stamp`)
 

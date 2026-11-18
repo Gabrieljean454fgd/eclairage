@@ -34,7 +34,7 @@
         "notes": { "type": "array", "items": { "type": "string" } }
       }
     },
-    "integrity": { "type": "object", "description": "export path (e.g. raw/imu.ndjson) -> line numbers already unreadable in the device journal (abrupt shutdown)", "additionalProperties": { "type": "array", "items": { "type": "integer" } } }
+    "integrity": { "type": "object", "description": "export path (e.g. raw/imu.csv.gz) -> line numbers already unreadable in the device journal (abrupt shutdown)", "additionalProperties": { "type": "array", "items": { "type": "integer" } } }
   },
   "$defs": {
     "Stamp": {

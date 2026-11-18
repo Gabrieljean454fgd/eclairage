@@ -67,6 +67,10 @@ class ArTracker(
     val torchOn = MutableStateFlow(false)
     /** Height (session frame) of the last object placed by aiming: second level of the aim fallback chain. */
     @Volatile var lastObjectY: Double? = null
+    /** 2f: hauteur sous plafond du site (Session > Calibrer); virtual ceiling of the PLAFOND aim when ARCore sees none. */
+    @Volatile var ceilingHeightM: Double? = null
+    /** 2f: lowest detected floor plane (session frame y), refreshed by [updateAim]; null when no floor plane is known. */
+    @Volatile var floorY: Double? = null; private set
     @Volatile var configNote: String = ""; private set
     private var autoTorchChecked = false
 
@@ -224,6 +228,8 @@ class ArTracker(
             planes = s.getAllTrackables(Plane::class.java).filter { it.subsumedBy == null }
         }
         val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
+        // 2f: floor level for the virtual ceiling and the « hauteur sous plafond » measure (lowest upward-facing plane).
+        floorY = planes.filter { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }.minOfOrNull { it.centerPose.ty().toDouble() }
         val counts = Triple(planes.count { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }, planes.count { it.type == Plane.Type.VERTICAL },
             planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
         // build 199 (point 5): the counters under the camera are sampled at 2 Hz; every-frame updates made the texts flicker.
@@ -250,7 +256,12 @@ class ArTracker(
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             }
         }.filter { it.source == only }
-        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true, fallbacks = support == SupportFromTilt.Support.SOL)
+        // 2f: visée PLAFOND — plafond virtuel à « sol + hauteur sous plafond » quand la hauteur est connue
+        // (sol détecté, sinon l'estimation 1,4 m sous l'appareil ; la source du point reste AR_CEILING_ESTIMATED).
+        val virtualCeilingY = if (support == SupportFromTilt.Support.PLAFOND)
+            ceilingHeightM?.let { (floorY ?: (p.ty().toDouble() - Aim.DEFAULT_CAMERA_HEIGHT_M)) + it } else null
+        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true,
+            fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY)
     }
 
     @Suppress("DEPRECATION")
@@ -290,10 +301,14 @@ class ArTracker(
         } else null
         runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
         runCatching { updateAnchors(s, nowMs) }
-        if (state == TrackingState.TRACKING) runCatching {
-            lineRenderer.draw(cam, if (contoursOn.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
-                anchors.filter { (id, a) -> a.trackingState == com.google.ar.core.TrackingState.TRACKING && anchorKinds[id] != AnchorKind.GROUP }
-                    .map { (id, a) -> anchorKinds.getValue(id) to V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()) })
+        // 2c: anchors (calibration flags, luminaires) stay drawn — grey, at their last known pose — while the tracking is
+        // PAUSED/degraded; only STOPPED removes them. Plane outlines are only drawn while TRACKING (they would freeze too).
+        if (state != TrackingState.STOPPED) runCatching {
+            val live = state == TrackingState.TRACKING
+            lineRenderer.draw(cam, if (contoursOn.value && live) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
+                anchors.filter { (id, a) -> a.trackingState != com.google.ar.core.TrackingState.STOPPED && anchorKinds[id] != AnchorKind.GROUP }
+                    .map { (id, a) -> Triple(anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
+                        live && a.trackingState == com.google.ar.core.TrackingState.TRACKING) })
         }
         onFrame(pose, state, reason)
     }
@@ -400,7 +415,8 @@ private class LineRenderer {
 
     private fun segments(s: List<Pair<V3, V3>>, r: Float, g: Float, b: Float) = lines(GLES20.GL_LINES, s.flatMap { listOf(it.first, it.second) }, r, g, b)
 
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Pair<ArTracker.AnchorKind, V3>>) {
+    /** [marks]: kind, session-frame position, live (true) or greyed (frozen pose while tracking is paused/degraded, 2c). */
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Triple<ArTracker.AnchorKind, V3, Boolean>>) {
         if (program == 0 || (planes.isEmpty() && marks.isEmpty())) return
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
@@ -418,10 +434,14 @@ private class LineRenderer {
             lines(GLES20.GL_LINE_LOOP, world, 1f, 1f, 1f)
             if (pl.type == Plane.Type.VERTICAL) segments(app.lumisite.core.compute.ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
-        for ((kind, at) in marks) when (kind) {
-            ArTracker.AnchorKind.FLAG -> segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f)
-            ArTracker.AnchorKind.LUMINAIRE -> segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f)
-            ArTracker.AnchorKind.GROUP -> {}
+        for ((kind, at, markLive) in marks) {
+            // Grey when the pose is frozen (tracking paused/degraded, 2c); the mark is still drawn at its last known pose.
+            val grey = !markLive
+            when (kind) {
+                ArTracker.AnchorKind.FLAG -> segments(app.lumisite.core.compute.ArGeometry.flag(at), if (grey) 0.55f else 1f, if (grey) 0.55f else 0.6f, if (grey) 0.55f else 0f)
+                ArTracker.AnchorKind.LUMINAIRE -> segments(app.lumisite.core.compute.ArGeometry.luminaire(at), if (grey) 0.55f else 1f, if (grey) 0.55f else 0.85f, if (grey) 0.55f else 0f)
+                ArTracker.AnchorKind.GROUP -> {}
+            }
         }
         GLES20.glDisableVertexAttribArray(aPos)
     }

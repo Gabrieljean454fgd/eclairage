@@ -34,6 +34,8 @@ data class Site(
     /** Reserved for imported architectural plans (none in this slice). */
     val plans: List<PlanReference> = emptyList(),
     val notes: String? = null,
+    /** 2f: hauteur sous plafond saisie/mesurée une fois par site (Session > Calibrer); plafond virtuel de la visée PLAFOND. */
+    val ceilingHeightM: Double? = null,
 )
 
 @Serializable
@@ -378,7 +380,7 @@ data class SurveyEvent(
     val tracking: TrackingState,
     /** Position at record time as computed by the app with the transform active then (derived). */
     val estimatedSite: Enu? = null,
-    /** "AR_POSE" | "AR_PLANE" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE" | "ESTIMATED" (50 cm fallback) | "MANUAL_MAP" | "MANUAL_EDIT" (moved after creation) | "NONE" (legacy only) */
+    /** "AR_POSE" | "AR_PLANE" | "AR_CEILING" | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE" | "AR_CEILING_ESTIMATED" (2f: plafond virtuel sol + hauteur saisie) | "ESTIMATED" (50 cm fallback) | "MANUAL_MAP" | "MANUAL_EDIT" (moved after creation) | "NONE" (legacy only) */
     val positionSource: String,
     val manualSite: Enu? = null,
     val lastGps: GpsFix? = null,

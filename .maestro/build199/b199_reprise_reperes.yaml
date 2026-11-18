@@ -1,0 +1,40 @@
+# v176f F3 — SPÉCIFICATION. Reprise d'une session avec repères existants : les points de calibrage de la session
+# précédente sont visibles sur la carte « à confirmer » (pointillés bleus, session_reperes_a_confirmer) et le bouton
+# « Recaler sur 2 repères » (session_recaler_2_reperes) est proposé dans le bandeau de reprise ; son ouverture affiche
+# la consigne guidée (ordre de visée). Poses AR simulées (simuler_pose_ar, APK de débogage) : ce parcours vérifie la
+# reprise et l'affichage, pas la précision ARCore réelle.
+# Hors CI racine (.maestro/build199/) ; efface les données au départ seulement (pas de clearState avant la reprise) :
+# ne pas lancer sur le Pixel sans sauvegarde run-as + tar préalable.
+appId: app.lumisite.android
+name: "build199 reprise : anciens repères à confirmer + Recaler sur 2 repères"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+    arguments:
+      simuler_pose_ar: true
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+# Site + session (sous-parcours sans relance ni clearState).
+- runFlow: _session_depuis_accueil.yaml
+# Deux points de calibrage = les futurs repères de la session précédente (sous-parcours maj/, résiste aux refus).
+- runFlow: ../maj/v6_calibrer_2_points.yaml
+# Terminer puis reprendre la session, SANS relancer l'appli ni clearState : les repères doivent survivre à la reprise.
+- tapOn: { id: "session_terminer_la_session" }
+- extendedWaitUntil:
+    visible: { id: "site_session_reprendre" }
+    timeout: 60000
+- tapOn: { id: "site_session_reprendre" }
+- extendedWaitUntil:
+    visible: { id: "session_reprise_bandeau" }
+    timeout: 30000
+# Les anciens repères sont visibles « à confirmer » sur la carte (légende au-dessus de la carte, pointillés bleus).
+- assertVisible: { id: "session_reperes_a_confirmer" }
+# Le bouton « Recaler sur 2 repères » est proposé dans le bandeau de reprise (2 repères précédents disponibles).
+- assertVisible: { id: "session_recaler_2_reperes" }
+# Son ouverture affiche la consigne guidée (visée au réticule, ordre indiqué) ; les menus Calibrer et Recaler restent séparés.
+- tapOn: { id: "session_recaler_2_reperes" }
+- assertVisible: { id: "session_recal2_panneau" }
+- assertVisible: { id: "session_recal2_consigne", text: ".*Étape 1/2.*" }
+- takeScreenshot: maestro-out/captures/b199_reprise_reperes

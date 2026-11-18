@@ -1,0 +1,1378 @@
+{
+  "version": "lumisite-catalog-2.0",
+  "items": [
+    {
+      "code": "LS_ECLAIRAGE_DOWNLIGHT",
+      "label": "Downlight encastré au plafond",
+      "famille": "ECLAIRAGE",
+      "type": "Downlight encastré au plafond",
+      "synonyms": [
+        "encastré",
+        "spot encastré"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "spot",
+      "aliases": [
+        "spot"
+      ],
+      "symbole": "point_lumineux",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_SPOT_SURFACE",
+      "label": "Spot en applique de plafond (surface)",
+      "famille": "ECLAIRAGE",
+      "type": "Spot en applique de plafond (surface)",
+      "synonyms": [
+        "spot saillie",
+        "plafonnier spot"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "spot_surface",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_REGLE_IMMERSION",
+      "label": "Réglette / luminaire tubulaire",
+      "famille": "ECLAIRAGE",
+      "type": "Réglette / luminaire tubulaire",
+      "synonyms": [
+        "fluo",
+        "tube"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "lineaire fluo",
+      "aliases": [
+        "lineaire fluo",
+        "réglette"
+      ],
+      "symbole": "reglette",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_LINEAIRE_LED",
+      "label": "Luminaire linéaire LED suspendu",
+      "famille": "ECLAIRAGE",
+      "type": "Luminaire linéaire LED suspendu",
+      "synonyms": [
+        "linéaire",
+        "profilé"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "lineaire",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_PROJECTEUR",
+      "label": "Projecteur (halogène / décharge)",
+      "famille": "ECLAIRAGE",
+      "type": "Projecteur (halogène / décharge)",
+      "synonyms": [
+        "projo"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "projecteur",
+      "aliases": [
+        "projecteur",
+        "projecteur thorn contrast"
+      ],
+      "symbole": "projecteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_LUSTRE",
+      "label": "Lustre (patrimoine)",
+      "famille": "ECLAIRAGE",
+      "type": "Lustre (patrimoine)",
+      "synonyms": [],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "Lustre",
+      "aliases": [
+        "Lustre"
+      ],
+      "symbole": "lustre",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_LANTERNE_BOUGIES",
+      "label": "Lanterne à bougies (patrimoine)",
+      "famille": "ECLAIRAGE",
+      "type": "Lanterne à bougies (patrimoine)",
+      "synonyms": [
+        "bougies"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "lanterne",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_SUSPENSION",
+      "label": "Suspension / luminaire suspendu",
+      "famille": "ECLAIRAGE",
+      "type": "Suspension / luminaire suspendu",
+      "synonyms": [
+        "suspendu",
+        "pendant"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "suspension",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_APPLIQUE",
+      "label": "Applique murale",
+      "famille": "ECLAIRAGE",
+      "type": "Applique murale",
+      "synonyms": [
+        "murale"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "applique",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_BALISE_BASSE",
+      "label": "Balise basse encastrée (éclairage indirect)",
+      "famille": "ECLAIRAGE",
+      "type": "Balise basse encastrée (éclairage indirect)",
+      "synonyms": [
+        "encastrée basse"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "balise",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_SPOT_SOL",
+      "label": "Spot encastré au sol (uplight)",
+      "famille": "ECLAIRAGE",
+      "type": "Spot encastré au sol (uplight)",
+      "synonyms": [
+        "uplight",
+        "sol"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "spot_sol",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_PROJO_LED_FACADE",
+      "label": "Projecteur LED de mise en valeur de façade",
+      "famille": "ECLAIRAGE",
+      "type": "Projecteur LED de mise en valeur de façade",
+      "synonyms": [
+        "façade",
+        "projo"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "projecteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_HERSE",
+      "label": "Herse / projecteurs sur rail (nef, chœur)",
+      "famille": "ECLAIRAGE",
+      "type": "Herse / projecteurs sur rail (nef, chœur)",
+      "synonyms": [
+        "rail",
+        "projecteurs rail"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "herse",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_VITRAIL",
+      "label": "Projecteur rasant de vitrail",
+      "famille": "ECLAIRAGE",
+      "type": "Projecteur rasant de vitrail",
+      "synonyms": [
+        "rasant"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "vitrail",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_LAMPE_TEMPORAIRE",
+      "label": "Éclairage temporaire (chantier, évènement)",
+      "famille": "ECLAIRAGE",
+      "type": "Éclairage temporaire (chantier, évènement)",
+      "synonyms": [
+        "chantier",
+        "temporaire"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "lampe_temp",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_POINT_LUMINEUX",
+      "label": "Point lumineux",
+      "famille": "ECLAIRAGE",
+      "type": "Point lumineux",
+      "synonyms": [
+        "dcl",
+        "point de centre"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "lampe",
+      "aliases": [
+        "lampe"
+      ],
+      "symbole": "point_lumineux",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_BOUGEOIR",
+      "label": "Bougeoir électrifié",
+      "famille": "ECLAIRAGE",
+      "type": "Bougeoir électrifié",
+      "synonyms": [
+        "chandelle"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "bougeoir électrifié",
+      "aliases": [
+        "bougeoir électrifié"
+      ],
+      "symbole": "bougeoir",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_LANTERNE_EP",
+      "label": "Lanterne EP moderne",
+      "famille": "ECLAIRAGE",
+      "type": "Lanterne EP moderne",
+      "synonyms": [
+        "ep"
+      ],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "Lanterne EP moderne",
+      "aliases": [
+        "Lanterne EP moderne"
+      ],
+      "symbole": "lanterne",
+      "is_block": true
+    },
+    {
+      "code": "LS_ECLAIRAGE_HUBLOT",
+      "label": "Hublot éclairage",
+      "famille": "ECLAIRAGE",
+      "type": "Hublot éclairage",
+      "synonyms": [],
+      "calque": "LUMI-ECLAIRAGE",
+      "bloc_dwg": "hublot ecl",
+      "aliases": [
+        "hublot ecl",
+        "hublot éclairage"
+      ],
+      "symbole": "hublot",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_PRISE_2P_T_16A",
+      "label": "Prise de courant 2P+T 16 A encastrée",
+      "famille": "ELEC",
+      "type": "Prise de courant 2P+T 16 A encastrée",
+      "synonyms": [
+        "pc",
+        "pc 16a",
+        "prise de courant"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "prise électrique",
+      "aliases": [
+        "prise électrique"
+      ],
+      "symbole": "prise",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_PRISE_2P_T_32A",
+      "label": "Prise de courant 2P+T 32 A",
+      "famille": "ELEC",
+      "type": "Prise de courant 2P+T 32 A",
+      "synonyms": [
+        "pc 32a",
+        "triphasé"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "prise",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_PRISE_RJ45",
+      "label": "Prise réseau RJ45",
+      "famille": "ELEC",
+      "type": "Prise réseau RJ45",
+      "synonyms": [
+        "réseau",
+        "ethernet",
+        "informatique"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "rj45",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_INTERRUPTEUR_SIMPLE",
+      "label": "Interrupteur simple",
+      "famille": "ELEC",
+      "type": "Interrupteur simple",
+      "synonyms": [
+        "inter",
+        "simple allumage"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "interrupteur",
+      "aliases": [
+        "interrupteur"
+      ],
+      "symbole": "interrupteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_INT_VA_ET_VIENT",
+      "label": "Interrupteur va-et-vient",
+      "famille": "ELEC",
+      "type": "Interrupteur va-et-vient",
+      "synonyms": [
+        "va et vient",
+        "inter vv"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "va_et_vient",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_VARIATEUR",
+      "label": "Variateur d'intensité",
+      "famille": "ELEC",
+      "type": "Variateur d'intensité",
+      "synonyms": [
+        "dimmer",
+        "gradateur"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "variateur",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_TABLEAU_GENERAL",
+      "label": "Tableau général basse tension (TGBT)",
+      "famille": "ELEC",
+      "type": "Tableau général basse tension (TGBT)",
+      "synonyms": [
+        "tableau général"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "tgbt",
+      "aliases": [
+        "tgbt",
+        "TGBT"
+      ],
+      "symbole": "tableau",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_TABLEAU_DIVISIONNAIRE",
+      "label": "Tableau divisionnaire",
+      "famille": "ELEC",
+      "type": "Tableau divisionnaire",
+      "synonyms": [
+        "td",
+        "sous-tableau"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "tableau divisionnaire",
+      "aliases": [
+        "tableau divisionnaire",
+        "tableau divisionaire"
+      ],
+      "symbole": "tableau_div",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_COFFRET_PROTECTION",
+      "label": "Coffret de protection",
+      "famille": "ELEC",
+      "type": "Coffret de protection",
+      "synonyms": [
+        "protection"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "coffret",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_BOITE_DERIVATION",
+      "label": "Boîte de dérivation",
+      "famille": "ELEC",
+      "type": "Boîte de dérivation",
+      "synonyms": [
+        "boite",
+        "dérivation"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "boîte de dérivation",
+      "aliases": [
+        "boîte de dérivation"
+      ],
+      "symbole": "derivation",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_INT_DIFFERENTIEL",
+      "label": "Interrupteur différentiel 30 mA",
+      "famille": "ELEC",
+      "type": "Interrupteur différentiel 30 mA",
+      "synonyms": [
+        "diff",
+        "30ma",
+        "ddr"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "differentiel",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_CHEMIN_CABLES",
+      "label": "Chemin de câbles / caniveau",
+      "famille": "ELEC",
+      "type": "Chemin de câbles / caniveau",
+      "synonyms": [
+        "caniveau",
+        "goulotte",
+        "chemin de cable"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "chemin_cables",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_DETECTEUR_MOUVEMENT",
+      "label": "Détecteur de mouvement (commutation)",
+      "famille": "ELEC",
+      "type": "Détecteur de mouvement (commutation)",
+      "synonyms": [
+        "détecteur présence",
+        "pir",
+        "commande"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_mouvement",
+      "is_block": true
+    },
+    {
+      "code": "LS_ELEC_PDL",
+      "label": "Point de livraison (PDL)",
+      "famille": "ELEC",
+      "type": "Point de livraison (PDL)",
+      "synonyms": [
+        "arrivée",
+        "compteur"
+      ],
+      "calque": "LUMI-ELEC",
+      "bloc_dwg": "PDL",
+      "aliases": [
+        "PDL"
+      ],
+      "symbole": "pdl",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_BAES",
+      "label": "BAES — bloc autonome d'éclairage de sécurité",
+      "famille": "SECOURS",
+      "type": "BAES — bloc autonome d'éclairage de sécurité",
+      "synonyms": [
+        "bloc secours",
+        "secours"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": "bloc secours",
+      "aliases": [
+        "bloc secours",
+        "bloc secour",
+        "baes"
+      ],
+      "symbole": "baes",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_BAES_ADRESSE",
+      "label": "BAES adressable (SATI)",
+      "famille": "SECOURS",
+      "type": "BAES adressable (SATI)",
+      "synonyms": [
+        "sati",
+        "adressable"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "baes_adresse",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_BAEH",
+      "label": "BAEH — bloc autonome d'éclairage d'habitation",
+      "famille": "SECOURS",
+      "type": "BAEH — bloc autonome d'éclairage d'habitation",
+      "synonyms": [
+        "habitation"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "baeh",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_BLOC_AUTONOME_NP",
+      "label": "Bloc autonome non permanent",
+      "famille": "SECOURS",
+      "type": "Bloc autonome non permanent",
+      "synonyms": [
+        "non permanent"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "bloc_np",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_LSC",
+      "label": "LSC — luminaire de sécurité de cheminement (source centralisée)",
+      "famille": "SECOURS",
+      "type": "LSC — luminaire de sécurité de cheminement (source centralisée)",
+      "synonyms": [
+        "cheminement"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "lsc",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_LSE",
+      "label": "LSE — luminaire de sécurité d'évacuation (source centralisée)",
+      "famille": "SECOURS",
+      "type": "LSE — luminaire de sécurité d'évacuation (source centralisée)",
+      "synonyms": [
+        "évacuation"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "lse",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_CAT",
+      "label": "CAT — centrale d'alimentation / source centralisée",
+      "famille": "SECOURS",
+      "type": "CAT — centrale d'alimentation / source centralisée",
+      "synonyms": [
+        "source centralisée"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "cat",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_ASI",
+      "label": "ASI / onduleur",
+      "famille": "SECOURS",
+      "type": "ASI / onduleur",
+      "synonyms": [
+        "onduleur",
+        "ups"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "asi",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_GE",
+      "label": "Groupe électrogène",
+      "famille": "SECOURS",
+      "type": "Groupe électrogène",
+      "synonyms": [
+        "ge",
+        "générateur"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "groupe_electrogene",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_INVERSEUR_SOURCE",
+      "label": "Inverseur de source",
+      "famille": "SECOURS",
+      "type": "Inverseur de source",
+      "synonyms": [
+        "inverseur normal secours"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "inverseur",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_COFFRET_RELAIS",
+      "label": "Coffret de relayage / boîtier de commande",
+      "famille": "SECOURS",
+      "type": "Coffret de relayage / boîtier de commande",
+      "synonyms": [
+        "relayage",
+        "boîtier commande"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "coffret_relais",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECOURS_LUMINAIRE_SUR_GE",
+      "label": "Luminaire normal sur circuit secouru",
+      "famille": "SECOURS",
+      "type": "Luminaire normal sur circuit secouru",
+      "synonyms": [
+        "circuit secouru"
+      ],
+      "calque": "LUMI-SECOURS",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "luminaire_secouru",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_EVACUATION",
+      "label": "Éclairage d'évacuation (cheminement)",
+      "famille": "SECURITE",
+      "type": "Éclairage d'évacuation (cheminement)",
+      "synonyms": [
+        "cheminement",
+        "sortie"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "signal_sortie",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_ANTI_PANIQUE",
+      "label": "Éclairage anti-panique (surface ≥ 60 m²)",
+      "famille": "SECURITE",
+      "type": "Éclairage anti-panique (surface ≥ 60 m²)",
+      "synonyms": [
+        "anti panique"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "antipanique",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_AMBIANCE_RENFORCEE",
+      "label": "Éclairage d'ambiance renforcée (lieux de sommeil)",
+      "famille": "SECURITE",
+      "type": "Éclairage d'ambiance renforcée (lieux de sommeil)",
+      "synonyms": [
+        "ambiance renforcée",
+        "sommeil"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "ambiance",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_REMPLACEMENT",
+      "label": "Éclairage de remplacement",
+      "famille": "SECURITE",
+      "type": "Éclairage de remplacement",
+      "synonyms": [
+        "remplacement"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "remplacement",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_SORTIE",
+      "label": "Signal de sortie (pictogramme sortie de secours)",
+      "famille": "SECURITE",
+      "type": "Signal de sortie (pictogramme sortie de secours)",
+      "synonyms": [
+        "sortie",
+        "pictogramme"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "signal_sortie",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_DIRECTION",
+      "label": "Signal de direction (flèche directionnelle)",
+      "famille": "SECURITE",
+      "type": "Signal de direction (flèche directionnelle)",
+      "synonyms": [
+        "flèche",
+        "direction"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "fleche_direction",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_ISSUE",
+      "label": "Signal d'issue de secours",
+      "famille": "SECURITE",
+      "type": "Signal d'issue de secours",
+      "synonyms": [
+        "issue"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "signal_issue",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_BALISAGE_SOL",
+      "label": "Balisage lumineux de sol",
+      "famille": "SECURITE",
+      "type": "Balisage lumineux de sol",
+      "synonyms": [
+        "balisage sol"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "balisage",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_POINT_RASSEMBLEMENT",
+      "label": "Signal de point de rassemblement",
+      "famille": "SECURITE",
+      "type": "Signal de point de rassemblement",
+      "synonyms": [
+        "rassemblement"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "rassemblement",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_PREMIERS_SECOURS",
+      "label": "Signal premiers secours (ISO 7010 E003)",
+      "famille": "SECURITE",
+      "type": "Signal premiers secours (ISO 7010 E003)",
+      "synonyms": [
+        "premiers secours",
+        "croix"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "premiers_secours",
+      "is_block": true
+    },
+    {
+      "code": "LS_SECURITE_PICTO_EXTINCTEUR",
+      "label": "Pictogramme extincteur (ISO 7010 F001)",
+      "famille": "SECURITE",
+      "type": "Pictogramme extincteur (ISO 7010 F001)",
+      "synonyms": [
+        "picto extincteur"
+      ],
+      "calque": "LUMI-SECURITE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "picto_extincteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_DETECTEUR_FUMEE",
+      "label": "Détecteur automatique de fumée (DAF optique)",
+      "famille": "INCENDIE",
+      "type": "Détecteur automatique de fumée (DAF optique)",
+      "synonyms": [
+        "daf",
+        "fumée",
+        "optique"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_fumee",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_DETECTEUR_THERMIQUE",
+      "label": "Détecteur thermique / thermovélocimétrique",
+      "famille": "INCENDIE",
+      "type": "Détecteur thermique / thermovélocimétrique",
+      "synonyms": [
+        "thermovélocimétrique",
+        "thermique"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_thermique",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_DETECTEUR_FLAMME",
+      "label": "Détecteur de flamme IR / UV",
+      "famille": "INCENDIE",
+      "type": "Détecteur de flamme IR / UV",
+      "synonyms": [
+        "flamme",
+        "ir uv"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_flamme",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_DETECTEUR_LINEAIRE",
+      "label": "Détecteur linéaire (câble / faisceau)",
+      "famille": "INCENDIE",
+      "type": "Détecteur linéaire (câble / faisceau)",
+      "synonyms": [
+        "linéaire",
+        "faisceau",
+        "câble"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_lineaire",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_CENTRALE_INCENDIE",
+      "label": "ECS — centrale de détection incendie",
+      "famille": "INCENDIE",
+      "type": "ECS — centrale de détection incendie",
+      "synonyms": [
+        "ecs",
+        "centrale incendie"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "centrale_incendie",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_CMSI",
+      "label": "CMSI — centrale de mise en sécurité incendie",
+      "famille": "INCENDIE",
+      "type": "CMSI — centrale de mise en sécurité incendie",
+      "synonyms": [
+        "cmsi",
+        "mise en sécurité"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "cmsi",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_DECLENCHEUR_MANUEL",
+      "label": "Déclencheur manuel (DM)",
+      "famille": "INCENDIE",
+      "type": "Déclencheur manuel (DM)",
+      "synonyms": [
+        "déclencheur"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": "Déclencheur Manuel",
+      "aliases": [
+        "Déclencheur Manuel",
+        "dm"
+      ],
+      "symbole": "declencheur",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_ALARME_GENERALE",
+      "label": "Avertisseur général d'alarme (AGS sonore)",
+      "famille": "INCENDIE",
+      "type": "Avertisseur général d'alarme (AGS sonore)",
+      "synonyms": [
+        "ags",
+        "alarme générale"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "alarme",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_ALARME_VISUELLE",
+      "label": "Avertisseur d'alarme visuelle (flash)",
+      "famille": "INCENDIE",
+      "type": "Avertisseur d'alarme visuelle (flash)",
+      "synonyms": [
+        "flash",
+        "visuelle"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "flash",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_REPETEUR",
+      "label": "Tableau répétiteur d'alarme",
+      "famille": "INCENDIE",
+      "type": "Tableau répétiteur d'alarme",
+      "synonyms": [
+        "répétiteur",
+        "tableau répétiteur"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "repeteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_SIRENE",
+      "label": "Sirène / diffuseur sonore",
+      "famille": "INCENDIE",
+      "type": "Sirène / diffuseur sonore",
+      "synonyms": [
+        "sirène"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "sirene",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_MODULE_RELAIS",
+      "label": "Module de commande / relais",
+      "famille": "INCENDIE",
+      "type": "Module de commande / relais",
+      "synonyms": [
+        "relais",
+        "module"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "module_relais",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_EXTINCTEUR",
+      "label": "Extincteur",
+      "famille": "INCENDIE",
+      "type": "Extincteur",
+      "synonyms": [],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": "extincteur",
+      "aliases": [
+        "extincteur"
+      ],
+      "symbole": "extincteur",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_RIA",
+      "label": "Robinet d'incendie armé (RIA)",
+      "famille": "INCENDIE",
+      "type": "Robinet d'incendie armé (RIA)",
+      "synonyms": [
+        "robinet"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "ria",
+      "is_block": true
+    },
+    {
+      "code": "LS_INCENDIE_BAAS",
+      "label": "BAAS — bloc autonome d'alarme sonore",
+      "famille": "INCENDIE",
+      "type": "BAAS — bloc autonome d'alarme sonore",
+      "synonyms": [
+        "baas",
+        "alarme sonore"
+      ],
+      "calque": "LUMI-INCENDIE",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "baas",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_DOME",
+      "label": "Caméra dôme",
+      "famille": "CAMERA",
+      "type": "Caméra dôme",
+      "synonyms": [
+        "dôme"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "camera_dome",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_BULLET",
+      "label": "Caméra bullet",
+      "famille": "CAMERA",
+      "type": "Caméra bullet",
+      "synonyms": [
+        "bullet",
+        "tube"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "camera_bullet",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_PTZ",
+      "label": "Caméra PTZ motorisée",
+      "famille": "CAMERA",
+      "type": "Caméra PTZ motorisée",
+      "synonyms": [
+        "ptz",
+        "motorisée"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "camera_ptz",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_FIXE_INTERIEUR",
+      "label": "Caméra fixe intérieure",
+      "famille": "CAMERA",
+      "type": "Caméra fixe intérieure",
+      "synonyms": [
+        "fixe",
+        "intérieure"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": "Camera",
+      "aliases": [
+        "Camera",
+        "caméra"
+      ],
+      "symbole": "camera",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_THERMIQUE",
+      "label": "Caméra thermique",
+      "famille": "CAMERA",
+      "type": "Caméra thermique",
+      "synonyms": [
+        "thermique"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "camera_thermique",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_FISHEYE",
+      "label": "Caméra fisheye 360",
+      "famille": "CAMERA",
+      "type": "Caméra fisheye 360",
+      "synonyms": [
+        "fisheye",
+        "360"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "camera_fisheye",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_NVR",
+      "label": "Enregistreur NVR",
+      "famille": "CAMERA",
+      "type": "Enregistreur NVR",
+      "synonyms": [
+        "nvr",
+        "enregistreur"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "enregistreur",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_SERVEUR_VMS",
+      "label": "Serveur VMS",
+      "famille": "CAMERA",
+      "type": "Serveur VMS",
+      "synonyms": [
+        "vms",
+        "serveur vidéo"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "serveur",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_LECTEUR_BADGE",
+      "label": "Lecteur de badge / contrôle d'accès",
+      "famille": "CAMERA",
+      "type": "Lecteur de badge / contrôle d'accès",
+      "synonyms": [
+        "badge",
+        "contrôle accès"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "badge",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_INTERPHONE",
+      "label": "Interphone / visiophone",
+      "famille": "CAMERA",
+      "type": "Interphone / visiophone",
+      "synonyms": [
+        "visiophone",
+        "interphone"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "interphone",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_CENTRALE_INTRUSION",
+      "label": "Centrale d'alarme intrusion",
+      "famille": "CAMERA",
+      "type": "Centrale d'alarme intrusion",
+      "synonyms": [
+        "intrusion",
+        "alarme intrusion"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "centrale_intrusion",
+      "is_block": true
+    },
+    {
+      "code": "LS_CAMERA_DETECTEUR_IR",
+      "label": "Détecteur infrarouge de mouvement (sûreté)",
+      "famille": "CAMERA",
+      "type": "Détecteur infrarouge de mouvement (sûreté)",
+      "synonyms": [
+        "infrarouge",
+        "pir",
+        "sûreté"
+      ],
+      "calque": "LUMI-CAMERA",
+      "bloc_dwg": null,
+      "aliases": [],
+      "symbole": "detecteur_ir",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_AMPLIFICATEUR",
+      "label": "Amplificateur",
+      "famille": "SON",
+      "type": "Amplificateur",
+      "synonyms": [
+        "ampli"
+      ],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "Amplificateur",
+      "aliases": [
+        "Amplificateur"
+      ],
+      "symbole": "amplificateur",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_ENCEINTE",
+      "label": "Enceinte",
+      "famille": "SON",
+      "type": "Enceinte",
+      "synonyms": [],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "enceinte",
+      "aliases": [
+        "enceinte"
+      ],
+      "symbole": "enceinte",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_HAUT_PARLEUR",
+      "label": "Haut-parleur",
+      "famille": "SON",
+      "type": "Haut-parleur",
+      "synonyms": [
+        "hp"
+      ],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "haut-parleur",
+      "aliases": [
+        "haut-parleur"
+      ],
+      "symbole": "haut_parleur",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_MICRO_COL",
+      "label": "Micro col de cygne",
+      "famille": "SON",
+      "type": "Micro col de cygne",
+      "synonyms": [
+        "micro",
+        "col de cygne"
+      ],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "micro col",
+      "aliases": [
+        "micro col"
+      ],
+      "symbole": "micro",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_PRISE_XLR",
+      "label": "Prise XLR",
+      "famille": "SON",
+      "type": "Prise XLR",
+      "synonyms": [],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "prise xlr",
+      "aliases": [
+        "prise xlr"
+      ],
+      "symbole": "xlr",
+      "is_block": true
+    },
+    {
+      "code": "LS_SON_DIFFUSEUR_SONORE_RADIO",
+      "label": "Diffuseur sonore radio",
+      "famille": "SON",
+      "type": "Diffuseur sonore radio",
+      "synonyms": [
+        "diffuseur",
+        "radio"
+      ],
+      "calque": "LUMI-SON",
+      "bloc_dwg": "Diffuseur Sonore Radio",
+      "aliases": [
+        "Diffuseur Sonore Radio"
+      ],
+      "symbole": "diffuseur",
+      "is_block": true
+    },
+    {
+      "code": "LS_AUTRE_A_CLASSER",
+      "label": "Autre (à classer au bureau)",
+      "famille": "AUTRE",
+      "type": "Autre (à classer au bureau)",
+      "synonyms": [
+        "autre",
+        "à classer"
+      ],
+      "calque": "LUMI-AUTRE",
+      "bloc_dwg": "autre (à classer)",
+      "aliases": [
+        "autre (à classer)"
+      ],
+      "symbole": "autre",
+      "is_block": false
+    }
+  ]
+}

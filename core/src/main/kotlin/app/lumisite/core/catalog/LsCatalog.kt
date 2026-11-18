@@ -1,15 +1,18 @@
 package app.lumisite.core.catalog
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Catalogue léger LS_* (v176e, DS2 / PLAN_V176 E1-E3).
+ * Catalogue léger LS_* (v176e, DS2 / PLAN_V176 E1-E3, menu-bloc : catalogue 2.0 complet).
  *
- * L'appli ne manipule que des codes LS_* et leurs libellés.
- * La correspondance code → bloc DWG reste au bureau, jamais ici.
+ * L'appli manipule des codes LS_* et leurs libellés. [blocDwg] et [calque] sont les correspondances
+ * bureau (table LS→DWG) ; [aliases] porte les anciens noms du catalogue 1.0 pour relire les relevés
+ * existants ; [symbole] désigne un glyphe de [LsSymbols] ; [isBlock] = false pour les pseudo-blocs
+ * (« à classer », LS_PERSO_*).
  *
  * Ce fichier est indépendant de Catalog.kt / equipment_catalog.json.
  */
@@ -21,6 +24,16 @@ data class LsItem(
     val sousFamille: String? = null,
     val type: String,
     val synonyms: List<String> = emptyList(),
+    /** Calque bureau (LUMI-ELEC, LUMI-ECLAIRAGE, …) ; utilisé pour le hint DXF. */
+    val calque: String? = null,
+    /** Nom corrigé du bloc DWG de la table LS→DWG, null si pas encore de bloc déterminé. */
+    @SerialName("bloc_dwg") val blocDwg: String? = null,
+    /** Anciens noms (catalogue 1.0, block_name + alias) : permet de relire les relevés existants. */
+    val aliases: List<String> = emptyList(),
+    /** Identifiant de glyphe dans [LsSymbols] (null → symbole « autre »). */
+    val symbole: String? = null,
+    /** false pour « autre (à classer) » et les types LS_PERSO_* créés sur le terrain. */
+    @SerialName("is_block") val isBlock: Boolean = true,
 )
 
 /** Erreur de chargement ou de validation du catalogue LS_*. */
@@ -40,6 +53,19 @@ data class LsCatalog(
     /** Résout une liste de codes (favoris, récents) en items, dans l'ordre, codes inconnus ignorés. */
     fun resolve(codes: List<String>): List<LsItem> = codes.mapNotNull { byCode(it) }
 
+    // Anciens noms (catalogue 1.0) → code LS_* : index normalisé sur bloc_dwg + aliases.
+    private val legacyIndex: Map<String, LsItem> by lazy {
+        val m = HashMap<String, LsItem>()
+        for (i in items) for (n in listOfNotNull(i.blocDwg) + i.aliases) m.putIfAbsent(LsText.normalize(n), i)
+        m
+    }
+
+    /** Item pour un ancien nom de bloc (block_name ou alias du catalogue 1.0), insensible casse/accents. */
+    fun byLegacyName(name: String): LsItem? = legacyIndex[LsText.normalize(name)]
+
+    /** Code LS_* direct, sinon ancien nom résolu (relevés existants du catalogue 1.0). */
+    fun byCodeOrLegacy(id: String): LsItem? = byCode(id) ?: byLegacyName(id)
+
     // ---------------------------------------------------------------- search
 
     /**
@@ -57,6 +83,7 @@ data class LsCatalog(
                 add(item.label)
                 add(item.type)
                 addAll(item.synonyms)
+                addAll(item.aliases)
             }.map { LsText.normalize(it) }
             tokens.all { token -> haystack.any { it.contains(token) } }
         }
@@ -123,8 +150,25 @@ data class LsCatalog(
     companion object {
         const val PREFIX = "LS_"
         const val OTHER_PREFIX = "LS_AUTRE_"
+        /** Types créés sur le terrain (« Ajouter un type… ») : jamais de bloc DWG, à classer au bureau. */
+        const val PERSO_PREFIX = "LS_PERSO_"
         const val MAX_CODE_LENGTH = 31
         const val BREADCRUMB_SEPARATOR = " › "
+
+        /** Libellés d'affichage des familles du catalogue 2.0 (ids ASCII → français). */
+        val FAMILY_LABELS = mapOf(
+            "ECLAIRAGE" to "Éclairage", "ELEC" to "Électricité", "SECOURS" to "Secours",
+            "SECURITE" to "Sécurité", "INCENDIE" to "Incendie", "CAMERA" to "Caméra et sûreté",
+            "SON" to "Sonorisation", "AUTRE" to "Autre",
+        )
+
+        fun familyLabel(famille: String): String = FAMILY_LABELS[famille] ?: famille
+
+        /** Prochain code LS_PERSO_<n> libre (n = max existant + 1, jamais réutilisé). */
+        fun nextPersonalCode(items: List<LsItem>): String {
+            val max = items.mapNotNull { it.code.removePrefix(PERSO_PREFIX).toIntOrNull() }.maxOrNull() ?: 0
+            return PERSO_PREFIX + (max + 1)
+        }
 
         /** ASCII uniquement : majuscules, chiffres, underscore, préfixe LS_. */
         private val CODE_REGEX = Regex("^LS_[A-Z0-9_]+$")

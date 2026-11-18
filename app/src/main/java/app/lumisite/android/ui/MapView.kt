@@ -58,7 +58,9 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 
-data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null)
+data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null,
+                    /** Symbole LS_* (LsSymbols) dessiné à la place de la pastille quand non null. */
+                    val symbol: String? = null)
 /** Arrow (position + direction) drawn at a fixed screen size; headingDeg null = dot. Grey when stale. */
 data class MapArrow(val pos: LatLon, val headingDeg: Double?, val color: Int, val title: String)
 
@@ -333,7 +335,8 @@ fun OsmMap(
         all += group("origin", content.origin) { listOfNotNull(content.origin?.let { Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }) }
         all += group("points", content.points) { content.points.map { p ->
             Marker(mv).apply {
-                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
+                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = if (p.symbol != null) lsSymbolDrawable(mv, p.symbol, p.color) else dot(mv, p.color, 20)
                 val id = p.id
                 setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }

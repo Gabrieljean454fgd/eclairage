@@ -65,7 +65,6 @@ import app.lumisite.core.geo.Enu
 import app.lumisite.core.model.ReferencePoint
 import app.lumisite.core.model.ShapeEvent
 import app.lumisite.core.model.ShapeStyle
-import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.survey.Details
 import app.lumisite.core.survey.Shapes
 import app.lumisite.core.survey.Sketch
@@ -115,6 +114,8 @@ class DrawState {
     var family by mutableStateOf<String?>(null)
     var selected by mutableStateOf<String?>(null)
     var pendingSwitch by mutableStateOf<Tool?>(null)
+    /** Relevé qui vient d'être posé (outil Poser) : proposition de photo si « Photo après pose » est actif. */
+    var photoFor by mutableStateOf<String?>(null)
     /** Finger position while drawing (elastic preview), null when no finger is down. */
     var hover by mutableStateOf<Enu?>(null)
     /** Touch tolerance in metres at the current zoom (Sketch.toleranceM). */
@@ -142,10 +143,11 @@ class DrawState {
         recent = stroke; pts.clear(); label = ""; comment = ""
     }
 
-    fun onTap(c: SessionController, p: Enu) {
+    fun onTap(c: SessionController, p: Enu, photoAfter: Boolean = false) {
         when (tool) {
-            Tool.PLACE -> family?.let { f -> c.survey(f, null, ReferencePoint("Relevé", p, c.ltp.toLatLon(p), "MAP_TAP", uncertaintyM = null)) }
-                ?: c.notify("Choisissez d'abord une famille.")
+            Tool.PLACE -> family?.let { f ->
+                if (c.survey(f, null, ReferencePoint("Relevé", p, c.ltp.toLatLon(p), "MAP_TAP", uncertaintyM = null)) && photoAfter) photoFor = c.lastSurveyId
+            } ?: c.notify("Choisissez d'abord une famille.")
             Tool.SHAPE -> {
                 pts.add(p)
                 if (pts.size == 2) {
@@ -203,6 +205,8 @@ private fun ToolButton(label: String, icon: ImageVector, selected: Boolean, tag:
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: String?, onSelectSurvey: (String?) -> Unit) {
+    // Photo juste après une pose (« Photo après pose », activé par défaut) : le panneau ne montre que ça.
+    d.photoFor?.let { id -> androidx.compose.runtime.key(id) { PhotoPrompt(c, id) { d.photoFor = null } }; return }
     val events = c.state.collectAsState().value.events
     val shapes = Shapes.current(events)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -224,7 +228,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
     }
     when (d.tool) {
         Tool.MOVE -> Text("Se déplacer : faites glisser la carte, les taps ne posent rien.", style = MaterialTheme.typography.bodySmall)
-        Tool.PLACE -> { Text("Poser : touchez une famille, puis la carte.", style = MaterialTheme.typography.bodySmall); FamilyQuickGrid(c, d.family) { d.family = it } }
+        Tool.PLACE -> { Text("Poser : choisissez un type, puis touchez la carte.", style = MaterialTheme.typography.bodySmall); LsCatalogPicker(c, d.family) { d.family = it } }
         Tool.SHAPE -> {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(d.shapeKind == "rectangle", { d.shapeKind = "rectangle"; d.pts.clear() }, { Text("Rectangle") }, modifier = Modifier.testTag("session_annoter_rectangle"))
@@ -271,7 +275,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
     val surveys = app.lumisite.core.compute.SurveyPositions.current(events)
     if (shapes.isEmpty() && surveys.isEmpty()) Text("Aucun objet sur ce relevé", style = MaterialTheme.typography.bodySmall)
     Column {
-        surveys.forEachIndexed { i, sv -> Text("• ${sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().testTag("session_objets_releve_" + (i + 1)).clickable { onSelectSurvey(sv.id); d.selected = null }.padding(4.dp),
+        surveys.forEachIndexed { i, sv -> Text("• ${c.lsItem(sv.kind)?.label ?: sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().testTag("session_objets_releve_" + (i + 1)).clickable { onSelectSurvey(sv.id); d.selected = null }.padding(4.dp),
             color = if (sv.id == selectedSurvey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
         shapes.forEach { sh -> Text("◇ ${sh.annotationType ?: sh.geometryType}${sh.label?.let { " · $it" } ?: ""}${sh.comment?.let { " · $it" } ?: ""}",
             Modifier.fillMaxWidth().clickable { d.selected = sh.id; d.tool = Tool.SELECT; onSelectSurvey(null) }.padding(4.dp),
@@ -330,34 +334,6 @@ private fun StyleSheet(d: DrawState) {
         Text("Opacité :", style = MaterialTheme.typography.labelMedium)
         listOf(1f, 0.6f, 0.3f).forEach { o -> FilterChip(d.opacity == o, { d.opacity = o }, { Text("${(o * 100).toInt()} %") }, modifier = Modifier.testTag("session_annoter_style_opacite_" + (o * 100).toInt())) }
     }
-}
-
-/** Catalogue grid with pinned favourites and the 6 last used families first. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun FamilyQuickGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val prefs = remember { ctx.getSharedPreferences("lumisite_quick", Context.MODE_PRIVATE) }
-    var pins by remember { mutableStateOf(prefs.getStringSet("pins", emptySet())!!.toSet()) }
-    val events = c.state.collectAsState().value.events
-    val recent = events.filterIsInstance<SurveyEvent>().filter { it.supersedes == null }.map { it.kind }.reversed().distinct().take(6)
-    fun label(k: String) = c.catalog.entries.firstOrNull { it.blockName == k }?.label ?: k
-    @Composable fun row(title: String, keys: List<String>) {
-        if (keys.isEmpty()) return
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium)
-            keys.forEach { k -> FilterChip(selected == k, { onPick(k) }, { Text(label(k)) }, modifier = Modifier.testTag("session_annoter_famille_" + title.take(4).lowercase().replace("é", "e") + "_" + k)) }
-        }
-    }
-    row("Épinglés :", pins.filter { p -> c.catalog.entries.any { it.blockName == p } }.sorted())
-    row("Récents :", recent)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_annoter_famille_" + f.blockName)) }
-    }
-    if (selected != null) TextButton({
-        pins = if (selected in pins) pins - selected else pins + selected
-        prefs.edit().putStringSet("pins", pins).apply()
-    }, modifier = Modifier.testTag("session_annoter_famille_desepingler")) { Text(if (selected in pins) "Désépingler ${label(selected)}" else "Épingler ${label(selected)}") }
 }
 
 /** Last details entered per family, reused for the next object of the same family (process memory). */

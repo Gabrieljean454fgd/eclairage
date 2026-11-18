@@ -1,7 +1,9 @@
 package app.lumisite.core.compute
 
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -77,4 +79,80 @@ object ArGeometry {
     }
 
     fun clamp(v: Double, lo: Double, hi: Double) = min(hi, max(lo, v))
+
+    // ── build 199, point 2d : les traits sont les intersections de plans (arêtes de la pièce), pas les polygones ──
+
+    /** Infinite plane in the session frame: a point + a normal (unit or not). */
+    data class PlaneEq(val point: V3, val normal: V3)
+
+    /** Planes whose normals make less than this angle are treated as parallel: no intersection line is drawn. */
+    const val PARALLEL_MIN_DEG = 10.0
+    /** An edge shorter than this is clipping noise, not a room edge. */
+    const val MIN_EDGE_M = 0.02
+
+    /**
+     * Intersection of two infinite planes: a point of the shared line and its unit direction.
+     * null when the planes are parallel or quasi-parallel (angle between normals < [minDeg], 10° by default —
+     * below that the line position is too noisy to draw).
+     */
+    fun intersectPlanes(a: PlaneEq, b: PlaneEq, minDeg: Double = PARALLEL_MIN_DEG): Pair<V3, V3>? {
+        val n1 = a.normal; val n2 = b.normal
+        val l1 = n1.norm(); val l2 = n2.norm()
+        if (l1 < 1e-9 || l2 < 1e-9) return null
+        val d = n1 cross n2
+        val d2 = d dot d
+        if (sqrt(d2) / (l1 * l2) < sin(Math.toRadians(minDeg)) || d2 < 1e-12) return null
+        // Point on both planes: p0 = (c1·(n2×d) + c2·(d×n1)) / |d|² with ci = ni·pi (Lagrange, see test).
+        val c1 = n1 dot a.point; val c2 = n2 dot b.point
+        val p0 = ((n2 cross d) * c1 + (d cross n1) * c2) * (1.0 / d2)
+        return p0 to d.unit()
+    }
+
+    /**
+     * Part of the line `o + t·d` inside a convex polygon (world vertices, coplanar, face normal [n]): the
+     * [t0, t1] interval, null if the line misses the polygon. ARCore polygons are convex; for a non-convex
+     * polygon the result is the intersection of the edge half-planes (an upper bound of the true part).
+     */
+    fun clipToPolygon(o: V3, d: V3, poly: List<V3>, n: V3): Pair<Double, Double>? {
+        if (poly.size < 3) return null
+        val c = V3(poly.sumOf { it.x } / poly.size, poly.sumOf { it.y } / poly.size, poly.sumOf { it.z } / poly.size)
+        val nn = n.unit()
+        var lo = Double.NEGATIVE_INFINITY; var hi = Double.POSITIVE_INFINITY
+        for (i in poly.indices) {
+            val v = poly[i]; val e = poly[(i + 1) % poly.size] - v
+            var m = nn cross e
+            // Inward edge normal: the centroid is inside the polygon whatever the vertex winding.
+            if (m dot (c - v) < 0) m = m * -1.0
+            val a = m dot (o - v); val b = m dot d
+            if (abs(b) < 1e-9) { if (a < 0) return null } else if (b > 0) lo = max(lo, -a / b) else hi = min(hi, -a / b)
+            if (lo > hi) return null
+        }
+        if (lo.isInfinite() || hi.isInfinite()) return null
+        return lo to hi
+    }
+
+    /**
+     * Edge where two detected planes meet (floor ∩ wall = skirting, wall ∩ wall = vertical corner, wall ∩
+     * ceiling), bounded by both polygons: the part of the intersection line visible in both. null when the
+     * planes are quasi-parallel (< [PARALLEL_MIN_DEG]) or the meeting is outside the polygons (< [MIN_EDGE_M]).
+     */
+    fun edgeSegment(a: PlaneEq, polyA: List<V3>, b: PlaneEq, polyB: List<V3>): Pair<V3, V3>? {
+        val (o, d) = intersectPlanes(a, b) ?: return null
+        val (a0, a1) = clipToPolygon(o, d, polyA, a.normal) ?: return null
+        val (b0, b1) = clipToPolygon(o, d, polyB, b.normal) ?: return null
+        val lo = max(a0, b0); val hi = min(a1, b1)
+        if (hi - lo < MIN_EDGE_M) return null
+        return (o + d * lo) to (o + d * hi)
+    }
+
+    /** Area of an ARCore polygon (x, z pairs in the plane local frame), m² — shoelace. */
+    fun polygonAreaM2(polygonXz: List<Double>): Double {
+        var s = 0.0
+        val n = polygonXz.size / 2
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            s += polygonXz[2 * i] * polygonXz[2 * j + 1] - polygonXz[2 * j] * polygonXz[2 * i + 1]
+        }
+        return abs(s) / 2
+    }
 }

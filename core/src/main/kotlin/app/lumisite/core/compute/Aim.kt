@@ -12,6 +12,7 @@ data class V3(val x: Double, val y: Double, val z: Double) {
     operator fun minus(o: V3) = V3(x - o.x, y - o.y, z - o.z)
     operator fun times(k: Double) = V3(x * k, y * k, z * k)
     infix fun dot(o: V3) = x * o.x + y * o.y + z * o.z
+    infix fun cross(o: V3) = V3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x)
     fun norm() = sqrt(this dot this)
     fun unit() = norm().let { if (it < 1e-12) this else this * (1 / it) }
     fun distanceTo(o: V3) = (this - o).norm()

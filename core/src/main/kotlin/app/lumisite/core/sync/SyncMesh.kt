@@ -157,8 +157,12 @@ data class Peer(
     val synced: Boolean get() = link == Link.CONNECTED && clock == Clock.ALIGNED
 }
 
-/** Event worth journaling (link change, alignment change, capture change, media received). */
-data class MeshLog(val tNs: Long, val endpointId: String, val what: String)
+/**
+ * Event worth journaling (link change, alignment change, capture change, media received).
+ * [what] is appended to synchro.ndjson as is (raw values kept for post-analysis); [screen], when set, is the
+ * readable variant shown on the Sync screens (build 199: the raw monotonic-clock offset is never displayed).
+ */
+data class MeshLog(val tNs: Long, val endpointId: String, val what: String, val screen: String? = null)
 
 /**
  * Master-side state machine. Every transition is returned as [MeshLog] so the caller can journal it (append-only).
@@ -179,8 +183,12 @@ class MasterMesh(val deviceId: String) {
     private fun change(old: Peer?, new: Peer, tNs: Long): List<MeshLog> = buildList {
         put(new)
         if (old?.link != new.link) add(MeshLog(tNs, new.endpointId, "connexion : ${new.link.label}"))
-        if (old?.clock != new.clock) add(MeshLog(tNs, new.endpointId, "alignement : ${new.clock.label}" +
-            (new.offsetNs?.takeIf { new.clock == Clock.ALIGNED }?.let { " (décalage %.1f ms ± %.1f ms)".format(it / 1e6, (new.uncertaintyNs ?: 0) / 1e6) } ?: "")))
+        if (old?.clock != new.clock) {
+            val off = new.offsetNs?.takeIf { new.clock == Clock.ALIGNED }
+            add(MeshLog(tNs, new.endpointId, "alignement : ${new.clock.label}" +
+                (off?.let { " (décalage %.1f ms ± %.1f ms)".format(it / 1e6, (new.uncertaintyNs ?: 0) / 1e6) } ?: ""),
+                screen = off?.let { "alignement : ${SyncDisplay.alignmentText(it, new.uncertaintyNs)}" }))
+        }
         if (old?.capture != new.capture) add(MeshLog(tNs, new.endpointId, "capture : ${new.capture.label}"))
     }
 

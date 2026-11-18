@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.lumisite.android.SessionController
 import app.lumisite.core.compute.AimResult
+import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
 import app.lumisite.core.model.TrackingState
 
@@ -59,9 +60,10 @@ fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) 
     Text("+", Modifier.align(Alignment.Center), fontSize = 36.sp, color = color, style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)))
 }
 
-/** Below the camera view: aim hint, plane count, torch and two-aim measurement (P2, not journaled). */
+/** Below the camera view: aim hint, plane counters (2 Hz), aimed support (from the tilt, automatic), torch and two-aim
+ *  measurement (P2, not journaled). Always fully shown, whatever the open tab (build 199, point 5: no jumping menus). */
 @Composable
-fun ArControls(c: SessionController, compact: Boolean = false) {
+fun ArControls(c: SessionController) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
@@ -74,17 +76,13 @@ fun ArControls(c: SessionController, compact: Boolean = false) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         val calLabel = remember(st.events.size) { c.calibrationLabel() }
         Text("$hint · $calLabel", style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.testTag("session_ar_visee"))
-        val surfaces = listOf(null to "Tous", "SOL" to "Sol", "MUR" to "Mur", "PLAFOND" to "Plafond")
-        Text("Plans : sol ${counts.first} · murs ${counts.second} · plafond ${counts.third} · visée : ${surfaces.first { it.first == surface }.second.lowercase()}",
-            style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_plans"))
-        // v176c: surface aimed at for the survey (Sol / Mur / Plafond, Tous = nearest plane).
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            surfaces.forEach { (k, l) ->
-                androidx.compose.material3.FilterChip(selected = surface == k, onClick = { c.ar.aimSurface.value = k }, label = { Text(l) },
-                    modifier = Modifier.testTag("session_ar_surface_" + (k?.lowercase() ?: "tous")))
-            }
-        }
-        if (!compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // build 199 (point 5): fixed-width counters (monospace) so the line does not move while planes are found.
+        Text("Plans : sol ${counts.first} · murs ${counts.second} · plafond ${counts.third}",
+            style = MaterialTheme.typography.labelSmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, modifier = Modifier.testTag("session_ar_plans"))
+        // build 199 (point 6): aimed support follows the camera tilt (sol / mur / plafond), no Tous / Sol / Mur / Plafond chips.
+        val support = surface?.let { runCatching { SupportFromTilt.Support.valueOf(it) }.getOrNull() } ?: SupportFromTilt.Support.MUR
+        Text(SupportFromTilt.label(support), style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_support_auto"))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // « Contours » switch of the stripped AR lines (plane outlines, vertical wall edges).
             androidx.compose.material3.FilterChip(selected = contours, onClick = { c.ar.contoursOn.value = !contours },
                 label = { Text(if (contours) "Contours : affichés" else "Contours : masqués") }, modifier = Modifier.testTag("session_ar_contours"))

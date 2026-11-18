@@ -21,6 +21,7 @@ import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
+import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.EnumSet
@@ -81,10 +82,17 @@ class ArTracker(
     private val anchorDrops = java.util.concurrent.ConcurrentLinkedQueue<String>()
     private val anchors = HashMap<String, com.google.ar.core.Anchor>()
     private val anchorKinds = HashMap<String, AnchorKind>()
-    /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond) and surface chosen at the survey (SOL / MUR / PLAFOND, null = all). */
+    /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond). build 199 (point 6): the aimed
+     *  surface (SOL / MUR / PLAFOND) is derived from the camera tilt, no selector — the flow only feeds the display line. */
     val contoursOn = MutableStateFlow(true)
     val planeCounts = MutableStateFlow(Triple(0, 0, 0))
-    val aimSurface = MutableStateFlow<String?>(null)
+    val aimSurface = MutableStateFlow<String?>("MUR")
+    /** build 199 (point 5): plane counters published at most every 500 ms so the line under the camera stays stable. */
+    private var lastCountsMs = 0L
+    /** Last classified support (GL thread), for the tilt hysteresis. */
+    private var lastSupport: SupportFromTilt.Support? = null
+    /** Tilt fallback when the AR pose is unavailable (sensor rotation vector), set by the session controller. */
+    var sensorTiltDeg: (() -> Double?)? = null
     private var lastAnchorReportMs = 0L
     @Volatile var onAnchors: ((Map<String, Pair<List<Double>, List<Double>>>) -> Unit)? = null
     fun requestAnchor(id: String, pose: PoseSample, kind: AnchorKind = AnchorKind.GROUP) { anchorAdds += Triple(id, pose, kind) }
@@ -218,9 +226,22 @@ class ArTracker(
         val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
         val counts = Triple(planes.count { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }, planes.count { it.type == Plane.Type.VERTICAL },
             planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
-        if (planeCounts.value != counts) planeCounts.value = counts
-        if (planeCount.value != counts.first) planeCount.value = counts.first
-        val only = Aim.sourceOf(aimSurface.value)
+        // build 199 (point 5): the counters under the camera are sampled at 2 Hz; every-frame updates made the texts flicker.
+        val countsNowMs = SystemClock.elapsedRealtime()
+        if (countsNowMs - lastCountsMs >= 500L) {
+            lastCountsMs = countsNowMs
+            if (planeCounts.value != counts) planeCounts.value = counts
+            if (planeCount.value != counts.first) planeCount.value = counts.first
+        }
+        val p = cam.pose
+        val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
+        // build 199 (point 6): aimed support from the camera elevation — ARCore pose quaternion (Tilt.fromArQuaternion,
+        // same convention as SupportFromTilt.elevationFromForward), sensor rotation matrix as fallback. Hysteresis inside classify.
+        val elev = runCatching { app.lumisite.core.position.Tilt.fromArQuaternion(q.toDoubleArray()) }.getOrNull() ?: sensorTiltDeg?.invoke()
+        val support = elev?.let { SupportFromTilt.classify(it, lastSupport) } ?: lastSupport ?: SupportFromTilt.Support.MUR
+        lastSupport = support
+        if (aimSurface.value != support.name) aimSurface.value = support.name
+        val only = SupportFromTilt.planeSource(support)
         val ap = planes.map { pl ->
             val c = pl.centerPose
             val n = c.yAxis
@@ -228,10 +249,8 @@ class ArTracker(
             Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), src) { p ->
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             }
-        }.filter { only == null || it.source == only }
-        val p = cam.pose
-        val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
-        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true, fallbacks = Aim.sourceOf(aimSurface.value).let { it == null || it == "AR_PLANE" })
+        }.filter { it.source == only }
+        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true, fallbacks = support == SupportFromTilt.Support.SOL)
     }
 
     @Suppress("DEPRECATION")

@@ -333,14 +333,15 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         app.lumisite.android.BuildConfig.DEBUG && android.provider.Settings.Global.getString(activity.contentResolver, "lumisite_simuler_entete_ar") == "1"
     }
     val header: @Composable () -> Unit = {
-        // v176c (decision 3): camera on the whole width of the screen (4:3), aim / plans / torch / measure below it. While a panel
-        // is open the frame stays full width but is cropped to 2:1, so the panel and the map keep room.
-        val camAspect = if (mode == Mode.NONE) 4f / 3f else 2f
+        // v176c (decision 3): camera on the whole width of the screen (4:3), aim / plans / torch / measure below it.
+        // build 199 (point 5): the camera block keeps the same height between Aucun / Calibrer / Relevé / Synchro —
+        // no 4:3 → 2:1 crop, and the controls row below stays in place whatever the open tab.
+        val camAspect = 4f / 3f
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!arReady && simulatedArHeader) {
                 // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real camera block.
                 CameraFrame(camAspect, Modifier.background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
-                ArControls(c, compact = mode != Mode.NONE)
+                ArControls(c)
             }
             if (arReady) {
                 CameraFrame(camAspect, Modifier) {
@@ -353,7 +354,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     }, modifier = Modifier.fillMaxSize())
                     ArReticle(c)
                 }
-                ArControls(c, compact = mode != Mode.NONE)
+                ArControls(c)
             }
             if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp))
         }

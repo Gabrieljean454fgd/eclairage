@@ -95,7 +95,7 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
     }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text("LumiSite : diagnostic éclairage", style = MaterialTheme.typography.headlineSmall)
-        Text(appVersionLabel(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_version"))
+        Text(accueilBuildLabel(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_version"))
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -454,5 +454,8 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
     }
 }
 
-/** Accueil and Réglages > À propos: « v0.3.0-alpha (build <versionCode>) ». */
+/** Réglages > À propos: « v0.3.0-alpha (build <versionCode>) ». */
 fun appVersionLabel(): String = "v${app.lumisite.android.BuildConfig.VERSION_NAME} (build ${app.lumisite.android.BuildConfig.VERSION_CODE})"
+
+/** Accueil (build 199, point 0): « Build <versionCode> · <paquet> », <paquet> = branche de build (BuildConfig.PAQUET). */
+fun accueilBuildLabel(): String = "Build ${app.lumisite.android.BuildConfig.VERSION_CODE} · ${app.lumisite.core.version.PaquetName.from(app.lumisite.android.BuildConfig.PAQUET)}"

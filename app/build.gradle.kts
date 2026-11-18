@@ -10,6 +10,18 @@ val gitCommitCount: Int = (project.findProperty("versionCode") as String?)?.toIn
     providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
 }.getOrDefault(1)
 
+// « Build N · <paquet> » on the home screen (build 199 feedback, point 0): raw name from LUMISITE_PAQUET,
+// else GITHUB_HEAD_REF / GITHUB_REF_NAME (CI), else the current git branch. The transform mirrors
+// core app.lumisite.core.version.PaquetName.from (tested on the JVM): etape-3-v176g-x -> v176g, etape-3-local-x -> local-x, else dev.
+val paquetRaw: String? = sequenceOf(System.getenv("LUMISITE_PAQUET"), System.getenv("GITHUB_HEAD_REF"), System.getenv("GITHUB_REF_NAME"))
+    .firstOrNull { !it.isNullOrBlank() }?.trim()
+    ?: runCatching { providers.exec { commandLine("git", "rev-parse", "--abbrev-ref", "HEAD") }.standardOutput.asText.get().trim() }
+        .getOrNull()?.takeIf { it.isNotEmpty() && it != "HEAD" }
+val paquetName: String = paquetRaw?.let {
+    Regex("^etape-\\d+-(v\\d+[a-z]?)(\\b.*)?$").matchEntire(it)?.groupValues?.get(1)
+        ?: Regex("^etape-\\d+-(local-.+)$").matchEntire(it)?.groupValues?.get(1) ?: it
+} ?: "dev"
+
 android {
     namespace = "app.lumisite.android"
     compileSdk = 35
@@ -20,6 +32,7 @@ android {
         targetSdk = 35
         versionCode = gitCommitCount
         versionName = "0.3.0-alpha"
+        buildConfigField("String", "PAQUET", "\"${paquetName.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     // PUBLIC TEST KEY (docs/SIGNATURE_APK.md): committed on purpose so that every debug APK, built locally or by CI,

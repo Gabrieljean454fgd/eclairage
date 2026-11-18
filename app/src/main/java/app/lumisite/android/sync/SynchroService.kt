@@ -69,7 +69,7 @@ class SynchroService : Service() {
         runCatching {
             if (Build.VERSION.SDK_INT >= 29) ServiceCompat.startForeground(this, NOTIF_ID, build(n), mask)
             else @Suppress("DEPRECATION") startForeground(NOTIF_ID, build(n))
-        }.onFailure { DiagLog.e("SYNCHRO", "service de premier plan refusé (la synchro continue tant que l'appli vit)", it) }
+        }.onFailure { DiagLog.e("SYNCHRO", "service de premier plan refusé (la synchro continue tant que l'appli vit)", it); stopSelf() /* relecture : sans startForeground réussi, Android tue l'appli au bout de 5 s */ }
     }
 
     /** Republie la notification quand son texte change (connexion d'un esclave, perte du maître…). */

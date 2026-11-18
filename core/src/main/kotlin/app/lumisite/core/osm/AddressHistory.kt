@@ -1,5 +1,6 @@
 package app.lumisite.core.osm
 
+import kotlinx.serialization.Serializable
 import java.text.Normalizer
 import kotlin.math.asin
 import kotlin.math.cos
@@ -12,6 +13,7 @@ import kotlin.math.sqrt
  * « Rechercher » ou choisie dans les résultats) est gardée localement et proposée dès la première lettre, hors réseau.
  * Les plus proches de la position actuelle passent en premier. Fonctions pures (stockage JSON fait par l'appli).
  */
+@Serializable
 data class SavedAddress(val text: String, val lat: Double? = null, val lon: Double? = null, val lastUsedMs: Long = 0, val uses: Int = 1)
 
 object AddressHistory {

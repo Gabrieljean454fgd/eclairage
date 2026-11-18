@@ -32,14 +32,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.data.Ids
+import app.lumisite.android.data.LastKnownPosition
 import app.lumisite.android.data.OsmClient
 import app.lumisite.android.data.Repository
-import app.lumisite.android.data.RecentZone
 import app.lumisite.core.model.BBox
+import app.lumisite.core.osm.AddressHistory
 import app.lumisite.core.osm.Bboxes
 import app.lumisite.core.osm.CallCapReached
 import app.lumisite.core.osm.Geocoding
@@ -125,8 +127,12 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
 private enum class TapMode { ORIGIN, RECT }
 
 @Composable
-fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
+fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> java.io.File, onSave: (Site, java.io.File?) -> Unit, onCancel: () -> Unit) {
     val focusManager = LocalFocusManager.current
+    val ctx = LocalContext.current
+    val recentZones = remember { repo.recentZones() }
+    var recentAddresses by remember { mutableStateOf(repo.recentAddresses()) }
+    val nearPos = remember { LastKnownPosition.get(ctx) }
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -182,7 +188,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         if (busy || q.length < 3 || q == lastSearched) return
         lastSearched = q; busy = true; status = null
         scope.launch {
-            try { results = withContext(Dispatchers.IO) { OsmClient.search(q) }; if (results.isEmpty()) status = "Aucun résultat." }
+            try { results = withContext(Dispatchers.IO) { OsmClient.search(q, nearPos) }; if (results.isEmpty()) status = "Aucun résultat." }
             catch (e: Exception) { status = "Recherche impossible (réseau ?) : ${e.message}. Utilisez des coordonnées ou la carte." }
             finally { busy = false }
         }
@@ -298,11 +304,35 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
                 query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { lastSearched = ""; doSearch() }),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
+                    val q = query.trim()
+                    if (q.length >= 3) recentAddresses = repo.addRecentAddress(q, null, null)
+                    lastSearched = ""; doSearch()
+                }),
             )
+            // Build 199 : adresses déjà validées, proposées hors réseau dès la première lettre, les plus proches d'abord.
+            val qNorm = AddressHistory.normalize(query)
+            val recentSugg = AddressHistory.suggest(recentAddresses, query, nearPos?.lat, nearPos?.lon)
+                .filter { AddressHistory.normalize(it.text) != qNorm }
+            if (query.isNotBlank() && recentSugg.isNotEmpty()) {
+                Text("Adresses récentes", style = MaterialTheme.typography.labelMedium)
+                recentSugg.forEachIndexed { i, a ->
+                    Text(a.text, Modifier.fillMaxWidth().testTag("nouveau_site_adresse_recente_${i + 1}").clickable {
+                        query = a.text
+                        recentAddresses = repo.addRecentAddress(a.text, a.lat, a.lon)
+                        val la = a.lat; val lo = a.lon
+                        if (la != null && lo != null) {
+                            setOrigin(LatLon(la, lo), "ADRESSE RECENTE"); zoom = 18.0; missingOrigin = false
+                            if (name.isBlank()) name = a.text.substringBefore(",")
+                            results = emptyList()
+                        } else { lastSearched = ""; doSearch() }
+                    }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
+                }
+            }
             results.forEach { r ->
                 Text("${r.name} (${r.source})", Modifier.fillMaxWidth().clickable {
                     setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0; missingOrigin = false
+                    recentAddresses = repo.addRecentAddress(r.name, r.lat, r.lon)
                     if (name.isBlank()) name = r.name.substringBefore(","); results = emptyList()
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }

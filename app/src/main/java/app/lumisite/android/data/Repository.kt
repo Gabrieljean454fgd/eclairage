@@ -9,7 +9,9 @@ import android.provider.MediaStore
 import app.lumisite.android.BuildConfig
 import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.model.BBox
+import app.lumisite.core.osm.AddressHistory
 import app.lumisite.core.osm.Bboxes
+import app.lumisite.core.osm.SavedAddress
 import app.lumisite.core.export.ExportPackage
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonPrimitive
@@ -208,6 +210,19 @@ class Repository(private val ctx: Context) {
     fun addRecentZone(z: RecentZone) {
         val l = (listOf(z) + recentZones().filter { it.bbox != z.bbox }).take(10)
         recentFile.writeText(LumiJson.encodeToString(ListSerializer(RecentZone.serializer()), l))
+    }
+
+    private val recentAddressesFile = File(root, "recent_addresses.json")
+
+    fun recentAddresses(): List<SavedAddress> = runCatching {
+        LumiJson.decodeFromString(ListSerializer(SavedAddress.serializer()), recentAddressesFile.readText())
+    }.getOrDefault(emptyList())
+
+    /** Adresse validée dans « Nouveau relevé » : ajout ou rafraîchissement, 200 max, lat/lon conservées si connues. */
+    fun addRecentAddress(text: String, lat: Double?, lon: Double?): List<SavedAddress> {
+        val l = AddressHistory.record(recentAddresses(), text, lat, lon, System.currentTimeMillis())
+        recentAddressesFile.writeText(LumiJson.encodeToString(ListSerializer(SavedAddress.serializer()), l))
+        return l
     }
 }
 

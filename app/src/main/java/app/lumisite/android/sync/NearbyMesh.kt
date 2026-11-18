@@ -6,8 +6,11 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
+import android.provider.Settings
+import app.lumisite.android.BuildConfig
 import app.lumisite.android.data.AndroidClock
 import app.lumisite.android.data.DeviceInfo
+import app.lumisite.android.data.DeviceName
 import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.Ids
 import app.lumisite.core.sync.Capture
@@ -15,6 +18,7 @@ import app.lumisite.core.sync.MasterMesh
 import app.lumisite.core.sync.MeshLog
 import app.lumisite.core.sync.MeshMsg
 import app.lumisite.core.sync.SlaveMesh
+import app.lumisite.core.sync.SyncDisplay
 import app.lumisite.core.sync.SyncRole2
 import app.lumisite.core.sync.HeardChirp
 import app.lumisite.core.sync.SensorInventory
@@ -47,6 +51,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
@@ -74,7 +79,8 @@ object NearbyMesh {
         val master: MasterMesh.Summary? = null,
         val peers: List<app.lumisite.core.sync.Peer> = emptyList(),
         val capturing: Boolean = false,
-        val slaveMaster: String? = null,
+        /** Nom du maître côté esclave (endpointName Nearby), null quand aucun maître. */
+        val slaveMasterName: String? = null,
         val slaveCapture: Capture = Capture.IDLE,
         val slaveLastPingNs: Long = 0,
         val log: List<String> = emptyList(),
@@ -102,23 +108,25 @@ object NearbyMesh {
 
     private fun now() = AndroidClock.monotonicNs()
 
-    private fun journal(endpoint: String, what: String) {
+    private fun journal(endpoint: String, what: String, screen: String? = null) {
         val line = "{\"t_mono_ns\":${now()},\"utc_ms\":${AndroidClock.utcEpochMs()},\"appareil\":${q(endpoint)},\"quoi\":${q(what)}}\n"
         runCatching { dir?.let { File(it, "synchro.ndjson").appendText(line) } }
         DiagLog.i("SYNCHRO", "$endpoint : $what")
         val label = master?.peers?.get(endpoint)?.name ?: endpoint
         val hms = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date(AndroidClock.utcEpochMs()))
-        _state.value = _state.value.copy(log = (_state.value.log + "$hms · $label · $what").takeLast(30))
+        _state.update { it.copy(log = (it.log + "$hms · $label · ${screen ?: what}").takeLast(30)) }
     }
 
     private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-    private fun logs(l: List<MeshLog>) = l.forEach { journal(it.endpointId, it.what) }
+    private fun logs(l: List<MeshLog>) = l.forEach { journal(it.endpointId, it.what, it.screen) }
 
     private fun publish() {
         val m = master
-        _state.value = _state.value.copy(master = m?.summary(), peers = m?.peers?.values?.sortedBy { it.name } ?: emptyList(),
-            capturing = m?.captureId != null, slaveCapture = slave?.capture ?: Capture.IDLE, slaveLastPingNs = slave?.lastPingNs ?: 0)
+        _state.update {
+            it.copy(master = m?.summary(), peers = m?.peers?.values?.sortedBy { p -> p.name } ?: emptyList(),
+                capturing = m?.captureId != null, slaveCapture = slave?.capture ?: Capture.IDLE, slaveLastPingNs = slave?.lastPingNs ?: 0)
+        }
     }
 
     fun start(ctx: Context, role: SyncRole2) {
@@ -127,11 +135,14 @@ object NearbyMesh {
         val c = Nearby.getConnectionsClient(ctx.applicationContext)
         client = c
         dir = File(ctx.filesDir, "synchro/" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())).apply { mkdirs() }
-        val name = "${Build.MODEL} (${DeviceInfo.deviceId(ctx).takeLast(4)})"
-        _state.value = UiState(role = role, running = true, radio = "Démarrage…")
+        // build 199 point 1a: readable name (Réglages > Nom de ce téléphone, sinon device_name système, sinon modèle),
+        // same name as Nearby endpointName and in the Hello message.
+        val name = DeviceName.label(ctx)
+        _state.update { UiState(role = role, running = true, radio = "Démarrage…") }
         journal("local", "rôle : " + if (role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)")
         if (role == SyncRole2.SAISIE_MAITRE) {
             master = MasterMesh(DeviceInfo.deviceId(ctx))
+            injectSimulatedSlave(ctx)
             c.startAdvertising(name, SERVICE_ID, lifecycle, AdvertisingOptions.Builder().setStrategy(STRATEGY).build())
                 .addOnSuccessListener { radio("Recherche d'esclaves (annonce active)") }
                 .addOnFailureListener { radio("Annonce impossible : ${it.message}") }
@@ -159,7 +170,7 @@ object NearbyMesh {
                             journal("local", "maître perdu (aucun ping depuis ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s) : reconnexion automatique")
                             masterEndpoint?.let { client?.disconnectFromEndpoint(it) }
                             s.onDisconnected(); masterEndpoint = null
-                            _state.value = _state.value.copy(slaveMaster = null)
+                            _state.update { it.copy(slaveMasterName = null) }
                             client?.let { discover(it) }
                         }
                     }
@@ -184,12 +195,12 @@ object NearbyMesh {
             .addOnFailureListener { radio("Découverte impossible : ${it.message}") }
     }
 
-    private fun radio(s: String) { _state.value = _state.value.copy(radio = s); journal("local", "radio : $s") }
+    private fun radio(s: String) { _state.update { it.copy(radio = s) }; journal("local", "radio : $s") }
 
     private val lifecycle = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(id: String, info: ConnectionInfo) {
             synchronized(lock) { master?.let { logs(it.onConnecting(id, info.endpointName, now())) } }
-            if (slave != null) _state.value = _state.value.copy(slaveMaster = "${info.endpointName} (connexion…)")
+            if (slave != null) _state.update { it.copy(slaveMasterName = info.endpointName) }
             client?.acceptConnection(id, payloads)
             publish()
         }
@@ -200,8 +211,8 @@ object NearbyMesh {
                 master?.let { logs(if (ok) it.onConnected(id, now()) else it.onDisconnected(id, now())) }
                 slave?.let { s ->
                     if (ok) { masterEndpoint = id; s.onConnected(); client?.stopDiscovery(); send(id, s.hello()); send(id, MeshMsg.Sensors(_state.value.sensors))
-                        _state.value = _state.value.copy(slaveMaster = _state.value.slaveMaster?.replace("(connexion…)", "(connecté)")); journal(id, "connexion : connecté") }
-                    else journal(id, "connexion refusée : ${r.status.statusMessage}")
+                        journal(id, "connexion : connecté") }
+                    else { journal(id, "connexion refusée : ${r.status.statusMessage}"); _state.update { it.copy(slaveMasterName = null) } }
                 }
             }
             publish()
@@ -212,7 +223,7 @@ object NearbyMesh {
                 master?.let { logs(it.onDisconnected(id, now())) }
                 slave?.let { s ->
                     s.onDisconnected(); masterEndpoint = null
-                    _state.value = _state.value.copy(slaveMaster = null)
+                    _state.update { it.copy(slaveMasterName = null) }
                     journal(id, "connexion : perdu")
                     // The capture keeps running locally (journaled); rediscover the master.
                     client?.let { discover(it) }
@@ -275,7 +286,58 @@ object NearbyMesh {
     /** A peer-supplied name never leaves media/: no separators, no « .. ». */
     private fun safeName(s: String): String = s.replace(Regex("[^A-Za-z0-9._-]"), "_").trimStart('.').ifEmpty { "media" }
 
-    private fun send(id: String, m: MeshMsg) { client?.sendPayload(id, Payload.fromBytes(MeshMsg.encode(m))) }
+    private fun send(id: String, m: MeshMsg) {
+        if (synchronized(lock) { id in simulatedPeers }) { simReply(id, m); return }
+        client?.sendPayload(id, Payload.fromBytes(MeshMsg.encode(m)))
+    }
+
+    // ---- build 199 point 1g (debug/CI only): a fake slave injected into the master ----
+    // `adb shell settings put global lumisite_simuler_esclave "Xiaomi 13T Pro"` then start the master role:
+    // the peer gets a Nearby connection, a Hello and automatic answers (pongs on the same monotonic clock,
+    // so it aligns like a real slave). No radio involved; cleared by stop(). Never in release builds.
+
+    private data class SimPeer(val deviceId: String, val timeBaseId: String, val hex: String)
+    private val simulatedPeers = HashMap<String, SimPeer>()
+
+    private fun injectSimulatedSlave(ctx: Context) {
+        if (!BuildConfig.DEBUG) return
+        val base = runCatching { Settings.Global.getString(ctx.contentResolver, "lumisite_simuler_esclave") }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val m = master ?: return
+        val tag = base.filter { it.isLetterOrDigit() }.take(8).lowercase().ifEmpty { "pair" }
+        val endpoint = "sim-$tag"
+        val deviceId = "dev-$endpoint"
+        val tb = "tb-$endpoint"
+        val name = SyncDisplay.deviceLabel(null, base, "", "", endpoint)
+        synchronized(lock) {
+            simulatedPeers[endpoint] = SimPeer(deviceId, tb, "%04X".format(app.lumisite.core.sync.IdFrame.idOf(deviceId)))
+            val t = now()
+            logs(m.onConnecting(endpoint, name, t))
+            logs(m.onConnected(endpoint, t))
+            val (l, reply) = m.onMessage(endpoint, MeshMsg.Hello(deviceId, name, SyncRole2.CAPTATION_ESCLAVE, tb), t)
+            logs(l); reply?.let { send(endpoint, it) }
+            journal(endpoint, "esclave simulé (debug) : $name")
+            publish()
+        }
+    }
+
+    /** The simulated slave answers on this device's own monotonic clock: pongs give ~0 offset, fast alignment. */
+    private fun simReply(id: String, m: MeshMsg) {
+        val sim = synchronized(lock) { simulatedPeers[id] } ?: return
+        val mm = master ?: return
+        synchronized(lock) {
+            val t = now()
+            val reply = when (m) {
+                is MeshMsg.Ping -> MeshMsg.Pong(m.seq, m.tMasterTxNs, t, t)
+                is MeshMsg.StartCapture -> MeshMsg.Status(Capture.CAPTURING, t, sim.timeBaseId)
+                is MeshMsg.StopCapture -> MeshMsg.Status(Capture.STOPPED, t, sim.timeBaseId)
+                is MeshMsg.SyncRound -> MeshMsg.SyncResult(m.roundId, sim.hex, emptyList(), sim.timeBaseId)
+                else -> null
+            } ?: return
+            val (l, _) = mm.onMessage(id, reply, t)
+            logs(l)
+            publish()
+        }
+    }
 
     // ---- v176d: acoustic round (« top de synchro ») driven by the master over Nearby ----
 
@@ -297,18 +359,18 @@ object NearbyMesh {
             val m = master ?: error("pas de synchro maître")
             val (l, sends) = m.syncRound(roundId, counter, AudioSync.WINDOW_MS, now())
             logs(l); sends.forEach { (id, msg) -> send(id, msg) }
-            _state.value = _state.value.copy(roundBusy = true, round = "Top en cours : écoute ${AudioSync.WINDOW_MS / 1000} s, chaque téléphone émet son chirp…")
+            _state.update { it.copy(roundBusy = true, round = "Top en cours : écoute ${AudioSync.WINDOW_MS / 1000} s, chaque téléphone émet son chirp…") }
         }
         val r = try {
             AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS), ownId(ctx), counter,
                 wav ?: dir?.let { File(it, "top_${roundId}.wav") }, AudioSync.unprocessedSupported(ctx))
         } catch (e: Exception) {
-            synchronized(lock) { journal("local", "top : échec audio du maître (${e.message})"); _state.value = _state.value.copy(roundBusy = false, round = "Échec audio : ${e.message}") }
+            synchronized(lock) { journal("local", "top : échec audio du maître (${e.message})"); _state.update { it.copy(roundBusy = false, round = "Échec audio : ${e.message}") } }
             throw e
         }
         synchronized(lock) {
             master?.let { logs(it.onOwnRound(roundId, "%04X".format(ownId(ctx)), heard(r), now())) }
-            _state.value = _state.value.copy(roundBusy = false, round = "Maître : ${heard(r).size} chirp(s) identifié(s). Résultat par téléphone ci-dessous.")
+            _state.update { it.copy(roundBusy = false, round = "Maître : ${heard(r).size} chirp(s) identifié(s). Résultat par téléphone ci-dessous.") }
             publish()
         }
         return r
@@ -317,7 +379,7 @@ object NearbyMesh {
     private fun slaveRound(masterId: String, m: MeshMsg.SyncRound) {
         val ctx = appCtx ?: return
         journal("local", "top de synchro reçu : écoute ${m.windowMs / 1000} s et émission du chirp")
-        _state.value = _state.value.copy(roundBusy = true, round = "Top reçu : écoute et émission…")
+        _state.update { it.copy(roundBusy = true, round = "Top reçu : écoute et émission…") }
         scope.launch(Dispatchers.IO) {
             val hex = "%04X".format(ownId(ctx))
             val tb = slave?.timeBaseId ?: ""
@@ -329,7 +391,7 @@ object NearbyMesh {
             synchronized(lock) {
                 send(masterId, res)
                 journal("local", "top : ${res.heard.size} chirp(s) entendu(s)" + (res.error?.let { " · échec $it" } ?: "") + ", résultat envoyé au maître")
-                _state.value = _state.value.copy(roundBusy = false, round = "Dernier top : ${res.heard.size} chirp(s) entendu(s)" + (res.error?.let { " · échec : $it" } ?: ""))
+                _state.update { it.copy(roundBusy = false, round = "Dernier top : ${res.heard.size} chirp(s) entendu(s)" + (res.error?.let { e -> " · échec : $e" } ?: "")) }
             }
         }
     }
@@ -370,7 +432,7 @@ object NearbyMesh {
             if (sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_GAME)) active += k
         }
         val list = SensorInventory.report(present, active)
-        _state.value = _state.value.copy(sensors = list)
+        _state.update { it.copy(sensors = list) }
         journal("local", "capteurs : " + list.joinToString { it.text })
     }
 
@@ -408,8 +470,8 @@ object NearbyMesh {
             val c = client
             if (c != null && stops.isNotEmpty()) scope.launch { delay(1500); c.stopAllEndpoints() }
             client?.apply { stopAdvertising(); stopDiscovery(); if (stops.isEmpty()) stopAllEndpoints() }
-            client = null; master = null; slave = null; masterEndpoint = null
-            _state.value = UiState()
+            client = null; master = null; slave = null; masterEndpoint = null; simulatedPeers.clear()
+            _state.update { UiState() }
         }
     }
 

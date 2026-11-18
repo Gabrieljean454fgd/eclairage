@@ -14,15 +14,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,13 +33,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.lumisite.android.sync.NearbyMesh
-import app.lumisite.core.sync.Clock
 import app.lumisite.core.sync.Link
 import app.lumisite.core.sync.SyncRole2
-import app.lumisite.core.sync.MasterMesh
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -47,18 +44,11 @@ fun SyncScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val st by NearbyMesh.state.collectAsState()
     var wanted by remember { mutableStateOf<SyncRole2?>(null) }
-    val perms = remember {
-        buildList {
-            if (Build.VERSION.SDK_INT >= 31) addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT))
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            if (Build.VERSION.SDK_INT <= 32) add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.RECORD_AUDIO)
-        }.toTypedArray()
-    }
+    val perms = remember { nearbyPermissions() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { wanted?.let { NearbyMesh.start(ctx, it) } }
     fun begin(role: SyncRole2) {
         wanted = role
-        if (perms.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }) NearbyMesh.start(ctx, role) else launcher.launch(perms)
+        if (nearbyPermissionsGranted(ctx)) NearbyMesh.start(ctx, role) else launcher.launch(perms)
     }
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Sync", style = MaterialTheme.typography.headlineSmall)
@@ -71,21 +61,22 @@ fun SyncScreen(onBack: () -> Unit) {
         } else {
             Text("Mode : " + if (st.role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)",
                 style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_mode_actif"))
-            Text(st.radio, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_radio"))
+            // build 199 point 1b: the single connection banner replaces the frozen « Recherche d'esclaves » line.
+            val nowNs = rememberMeshNowNs()
+            SynchroBanner(st, nowNs)
+            if (st.radio.contains("impossible", ignoreCase = true) || st.radio.contains("refusée", ignoreCase = true))
+                Text(st.radio, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_radio"))
             Prerequisites()
-            if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st) else SlavePanel(st)
+            if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st, nowNs) else SlavePanel(st)
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
         OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("Retour") }
-        if (st.log.isNotEmpty()) {
-            Text("Journal (horodaté, le plus récent en haut)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("synchro_journal"))
-            st.log.takeLast(15).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
-        }
+        SynchroJournal(st.log, "synchro_journal")
     }
 }
 
 @Composable
-private fun MasterPanel(st: NearbyMesh.UiState) {
+private fun MasterPanel(st: NearbyMesh.UiState, nowNs: Long) {
     val s = st.master
     val ok = s?.allSynced == true
     Text(s?.text ?: "0 appareil", style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("synchro_resume"),
@@ -111,25 +102,12 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
         Button({ NearbyMesh.startCapture() }, enabled = !st.capturing, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Démarrer les captures") }
         OutlinedButton({ NearbyMesh.stopCapture() }, enabled = st.capturing, modifier = Modifier.testTag("synchro_arreter_captures")) { Text("Arrêter") }
     }
-    st.peers.forEachIndexed { i, p ->
-        Card(Modifier.fillMaxWidth().testTag("synchro_esclave_${i + 1}")) {
-            Column(Modifier.padding(8.dp)) {
-                Text(p.name, style = MaterialTheme.typography.titleSmall)
-                Text("Connexion : ${p.link.label}", color = if (p.link == Link.LOST) MaterialTheme.colorScheme.error else Color.Unspecified)
-                Text("Alignement temporel : ${p.clock.label}" + (if (p.clock == Clock.ALIGNED) " (décalage %.1f ms ± %.1f ms)".format((p.offsetNs ?: 0) / 1e6, (p.uncertaintyNs ?: 0) / 1e6) else ""))
-                Text("Capture : ${if (p.link == Link.LOST) "inconnue (perdu)" else p.capture.label}" + if (p.media > 0) " · ${p.media} média(s)" else "")
-                Text("Dernier message : il y a ${((app.lumisite.android.data.AndroidClock.monotonicNs() - p.lastHeardNs) / 1_000_000_000).coerceAtLeast(0)} s (ping toutes les ${MasterMesh.PING_PERIOD_NS / 1_000_000_000} s, perdu après ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s)", style = MaterialTheme.typography.bodySmall)
-                p.audio?.let { a -> Text("Top : " + a.text(p.name), color = if (a.offsetNs != null) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error) }
-                if (p.sensors.isNotEmpty()) Text("Capteurs : " + p.sensors.filter { it.active }.joinToString { it.label }.ifEmpty { "aucun actif" }, style = MaterialTheme.typography.bodySmall)
-                Text("Repère spatial : ${p.frame.label}", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
+    st.peers.forEachIndexed { i, p -> SynchroPeerCard(p, i, nowNs) }
 }
 
 @Composable
 private fun SlavePanel(st: NearbyMesh.UiState) {
-    Text("Connexion : " + (st.slaveMaster ?: "aucun maître"), modifier = Modifier.testTag("synchro_esclave_connexion"))
+    Text("Connexion : " + (st.slaveMasterName ?: "aucun maître"), modifier = Modifier.testTag("synchro_esclave_connexion"))
     Text("Alignement temporel : calculé par le maître (pings reçus)" + if (st.slaveLastPingNs > 0) "" else " · aucun ping reçu")
     Text("Capture : ${st.slaveCapture.label}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_esclave_capture"))
     Text("Repère spatial : non partagé (horodatage seul)", style = MaterialTheme.typography.bodySmall)

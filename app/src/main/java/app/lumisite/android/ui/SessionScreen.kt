@@ -101,6 +101,8 @@ import androidx.compose.material3.TextButton
 import app.lumisite.core.model.TrackingState
 import app.lumisite.core.sync.DeviceSyncLog
 import app.lumisite.core.sync.SyncEstimator
+import app.lumisite.core.sync.SyncRole2
+import app.lumisite.android.sync.NearbyMesh
 import com.google.ar.core.ArCoreApk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -730,6 +732,10 @@ private fun NudgeCross(site: Enu, onMove: (Enu) -> Unit) {
 @Composable
 private fun SyncPanel(activity: Activity, c: SessionController) {
     val scope = rememberCoroutineScope()
+    // build 199 point 1e: Session > Synchro reads the same NearbyMesh.state as Accueil > Sync.
+    val mesh by NearbyMesh.state.collectAsState()
+    val meshNow = rememberMeshNowNs()
+    NearbyMeshSection(activity, mesh, meshNow)
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
@@ -785,7 +791,9 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             busy = false
             if ((cale ?: 0) < 2) secours = true
         }
-    }, modifier = Modifier.testTag("session_synchro_synchroniser")) { Text("Synchroniser") }
+    }, modifier = Modifier.testTag("session_synchro_synchroniser")) {
+        Text(if (mesh.running && mesh.role == SyncRole2.SAISIE_MAITRE) "Lancer un top de synchro (${mesh.master?.connected ?: 0} esclave(s))" else "Synchroniser")
+    }
     // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
     cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
     TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
@@ -797,6 +805,32 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     val st by c.state.collectAsState()
     Text("Événements de synchro : " + st.events.filterIsInstance<SyncEvent>().joinToString { "${it.syncCode}/${it.method}" }.ifEmpty { "aucun" }, style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+}
+
+/**
+ * build 199 point 1e : la synchro Nearby (même état qu'Accueil > Sync) — rôle, bandeau de connexion,
+ * esclaves, journal — visible depuis l'onglet Session > Synchro, avec démarrage du rôle maître ici.
+ */
+@Composable
+private fun NearbyMeshSection(activity: Activity, mesh: NearbyMesh.UiState, nowNs: Long) {
+    val permsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE)
+    }
+    Text("Synchro entre téléphones (réseau local)", style = MaterialTheme.typography.titleSmall)
+    if (!mesh.running) {
+        Text("Aucun rôle actif sur ce téléphone.", style = MaterialTheme.typography.bodySmall)
+        Button(modifier = Modifier.testTag("session_synchro_demarrer_maitre"), onClick = {
+            if (nearbyPermissionsGranted(activity)) NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE) else permsLauncher.launch(nearbyPermissions())
+        }) { Text("Démarrer la synchro maître") }
+        return
+    }
+    Text("Rôle : " + if (mesh.role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)",
+        style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("session_synchro_etat"))
+    SynchroBanner(mesh, nowNs)
+    if (mesh.role == SyncRole2.SAISIE_MAITRE) mesh.peers.forEachIndexed { i, p -> SynchroPeerCard(p, i, nowNs) }
+    else Text("Maître : " + (mesh.slaveMasterName ?: "recherche…") + " · capture ${mesh.slaveCapture.label}", style = MaterialTheme.typography.bodySmall)
+    SynchroJournal(mesh.log, "session_synchro_journal")
+    OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("session_synchro_arreter")) { Text("Arrêter la synchro") }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

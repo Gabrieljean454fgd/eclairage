@@ -8,6 +8,7 @@ import android.os.SystemClock
 import app.lumisite.android.BuildConfig
 import app.lumisite.core.model.Device
 import app.lumisite.core.model.SensorDescriptor
+import app.lumisite.core.sync.SyncDisplay
 import app.lumisite.core.time.Clock
 import java.util.UUID
 
@@ -41,6 +42,32 @@ object DeviceInfo {
             appVersion = BuildConfig.VERSION_NAME, arSupport = arSupport, sensors = sensors,
         )
     }
+}
+
+/**
+ * Nom de ce téléphone pour la synchro Nearby (build 199, point 1a) : le nom choisi dans Réglages >
+ * « Nom de ce téléphone », sinon Settings.Global.DEVICE_NAME, sinon constructeur + modèle
+ * (Build.MODEL vaut un code sur Xiaomi). Format final via [SyncDisplay.deviceLabel].
+ */
+object DeviceName {
+    private const val PREFS = "lumisite_device"
+    private const val KEY = "nom"
+
+    /** Nom saisi par l'utilisateur (Réglages > Nom de ce téléphone), null si absent. */
+    fun userName(ctx: Context): String? = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+
+    fun set(ctx: Context, name: String) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, name.trim()).apply()
+    }
+
+    /** Nom système (Settings.Global « device_name », ex. « Pixel de Seb »), null si indisponible. */
+    fun systemName(ctx: Context): String? = runCatching {
+        android.provider.Settings.Global.getString(ctx.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+    }.getOrNull()
+
+    /** Nom complet « Nom (XXXX) » utilisé comme endpointName Nearby et dans Hello. */
+    fun label(ctx: Context): String =
+        SyncDisplay.deviceLabel(userName(ctx), systemName(ctx), Build.MANUFACTURER, Build.MODEL, DeviceInfo.deviceId(ctx))
 }
 
 /** Stage 1.7: identity of the current phone boot, so that monotonic clocks of two boots are never compared. */

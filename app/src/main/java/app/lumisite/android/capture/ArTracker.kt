@@ -21,6 +21,8 @@ import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
+import app.lumisite.core.compute.ArGeometry
+import app.lumisite.core.compute.PlaneFilter
 import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +87,9 @@ class ArTracker(
     /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond). build 199 (point 6): the aimed
      *  surface (SOL / MUR / PLAFOND) is derived from the camera tilt, no selector — the flow only feeds the display line. */
     val contoursOn = MutableStateFlow(true)
+    /** build 199 (point 2d) : les arêtes de la pièce sont toujours calculées ; ce réglage (Réglages > Diagnostic,
+     *  [ArDiagnose.rawPolygons]) ajoute par-dessus les polygones ARCore bruts en blanc, pour diagnostiquer la détection. */
+    val rawPolygonsOn = MutableStateFlow(false)
     val planeCounts = MutableStateFlow(Triple(0, 0, 0))
     val aimSurface = MutableStateFlow<String?>("MUR")
     /** build 199 (point 5): plane counters published at most every 500 ms so the line under the camera stays stable. */
@@ -242,11 +247,19 @@ class ArTracker(
         lastSupport = support
         if (aimSurface.value != support.name) aimSurface.value = support.name
         val only = SupportFromTilt.planeSource(support)
-        val ap = planes.map { pl ->
+        // build 199 (point 2e): PlaneFilter drops detection dust (< 0,25 m²) and furniture (horizontal planes
+        // 0,3–2,0 m above the lowest one = the floor) so a table no longer beats the floor in SOL aim.
+        val ap = PlaneFilter.forAim(planes.map { pl ->
             val c = pl.centerPose
-            val n = c.yAxis
             val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
-            Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), src) { p ->
+            val area = runCatching {
+                val poly = pl.polygon
+                if (poly == null) 0.0 else { poly.rewind(); ArGeometry.polygonAreaM2((0 until poly.limit()).map { poly.get(it).toDouble() }) }
+            }.getOrDefault(0.0)
+            PlaneFilter.Desc(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), src, area, pl)
+        }).map { d ->
+            val pl = d.payload; val n = pl.centerPose.yAxis
+            Aim.Plane(d.point, V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), d.source) { p ->
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             }
         }.filter { it.source == only }
@@ -293,7 +306,8 @@ class ArTracker(
         if (state == TrackingState.TRACKING) runCatching {
             lineRenderer.draw(cam, if (contoursOn.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
                 anchors.filter { (id, a) -> a.trackingState == com.google.ar.core.TrackingState.TRACKING && anchorKinds[id] != AnchorKind.GROUP }
-                    .map { (id, a) -> anchorKinds.getValue(id) to V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()) })
+                    .map { (id, a) -> anchorKinds.getValue(id) to V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()) },
+                rawPolygonsOn.value)
         }
         onFrame(pose, state, reason)
     }
@@ -369,9 +383,11 @@ private class BackgroundRenderer {
 }
 
 /**
- * v176c stripped AR (decision 3): lines only, no fill, no point cloud, no text. Plane outlines (GL_LINE_LOOP), vertical
- * wall edges, orange calibration flags and luminaire symbols at local anchors. Behaviour read in ARCore's hello_ar_java
- * PlaneRenderer (Apache-2.0, see NOTICE), reimplemented with app.lumisite.core.compute.ArGeometry.
+ * v176c stripped AR (decision 3): lines only, no fill, no point cloud, no text. build 199 (point 2d): the lines are
+ * the intersections of detected planes — plinthes sol∩mur, angles mur∩mur, mur∩plafond — bounded by both polygons
+ * and coloured by type (sol vert, murs bleu, plafond violet), plus orange calibration flags and luminaire symbols at
+ * local anchors. Raw ARCore polygon outlines only when the diagnostic setting is on. Behaviour read in ARCore's
+ * hello_ar_java PlaneRenderer (Apache-2.0, see NOTICE), reimplemented with app.lumisite.core.compute.ArGeometry.
  */
 private class LineRenderer {
     private var program = 0; private var aPos = 0; private var uMvp = 0; private var uColor = 0
@@ -400,7 +416,17 @@ private class LineRenderer {
 
     private fun segments(s: List<Pair<V3, V3>>, r: Float, g: Float, b: Float) = lines(GLES20.GL_LINES, s.flatMap { listOf(it.first, it.second) }, r, g, b)
 
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Pair<ArTracker.AnchorKind, V3>>) {
+    /** build 199 (point 2d): edge colour by plane type — sol vert, murs bleu, plafond violet. An edge takes the
+     *  colour of its higher plane (plafond > mur > sol): plinthe sol∩mur en bleu, angle mur∩mur en bleu,
+     *  rencontre mur∩plafond en violet. */
+    private fun rank(t: Plane.Type) = when (t) { Plane.Type.HORIZONTAL_DOWNWARD_FACING -> 2; Plane.Type.VERTICAL -> 1; else -> 0 }
+    private fun color(t: Plane.Type) = when (t) {
+        Plane.Type.HORIZONTAL_DOWNWARD_FACING -> Triple(0.75f, 0.4f, 1f)
+        Plane.Type.VERTICAL -> Triple(0.25f, 0.55f, 1f)
+        else -> Triple(0.2f, 0.9f, 0.35f)
+    }
+
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Pair<ArTracker.AnchorKind, V3>>, rawPolygons: Boolean) {
         if (program == 0 || (planes.isEmpty() && marks.isEmpty())) return
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
@@ -408,19 +434,32 @@ private class LineRenderer {
         GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
         GLES20.glLineWidth(3f)
         GLES20.glEnableVertexAttribArray(aPos)
-        for (pl in planes) {
-            val poly = pl.polygon ?: continue
+        // build 199 (point 2d): world polygons + plane equations, once per frame.
+        val wps = planes.mapNotNull { pl ->
+            val poly = pl.polygon ?: return@mapNotNull null
             poly.rewind()
-            val xz = DoubleArray(poly.limit()) { poly.get(it).toDouble() }.toList()
-            if (xz.size < 6) continue
+            val xz = (0 until poly.limit()).map { poly.get(it).toDouble() }
+            if (xz.size < 6) return@mapNotNull null
             pl.centerPose.toMatrix(model, 0)
-            val world = app.lumisite.core.compute.ArGeometry.polygonToWorld(DoubleArray(16) { model[it].toDouble() }, xz)
+            val c = pl.centerPose; val n = c.yAxis
+            Triple(ArGeometry.PlaneEq(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble())),
+                ArGeometry.polygonToWorld(DoubleArray(16) { model[it].toDouble() }, xz), pl.type)
+        }
+        // Room edges = intersections of every pair of detected planes, bounded by both polygons.
+        for (i in wps.indices) for (j in i + 1 until wps.size) {
+            val (eqA, polyA, ta) = wps[i]; val (eqB, polyB, tb) = wps[j]
+            val seg = ArGeometry.edgeSegment(eqA, polyA, eqB, polyB) ?: continue
+            val (r, g, b) = color(if (rank(ta) >= rank(tb)) ta else tb)
+            segments(listOf(seg), r, g, b)
+        }
+        // Diagnostic only (Réglages > Diagnostic): raw ARCore polygon outlines and wall extremity edges, in white.
+        if (rawPolygons) for ((_, world, t) in wps) {
             lines(GLES20.GL_LINE_LOOP, world, 1f, 1f, 1f)
-            if (pl.type == Plane.Type.VERTICAL) segments(app.lumisite.core.compute.ArGeometry.verticalEdges(world), 1f, 1f, 1f)
+            if (t == Plane.Type.VERTICAL) segments(ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
         for ((kind, at) in marks) when (kind) {
-            ArTracker.AnchorKind.FLAG -> segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f)
-            ArTracker.AnchorKind.LUMINAIRE -> segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f)
+            ArTracker.AnchorKind.FLAG -> segments(ArGeometry.flag(at), 1f, 0.6f, 0f)
+            ArTracker.AnchorKind.LUMINAIRE -> segments(ArGeometry.luminaire(at), 1f, 0.85f, 0f)
             ArTracker.AnchorKind.GROUP -> {}
         }
         GLES20.glDisableVertexAttribArray(aPos)
@@ -446,4 +485,12 @@ object ArDebug {
         }
         if (playbackPath != null || recordPath != null) DiagLog.i("ARCORE", "Mode debug : playback=$playbackPath record=$recordPath")
     }
+}
+
+/** Réglages > Diagnostic : préférences persistées, relues à l'ouverture de chaque session. */
+object ArDiagnose {
+    private const val FILE = "lumisite_ar"
+    /** « Polygones ARCore bruts » : affiche les contours de polygones en blanc sous les arêtes, pour diagnostiquer la détection. */
+    fun rawPolygons(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("polygones_bruts", false)
+    fun setRawPolygons(ctx: Context, on: Boolean) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean("polygones_bruts", on).apply()
 }

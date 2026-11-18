@@ -333,7 +333,7 @@ fun OsmMap(
         all += group("origin", content.origin) { listOfNotNull(content.origin?.let { Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }) }
         all += group("points", content.points) { content.points.map { p ->
             Marker(mv).apply {
-                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
+                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = tappableDot(mv, p.color)
                 val id = p.id
                 setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }
@@ -486,6 +486,24 @@ private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int 
         val path = android.graphics.Path().apply { moveTo(c, px * 0.06f); lineTo(px * 0.84f, px * 0.92f); lineTo(c, px * 0.68f); lineTo(px * 0.16f, px * 0.92f); close() }
         cv.drawPath(path, fill); cv.drawPath(path, edge)
     }
+    return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
+}
+
+/**
+ * build 199 : les objets touchables de la carte (relevés, points de tracé, points de contrôle) gardent une zone de
+ * toucher d'au moins 48 dp — l'icône osmdroid définit la zone de toucher, donc le point visible (~20 dp) est dessiné
+ * au centre d'un bitmap transparent de 48 dp.
+ */
+private fun tappableDot(mv: MapView, color: Int): android.graphics.drawable.Drawable {
+    val d = mv.resources.displayMetrics.density
+    val px = (app.lumisite.core.ui.SessionLayout.MAP_TOUCH_DP * d).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+    val cv = android.graphics.Canvas(bmp)
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; style = Paint.Style.FILL }
+    val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f * d }
+    val c = px / 2f
+    val r = 10f * d
+    cv.drawCircle(c, c, r, fill); cv.drawCircle(c, c, r, edge)
     return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
 }
 

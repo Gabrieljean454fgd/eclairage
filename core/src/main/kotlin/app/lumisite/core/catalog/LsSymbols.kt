@@ -110,8 +110,8 @@ object LsSymbols {
             l(0.33f, 0.69f, 0.67f, 0.69f),
         ),
         "applique" to listOf(
-            l(0.2f, 0.06f, 0.2f, 0.94f),
-            arc(0.2f, 0.5f, 0.30f, -90f, 180f),
+            l(0.3f, 0.06f, 0.3f, 0.94f),
+            arc(0.3f, 0.5f, 0.28f, -90f, 180f),
         ),
         "hublot" to listOf(
             c(0.5f, 0.5f, 0.36f),
@@ -192,10 +192,10 @@ object LsSymbols {
             l(0.32f, 0.36f, 0.32f, 0.64f), l(0.68f, 0.36f, 0.68f, 0.64f),
         ),
         "detecteur_mouvement" to listOf(
-            arc(0.5f, 0.78f, 0.18f, -180f, 180f),
-            arc(0.5f, 0.78f, 0.34f, -180f, 180f),
-            arc(0.5f, 0.78f, 0.50f, -180f, 180f),
-            c(0.5f, 0.78f, 0.05f, fill = true),
+            arc(0.5f, 0.62f, 0.12f, -180f, 180f),
+            arc(0.5f, 0.62f, 0.25f, -180f, 180f),
+            arc(0.5f, 0.62f, 0.37f, -180f, 180f),
+            c(0.5f, 0.62f, 0.05f, fill = true),
         ),
         "pdl" to listOf(
             p(0.5f, 0.12f, 0.88f, 0.5f, 0.5f, 0.88f, 0.12f, 0.5f, close = true),
@@ -354,7 +354,7 @@ object LsSymbols {
         "sirene" to listOf(
             arc(0.5f, 0.66f, 0.24f, -180f, 180f),
             l(0.26f, 0.66f, 0.74f, 0.66f),
-            arc(0.5f, 0.66f, 0.38f, -180f, 180f),
+            arc(0.5f, 0.66f, 0.34f, -180f, 180f),
         ),
         "module_relais" to listOf(
             r(0.28f, 0.28f, 0.72f, 0.72f),

@@ -43,6 +43,7 @@ import app.lumisite.core.model.StreamStateEvent
 import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.BootInfo
 import app.lumisite.core.export.sha256
+import app.lumisite.core.survey.EditHistory
 import app.lumisite.core.survey.Shapes
 import app.lumisite.core.model.Attachment
 import app.lumisite.core.model.ShapeStyle
@@ -780,7 +781,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
-        undoStack.addLast(e.id)
+        pushUndo(e.id)
         lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
         if (manual == null && hit != null && pose != null)
@@ -821,11 +822,21 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             attachments = if (attach != null) old.attachments.filterNot { it.file == replacePath } + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })
-        undoStack.addLast(e.id)
+        pushUndo(e.id)
         return e.id
     }
 
     private val undoStack = ArrayDeque<String>()
+    private val redoStack = ArrayDeque<String>()
+
+    /** true tant qu'une action annulée peut être rétablie (« Refaire »); toute nouvelle action la vide. */
+    val canRedo = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    private fun pushUndo(id: String) { undoStack.addLast(id); redoStack.clear(); canRedo.value = false }
+
+    private fun undoPrefix(events: List<SessionEvent>, id: String) = when (events.firstOrNull { it.id == id }) {
+        is app.lumisite.core.model.ZoneEvent -> "zon"; is SurveyEvent -> "srv"; else -> "shp"
+    }
 
     fun currentShapes(): List<ShapeEvent> = Shapes.current(_state.value.events)
 
@@ -838,7 +849,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         val e = ShapeEvent(Ids.new("shp"), stamps.now(), kind, geometryType, points, radiusM, label, comment, annotationType, style,
             zoneKind = if (kind == "zone") "ARCHITECTURAL" else null, source = if (kind == "zone") "MANUAL_MAP" else null)
-        record(e, "${if (kind == "annotation") annotationType ?: "Annotation" else "Forme"} enregistrée."); undoStack.addLast(e.id)
+        record(e, "${if (kind == "annotation") annotationType ?: "Annotation" else "Forme"} enregistrée."); pushUndo(e.id)
         return e.id
     }
 
@@ -848,14 +859,14 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val e = change(old).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = old.id, deleted = if (delete) true else null)
         val bad = if (e.kind == "zone" && !delete) app.lumisite.core.survey.Zones.problem(e.points, e.holes.orEmpty()) else null
         if (bad != null) { fail("Modification refusée : $bad."); return null }
-        record(e, if (delete) "Forme supprimée." else "Forme modifiée."); undoStack.addLast(e.id)
+        record(e, if (delete) "Forme supprimée." else "Forme modifiée."); pushUndo(e.id)
         return e.id
     }
 
     fun duplicateShape(id: String): String? {
         val old = currentShapes().firstOrNull { it.id == id } ?: return null
         val e = Shapes.translate(old, 0.5, -0.5).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = null, deleted = null)
-        record(e, "Forme dupliquée."); undoStack.addLast(e.id)
+        record(e, "Forme dupliquée."); pushUndo(e.id)
         return e.id
     }
 
@@ -863,23 +874,18 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun undo() {
         val id = undoStack.removeLastOrNull() ?: return fail("Rien à annuler.")
         val ev = _state.value.events
-        val head = Shapes.head(ev, id)
-        when (val done = ev.firstOrNull { it.id == id }) {
-            is ShapeEvent -> {
-                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? ShapeEvent }
-                record((prev ?: done).copy(id = Ids.new("shp"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
-            }
-            is app.lumisite.core.model.ZoneEvent -> {
-                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } }
-                    ?.let { (it as? app.lumisite.core.model.ZoneEvent) ?: (it as? ShapeEvent)?.let(app.lumisite.core.model.ZoneEvent::of) }
-                record((prev ?: done).copy(id = Ids.new("zon"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
-            }
-            is SurveyEvent -> {
-                val prev = done.supersedes?.let { p -> ev.firstOrNull { it.id == p } as? SurveyEvent }
-                record((prev ?: done).copy(id = Ids.new("srv"), t = stamps.now(), supersedes = head, deleted = if (prev == null) true else prev.deleted), "Annulé.")
-            }
-            else -> fail("Rien à annuler.")
-        }
+        val e = EditHistory.undoRecord(ev, id, Ids.new(undoPrefix(ev, id)), stamps.now()) ?: return fail("Rien à annuler.")
+        record(e, "Annulé.")
+        redoStack.addLast(id); canRedo.value = true
+    }
+
+    /** Re-applies the last undone change, append-only like undo (« Refaire »). */
+    fun redo() {
+        val id = redoStack.removeLastOrNull() ?: return fail("Rien à refaire.")
+        val ev = _state.value.events
+        val e = EditHistory.redoRecord(ev, id, Ids.new(undoPrefix(ev, id)), stamps.now()) ?: return fail("Rien à refaire.")
+        record(e, "Rétabli.")
+        undoStack.addLast(e.id); canRedo.value = redoStack.isNotEmpty()
     }
 
     fun attachmentFile(prefix: String, ext: String): File {

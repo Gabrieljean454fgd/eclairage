@@ -264,8 +264,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
                     preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
-                onTap = { if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) else picked = it },
-                onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.selected = id.removePrefix("shape:") else selectedSurvey = if (selectedSurvey == id) null else id },
+                // In Annoter the tap also feeds the active draw tool; picked stays up to date for
+                // « Déplacer au point touché » in the object panel.
+                onTap = { picked = it; if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) },
+                onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.select(id.removePrefix("shape:")) else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
                 onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },

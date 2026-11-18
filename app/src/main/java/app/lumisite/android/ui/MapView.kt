@@ -58,7 +58,7 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 
-data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null)
+data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null, val dashed: Boolean = false)
 /** Arrow (position + direction) drawn at a fixed screen size; headingDeg null = dot. Grey when stale. */
 data class MapArrow(val pos: LatLon, val headingDeg: Double?, val color: Int, val title: String)
 
@@ -333,7 +333,7 @@ fun OsmMap(
         all += group("origin", content.origin) { listOfNotNull(content.origin?.let { Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }) }
         all += group("points", content.points) { content.points.map { p ->
             Marker(mv).apply {
-                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
+                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = if (p.dashed) dashedDot(mv, p.color, 20) else dot(mv, p.color, 20)
                 val id = p.id
                 setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }
@@ -487,6 +487,18 @@ private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int 
         cv.drawPath(path, fill); cv.drawPath(path, edge)
     }
     return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
+}
+
+/** Repère « à confirmer » (reprise de session) : cercle en pointillé, centre transparent (la carte reste lisible dessous). */
+private fun dashedDot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {
+    val d = mv.resources.displayMetrics.density
+    val px = (sizeDp * d).toInt()
+    return android.graphics.drawable.GradientDrawable().apply {
+        shape = android.graphics.drawable.GradientDrawable.OVAL
+        setColor(Color.TRANSPARENT)
+        setStroke((2.5f * d).toInt().coerceAtLeast(1), color, 6 * d, 4 * d)
+        setSize(px, px)
+    }
 }
 
 private fun dot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {

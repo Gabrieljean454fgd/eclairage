@@ -13,8 +13,6 @@ import app.lumisite.core.position.CalibrationQuality
 import app.lumisite.core.position.CalibrationSolver
 import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.Solution
-import app.lumisite.core.position.SolverSettings
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

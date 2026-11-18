@@ -825,7 +825,7 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
         catch (e: android.content.ActivityNotFoundException) { err = "Aucune appli ne sait ouvrir un ZIP sur ce téléphone : utilisez « Partager »."; DiagLog.e("EXPORT", "Ouvrir : aucune appli pour application/zip", e) }
     }
 
-    Text("Export en arrière-plan (reprenable s'il est interrompu) : releves.geojson, session.json, raw/, derived/, media/, LISEZMOI.txt, vérifié (tailles et SHA-256), puis copié dans Documents/LumiSite/<site>/<session>/exports/.", style = MaterialTheme.typography.labelLarge)
+    Text("Export en arrière-plan (reprenable s'il est interrompu) : un seul fichier ZIP (releves.geojson avec les repères de calibrage, session.json, raw/ avec l'IMU en raw/imu.csv.gz, derived/, media/, LISEZMOI.txt), vérifié (tailles et SHA-256), puis copié dans Documents/LumiSite/<site>/<session>/exports/.", style = MaterialTheme.typography.labelLarge)
     Button(modifier = Modifier.testTag("session_export_exporter_la_session"), enabled = !running && !pressed, onClick = {
         pressed = true; err = null
         DiagLog.i("EXPORT", "Début de l'export de la session ${c.sessionId}"); DiagLog.memory("avant export")
@@ -869,8 +869,8 @@ private fun ExportPanel(activity: Activity, repo: Repository, c: SessionControll
             Button(onClick = { open(zip, o.getString(ExportWorker.KEY_URI)?.let(android.net.Uri::parse)) }, modifier = Modifier.testTag("session_export_ouvrir")) { Text("Ouvrir") }
             OutlinedButton(onClick = { share(zip) }, modifier = Modifier.testTag("session_export_partager")) { Text("Partager") }
         }
-        Text("Fichier : ${zip.name} (${zip.length() / 1024} Ko), ${o.getInt(ExportWorker.KEY_FILES, 0)} fichiers\nVérification : ${problems.ifEmpty { "OK, tailles et empreintes SHA-256 vérifiées" }}",
-            style = MaterialTheme.typography.bodySmall)
+        Text("Un seul fichier ZIP — Fichier : ${zip.name} (${zip.length() / 1024} Ko), ${o.getInt(ExportWorker.KEY_FILES, 0)} fichiers\nVérification : ${problems.ifEmpty { "OK, tailles et empreintes SHA-256 vérifiées" }}",
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_export_zip"))
         o.getString(ExportWorker.KEY_MEDIA)?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_export_medias")) }
     }
 }

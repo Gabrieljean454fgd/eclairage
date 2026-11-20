@@ -243,8 +243,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         OutlinedTextField(d.comment, { d.comment = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_annoter_commentaire_facultatif"))
     }
     when (d.tool) {
-        Tool.MOVE -> Text("Se déplacer : faites glisser la carte, les taps ne posent rien.", style = MaterialTheme.typography.bodySmall)
-        Tool.PLACE -> { Text("Poser : choisissez un type, puis touchez la carte.", style = MaterialTheme.typography.bodySmall); LsCatalogPicker(c, d.family) { d.family = it } }
+        Tool.PLACE -> { Text("Poser : choisissez un type, puis touchez la carte.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_annoter_aide")); LsCatalogPicker(c, d.family) { d.family = it } }
         Tool.SHAPE -> {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(d.shapeKind == "rectangle", { d.shapeKind = "rectangle"; d.pts.clear() }, { Text("Rectangle") }, modifier = Modifier.testTag("session_annoter_rectangle"))

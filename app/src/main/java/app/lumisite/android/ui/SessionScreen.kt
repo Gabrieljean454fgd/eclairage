@@ -138,6 +138,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    // v176f F3: « Recaler sur 2 repères » armé, et nombre de repères déjà visés (2 premiers = calcul, suivants = contrôle).
+    var recal2 by remember { mutableStateOf(false) }
+    var recal2Done by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms = true }
@@ -267,6 +270,15 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val controlPts = (c.controlRows("CALIBRATION").map { it to "Calibrage" } + c.controlRows("RELOCALIZATION").map { it to "Recalage" }).map { (r, k) ->
         MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id)
     }
+    // v176f F3 (reprise) : les repères des sessions précédentes restent visibles, « à confirmer » (pointillés bleus).
+    val prevReperes = c.previousControlRows()
+    val prevReperePts = prevReperes.map { r ->
+        MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "Repère ${r.n} — à confirmer (session précédente)", android.graphics.Color.rgb(30, 90, 200), "prev:" + r.e.id, dashed = true)
+    }
+    // Ordre de visée indiqué : la paire la plus écartée d'abord, puis les autres en contrôle (TwoMarkerRecal, core).
+    val recal2Order = remember(prevReperes.map { it.e.id }) {
+        app.lumisite.core.position.TwoMarkerRecal.suggestedOrder(prevReperes.map { app.lumisite.core.geo.Vec2(it.e.observation.reference.site.e, it.e.observation.reference.site.n) })
+    }
     val map: @Composable (Modifier) -> Unit = { m ->
         Box(m.testTag("session_carte")) {
             OsmMap(
@@ -274,7 +286,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 MapContent(
                     origin = c.site.origin, features = c.site.osm?.features.orEmpty(), selectedFeatureRef = c.site.selectedBuildingOsmRef,
                     trajectory = st.trajectory, uncorrected = emptyList(),
-                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw) + controlPts, picked = picked,
+                    lines = relocLines + relocPreview + shapeLines(c, shapes, draw.selected), points = surveyPts + shapePoints(c, shapes, draw) + controlPts + prevReperePts, picked = picked,
                     follow = if (follow) currentLl else null,
                     selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
                     preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
@@ -282,7 +294,15 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 // In Annoter the tap also feeds the active draw tool; picked stays up to date for
                 // « Déplacer au point touché » in the object panel. AutoPhoto (menu bloc) applies after a pose.
                 onTap = { picked = it; if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0), AutoPhoto.enabled(activity)) },
-                onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.select(id.removePrefix("shape:")) else selectedSurvey = if (selectedSurvey == id) null else id },
+                onPointTap = { id ->
+                    // « Recaler sur 2 repères » armé : toucher un repère « à confirmer » enregistre la visée (réticule sur la marque réelle).
+                    if (recal2 && id.startsWith("prev:")) prevReperes.firstOrNull { "prev:" + it.e.id == id }?.let { r ->
+                        if (if (recal2Done < 2) c.recal2Aim(r) else c.recal2Control(r) != null) recal2Done++
+                    }
+                    else if (id.startsWith("cp:") || id.startsWith("prev:")) Unit
+                    else if (id.startsWith("shape:")) draw.select(id.removePrefix("shape:"))
+                    else selectedSurvey = if (selectedSurvey == id) null else id
+                },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
                 onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
@@ -322,6 +342,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     color = if (posStatus.lost) Color.White else Color.Black, style = MaterialTheme.typography.labelMedium)
                 Text("Vert : trajectoire estimée (non garantie) · rouge : corrections",
                     Modifier.background(Color(0xCCFFFFFF)).padding(4.dp), color = Color.Black, style = MaterialTheme.typography.labelSmall)
+                if (prevReperePts.isNotEmpty()) Text("${prevReperePts.size} repère(s) de la session précédente : à confirmer (pointillés bleus)",
+                    Modifier.background(Color(0xE6FFF3C4)).padding(4.dp).testTag("session_reperes_a_confirmer"), color = Color.Black, style = MaterialTheme.typography.labelSmall)
                 if (mode == Mode.DRAW) draw.polygonHint()?.let {
                     Text(it, Modifier.background(Color(0xE6FFF3C4)).padding(6.dp).testTag("session_annoter_polygone_aide"),
                         color = Color.Black, style = MaterialTheme.typography.bodyMedium)
@@ -396,6 +418,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Text("${SurveyPositions.current(st.events).size} relevé(s), ${c.previousControlRows().size} point(s) de calibrage de la session précédente",
                     Modifier.weight(1f).testTag("session_reprise_nb"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 TextButton({ mode = Mode.CALIBRATE }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_reprise_positionner")) { Text("Calibrer") }
+                if (prevReperes.size >= 2) TextButton({ mode = Mode.CALIBRATE; recal2 = true; recal2Done = 0; c.recal2Reset() },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("session_recaler_2_reperes")) { Text("Recaler sur 2 repères") }
             }
         }
     }
@@ -412,6 +436,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     // Opening a tab leaves « Carte plein écran » and unfolds the panel so its controls are reachable.
                     if (next != mode) { panelCollapsed = false; if (next != Mode.NONE) mapFull = false }
                     mode = next; c.clearMessage()
+                    if (mode != Mode.CALIBRATE && recal2) { recal2 = false; c.recal2Reset() }
                 }
             }
             ActionCell("⏹", "Terminer", false, "session_terminer_la_session", Modifier.weight(1f), enabled = !closing) { finish() }
@@ -439,9 +464,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             val pickedTxt = picked?.let { val e = c.ltp.toEnu(it); "Point choisi : E %.2f, N %.2f m".format(e.e, e.n) } ?: "Touchez la carte pour choisir le point de référence."
             when (mode) {
                 Mode.CALIBRATE -> {
-                    CalibratePanel(c, pickedTxt, ::refPoint)
-                    st.calibMark?.let { k -> Text("Repère posé sur le plan (orange) — ${k.label} : téléphone en E %.2f, N %.2f m".format(k.site.e, k.site.n) +
-                        (k.headingDeg?.let { " ; caméra vers %.0f° (depuis le nord)".format(it) } ?: ""), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_repere")) }
+                    if (recal2) Recal2Panel(c, prevReperes, recal2Order, recal2Done) { recal2 = false; c.recal2Reset() }
+                    else {
+                        CalibratePanel(c, pickedTxt, ::refPoint)
+                        st.calibMark?.let { k -> Text("Repère posé sur le plan (orange) — ${k.label} : téléphone en E %.2f, N %.2f m".format(k.site.e, k.site.n) +
+                            (k.headingDeg?.let { " ; caméra vers %.0f° (depuis le nord)".format(it) } ?: ""), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_repere")) }
+                    }
                 }
                 Mode.RELOCALIZE -> {
                     val est = st.currentSite
@@ -610,6 +638,25 @@ private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: S
                 Modifier.fillMaxWidth().heightIn(min = 32.dp).testTag(prefix + "_precedente_" + r.n), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+/**
+ * v176f F3 — Session > Calibrer > « Recaler sur 2 repères » (reprise) : visée guidée des repères « à confirmer » dans
+ * l'ordre indiqué (la paire la plus écartée d'abord). Les 2 premières visées calculent la transformation (core
+ * TwoMarkerRecal) ; chaque repère suivant est un contrôle hors calcul. Le GPS ne sert pas au recalage intérieur.
+ */
+@Composable
+private fun Recal2Panel(c: SessionController, prev: List<ControlRow>, order: List<Int>, done: Int, onQuit: () -> Unit) {
+    c.state.collectAsState().value
+    Text("Recalage sur 2 repères : visez au réticule la marque réelle du repère, puis touchez son pointillé sur la carte. Le GPS n'est pas utilisé (extérieur seulement).",
+        style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_recal2_panneau"))
+    order.getOrNull(done)?.let { i ->
+        val r = prev.getOrNull(i) ?: return@let
+        Text(if (done < 2) "Étape ${done + 1}/2 : repère n°${r.n} — visez-le au réticule, puis touchez son pointillé bleu."
+            else "Contrôle : repère n°${r.n} — même visée ; l'écart est mesuré, hors calcul.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("session_recal2_consigne"))
+    } ?: Text("Tous les repères de la session précédente sont confirmés.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("session_recal2_consigne"))
+    OutlinedButton(onQuit, modifier = Modifier.heightIn(min = 48.dp).testTag("session_recal2_quitter")) { Text("Quitter le recalage sur 2 repères") }
 }
 
 @Composable

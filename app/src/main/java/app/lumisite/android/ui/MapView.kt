@@ -60,7 +60,9 @@ import org.osmdroid.views.overlay.ScaleBarOverlay
 
 data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null,
                     /** Symbole LS_* (LsSymbols) dessiné à la place de la pastille quand non null. */
-                    val symbol: String? = null)
+                    val symbol: String? = null,
+                    /** Repère « à confirmer » (reprise de session) : pastille en pointillé. */
+                    val dashed: Boolean = false)
 /** Arrow (position + direction) drawn at a fixed screen size; headingDeg null = dot. Grey when stale. */
 data class MapArrow(val pos: LatLon, val headingDeg: Double?, val color: Int, val title: String)
 
@@ -336,7 +338,7 @@ fun OsmMap(
         all += group("points", content.points) { content.points.map { p ->
             Marker(mv).apply {
                 position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                icon = if (p.symbol != null) lsSymbolDrawable(mv, p.symbol, p.color) else tappableDot(mv, p.color)
+                icon = if (p.symbol != null) lsSymbolDrawable(mv, p.symbol, p.color) else if (p.dashed) dashedDot(mv, p.color, 20) else tappableDot(mv, p.color)
                 val id = p.id
                 setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }
@@ -508,6 +510,18 @@ private fun tappableDot(mv: MapView, color: Int): android.graphics.drawable.Draw
     val r = 10f * d
     cv.drawCircle(c, c, r, fill); cv.drawCircle(c, c, r, edge)
     return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
+}
+
+/** Repère « à confirmer » (reprise de session) : cercle en pointillé, centre transparent (la carte reste lisible dessous). */
+private fun dashedDot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {
+    val d = mv.resources.displayMetrics.density
+    val px = (sizeDp * d).toInt()
+    return android.graphics.drawable.GradientDrawable().apply {
+        shape = android.graphics.drawable.GradientDrawable.OVAL
+        setColor(Color.TRANSPARENT)
+        setStroke((2.5f * d).toInt().coerceAtLeast(1), color, 6 * d, 4 * d)
+        setSize(px, px)
+    }
 }
 
 private fun dot(mv: MapView, color: Int, sizeDp: Int): android.graphics.drawable.Drawable {

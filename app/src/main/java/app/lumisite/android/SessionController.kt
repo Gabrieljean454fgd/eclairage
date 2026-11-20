@@ -15,6 +15,7 @@ import app.lumisite.core.position.ControlPoint
 import app.lumisite.core.position.CalibrationSolver
 import app.lumisite.core.position.CalibrationQuality
 import app.lumisite.core.position.ControlPointCheck
+import app.lumisite.core.position.TwoMarkerRecal
 import android.content.Context
 import app.lumisite.android.capture.ArTracker
 import app.lumisite.android.capture.GpsRecorder
@@ -730,6 +731,109 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         return d
     }
 
+    // ------------------------------------------------------------------ recalage sur 2 repères (v176f F3, reprise)
+
+    /** Première visée « Recaler sur 2 repères » figée en attente du 2e repère (côté AR conservé : pas de pose plus récente). */
+    private class PendingRepere(val event: ControlPointEvent, val local: Vec2, val target: Vec2, val pose: PoseSample)
+    private var pendingRepere: PendingRepere? = null
+
+    /** Session > Calibrer > « Recaler sur 2 repères » : arme (ou ré-arme) la séquence, sans toucher aux points déjà pris. */
+    fun recal2Reset() { pendingRepere = null }
+
+    /** Côté AR de la visée : le point visé au réticule (comme Session > Calibrer), ou la pose du téléphone en poses simulées. */
+    private fun aimedOrNull(pose: PoseSample): Pair<PoseSample?, app.lumisite.core.compute.AimResult.Hit?> {
+        val hit = (ar.aim.value as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_PLANE" || it.source == "AR_FLOOR_ESTIMATE" }
+        return (hit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z)) }) to hit
+    }
+
+    /**
+     * Repère « à confirmer » de la session précédente visé au réticule puis touché sur la carte (dans l'ordre indiqué).
+     * 1re visée : enregistrée, en attente ; 2e : la transformation est estimée ([TwoMarkerRecal]) et journalisée en
+     * [CalibrationEvent]. Retourne vrai quand la visée est enregistrée (même si la paire reste à compléter).
+     */
+    fun recal2Aim(row: ControlRow): Boolean {
+        val pose = trackedPose() ?: run { fail(poseUnavailable("Recalage sur 2 repères")); return false }
+        val (aimed, hit) = aimedOrNull(pose)
+        if (simThread == null && ar.aim.value != null && hit == null) {
+            fail("Recalage sur 2 repères : visez le repère au réticule (marque réelle, sur un plan détecté).")
+            return false
+        }
+        val ref = row.e.observation.reference
+        val local = aimed?.let { Vec2(it.p[0], -it.p[2]) } ?: PoseGeometry.plane(pose)
+        val target = Vec2(ref.site.e, ref.site.n)
+        pendingRepere?.let { first ->
+            // Paire refusée avant le calcul : même repère, ou correspondance contradictoire (mêmes règles que le tableau).
+            if ((first.target - target).norm() < ControlPointCheck.MIN_MAP_SEPARATION_M) {
+                fail("Même repère (à %.1f m du 1er) : visez le repère indiqué, à plus de %.0f m."
+                    .format(java.util.Locale.FRANCE, (first.target - target).norm(), ControlPointCheck.MIN_MAP_SEPARATION_M))
+                return false
+            }
+            val a = ControlPoint(first.event.id, first.event.t.monotonicNs, first.local, first.target, false)
+            ControlPointCheck.contradiction(a, ControlPoint("nouveau", stamps.now().monotonicNs, local, target, false))?.let {
+                fail("Repères contradictoires : déplacement AR de %.1f m entre les visées, repères à %.1f m sur le plan. Revisez la visée."
+                    .format(java.util.Locale.FRANCE, (first.local - local).norm(), (first.target - target).norm()))
+                return false
+            }
+        }
+        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), "CALIBRATION", LocalObservation(pose, ref),
+            aimSession = aimed?.p, aimSource = hit?.source)
+        record(e)
+        ar.requestAnchor(e.id, aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
+        val first = pendingRepere
+        if (first == null) {
+            pendingRepere = PendingRepere(e, local, target, pose)
+            _state.update { it.copy(message = "Repère ${row.n} visé. Visez le repère suivant au réticule, puis touchez-le sur la carte.") }
+            return true
+        }
+        val est = TwoMarkerRecal.estimate(TwoMarkerRecal.Observation(first.local, first.target), TwoMarkerRecal.Observation(local, target))
+        if (est == null) {
+            // La visée reste au tableau : elle devient le 1er point d'une autre paire, ou sert au calibrage avec cap.
+            pendingRepere = PendingRepere(e, local, target, pose)
+            fail("Repères trop proches (moins de %.1f m) : la rotation ne peut pas être estimée. Visez un repère plus éloigné, ou complétez avec le cap (Calibrer)."
+                .format(java.util.Locale.FRANCE, TwoMarkerRecal.MIN_SEPARATION_M))
+            return true
+        }
+        pendingRepere = null
+        _state.update {
+            it.copy(controlSolution = Solution(est.transform, mapOf(first.event.id to est.residualsM[0], e.id to est.residualsM[1]),
+                emptySet(), mapOf(first.event.id to 1.0, e.id to 1.0), est.rmsM, "TWO_MARKERS", null))
+        }
+        val summary = "2 repères, résidu RMS " + "%.2f".format(java.util.Locale.FRANCE, est.rmsM) + " m (TWO_MARKERS)"
+        DiagLog.i("POSITION", "Recalage sur 2 repères : $summary rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(est.transform.rotationRad)) + "°")
+        record(CalibrationEvent(Ids.new("cal"), stamps.now(), CalibrationMethod.MULTI_POINT, listOf(first.event.observation, e.observation),
+            transform = est.transform, scaleFixed = true, residualM = est.rmsM,
+            notes = "recalage sur 2 repères de la session précédente (visées au réticule)"), "Recalage sur 2 repères : $summary")
+        markCalibration(pose, "Recalage sur 2 repères, repère ${row.n}")
+        return true
+    }
+
+    /**
+     * 3e repère (ou suivant) visé après le recalage : écart mesuré et journalisé comme point de contrôle indépendant
+     * (hors calcul). Null quand la visée n'a pas pu être prise (message affiché).
+     */
+    fun recal2Control(row: ControlRow): Double? {
+        val pose = trackedPose() ?: run { fail(poseUnavailable("Contrôle")); return null }
+        val seg = activeSegment() ?: run { fail("Contrôle impossible : aucun calibrage actif (visez d'abord 2 repères)."); return null }
+        val (aimed, hit) = aimedOrNull(pose)
+        if (simThread == null && ar.aim.value != null && hit == null) {
+            fail("Contrôle : visez le repère au réticule.")
+            return null
+        }
+        val ref = row.e.observation.reference
+        val local = aimed?.let { Vec2(it.p[0], -it.p[2]) } ?: PoseGeometry.plane(pose)
+        val d = TwoMarkerRecal.controlResidualM(seg.transform, TwoMarkerRecal.Observation(local, Vec2(ref.site.e, ref.site.n)))
+        val e = ControlPointEvent(Ids.new("cp"), stamps.now(), "CALIBRATION", LocalObservation(pose, ref),
+            aimSession = aimed?.p, aimSource = hit?.source, independentControl = true)
+        record(e)
+        ar.requestAnchor(e.id, aimed ?: pose, app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
+        DiagLog.i("POSITION", "Repère de contrôle ${row.n} (recalage 2 repères, hors calcul) : écart %.2f m".format(java.util.Locale.ROOT, d))
+        _state.update {
+            it.copy(message = "Repère ${row.n} contrôlé : écart " + "%.2f".format(java.util.Locale.FRANCE, d) + " m" +
+                if (d > CalibrationQuality.ALERT_M) " : au-delà de 0,5 m, recalage à vérifier." else ".")
+        }
+        return d
+    }
+
     fun removeControlPoint(id: String) {
         val before = activeSegment()
         _state.update { it.copy(forcible = null) }
@@ -741,6 +845,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     /** « Nouveau calibrage » empties both tables, « Nouveau recalage » only the relocalizations. */
     fun clearControlPoints(relocalizationsOnly: Boolean) {
         val before = activeSegment()
+        pendingRepere = null
         _state.update { it.copy(forcible = null) }
         activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)); ar.dropAnchor(it.id); anchorPoses.remove(it.id) }
         resolve(null, before)

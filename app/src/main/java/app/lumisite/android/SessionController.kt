@@ -156,7 +156,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
-    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also { it.onAnchors = { m -> onAnchors(m) }; it.sensorTiltDeg = { sensors.cameraTiltDeg } }
+    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also {
+        it.onAnchors = { m -> onAnchors(m) }; it.sensorTiltDeg = { sensors.cameraTiltDeg }
+        it.rawPolygonsOn.value = app.lumisite.android.capture.ArDiagnose.rawPolygons(ctx)
+    }
     val gnss = GnssClassifier()
     val solverSettings = SolverSettings()
     private var lastGnssFix: GpsFix? = null

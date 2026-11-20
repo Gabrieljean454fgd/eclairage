@@ -124,5 +124,14 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
                     modifier = Modifier.testTag("reglages_imu_${hz}hz"))
             }
         }
+
+        HorizontalDivider()
+        Text("Diagnostic", style = MaterialTheme.typography.titleMedium)
+        var rawPoly by remember { mutableStateOf(app.lumisite.android.capture.ArDiagnose.rawPolygons(ctx)) }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            androidx.compose.material3.Switch(rawPoly, { rawPoly = it; app.lumisite.android.capture.ArDiagnose.setRawPolygons(ctx, it) },
+                modifier = Modifier.testTag("reglages_ar_polygones_bruts"))
+            Text(" Polygones ARCore bruts en AR (Session), appliqué à la prochaine session")
+        }
     }
 }

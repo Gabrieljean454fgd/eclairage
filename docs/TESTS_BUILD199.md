@@ -9,6 +9,7 @@ Rien n'a été exécuté : pas de JDK sur le box, et les tests lourds sur TORNAD
 | `core/.../compute/SupportFromTilt.kt` + `SupportFromTiltTest.kt` | 6 | support sol / mur / plafond déduit de l'inclinaison (gravité ou pose ARCore), seuils ±35°, hystérésis 5° |
 | `core/.../osm/AddressHistory.kt` + `AddressHistoryTest.kt` | 3 | historique local d'adresses (dédoublonnage, 200 max), suggestions par début de mot, plus proches d'abord, paramètres de proximité IGN (`lat`/`lon`) et Nominatim (`viewbox`) |
 | `core/.../sync/SyncDisplay.kt` + `SyncDisplayTest.kt` | 1, 2 | nom lisible du téléphone (Xiaomi : `23078PND5G` remplacé par le nom de l'appareil), bandeau vert dès qu'un esclave est connecté, décalage brut d'horloge monotone masqué |
+| `core/.../compute/ArGeometry.kt` (intersections) + `ArGeometryTest.kt`, `core/.../compute/PlaneFilter.kt` + `PlaneFilterTest.kt` | 2d, 2e | arêtes = intersections de plans bornées aux polygones (rejet < 10°) ; sol = horizontal le plus bas, mobilier 0,3–2,0 m ignoré, plans < 0,25 m² ignorés |
 
 Commande (après 23 h, ou en CI) : `./gradlew :core:test --tests "*SupportFromTilt*" --tests "*AddressHistory*" --tests "*SyncDisplay*"`
 
@@ -24,6 +25,7 @@ déplace à la racine `.maestro/`. Tous effacent les données (clearState) : sur
 | `b199_carte_annoter.yaml` | 7, 9 | `session_camera_repliee`, `session_carte_plein_ecran` |
 | `b199_adresses_recentes.yaml` | 3 | `nouveau_site_adresse_recente_N` |
 | `b199_releve_catalogue.yaml` | 8 | `session_releve_categorie_<FAMILLE>`, `session_releve_fil_ariane`, `session_releve_type_<CODE>`, `session_releve_recherche`, `session_releve_ajouter_type`, `session_releve_nouveau_type_nom`, `session_releve_nouveau_type_valider` |
+| `b199_ar_aretes.yaml` | 2d, 2e | `reglages_ar_polygones_bruts` (Réglages > Diagnostic) ; le tracé des arêtes et le filtre mobilier restent des vérifications téléphone/JVM |
 
 À adapter quand le sélecteur disparaît : `.maestro/v176_ar_contours.yaml` (il touche `session_ar_surface_plafond` / `_tous`).
 À garder vert sans modification : `.maestro/v176_nouveau_site_rectangle.yaml` (point 4, rectangle « impeccable »).

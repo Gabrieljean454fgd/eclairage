@@ -7,7 +7,13 @@ name: Session annoter selection directe et deplacement
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
 - tapOn: { id: "session_point_a_la_croix" }
-- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- tapOn: { id: "session_releve_categorie_SON" }
+- repeat:
+    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
 # Sans suivi AR (émulateur), « Position manuelle » est déjà cochée. Le panneau défile par glissement (au centre, on déplacerait la carte).
 # Le panneau du bas défile jusqu'au bouton (la longueur de la grille des familles varie).
 - repeat:

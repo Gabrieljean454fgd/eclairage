@@ -219,8 +219,15 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         MapLine(c.ltp.toLatLon(it.estimatedBefore), c.ltp.toLatLon(it.correctedAfter), android.graphics.Color.RED, "Recalage %.2f m".format(it.deltaM))
     }
     val surveys = SurveyPositions.resolveAll(events)
+    val cat = c.lsCatalog.collectAsState().value
     val surveyPts = surveys.mapNotNull { r ->
-        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
+        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let {
+            val item = cat.byCodeOrLegacy(r.event.kind)
+            MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${item?.label ?: r.event.kind} ${r.event.note ?: ""}",
+                if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0)
+                else item?.let { it2 -> app.lumisite.core.catalog.LsSymbols.familyColor(it2.famille).toInt() } ?: android.graphics.Color.MAGENTA,
+                r.event.id, symbol = item?.let { i -> app.lumisite.core.catalog.LsSymbols.symbolOf(i) })
+        }
     }
     val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
@@ -273,8 +280,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
                 // In Annoter the tap also feeds the active draw tool; picked stays up to date for
-                // « Déplacer au point touché » in the object panel.
-                onTap = { picked = it; if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0)) },
+                // « Déplacer au point touché » in the object panel. AutoPhoto (menu bloc) applies after a pose.
+                onTap = { picked = it; if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0), AutoPhoto.enabled(activity)) },
                 onPointTap = { id -> if (id.startsWith("cp:")) Unit else if (id.startsWith("shape:")) draw.select(id.removePrefix("shape:")) else selectedSurvey = if (selectedSurvey == id) null else id },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = true,
                 onViewport = { ctr, _ -> mapCenter = ctr },
@@ -292,7 +299,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     val p = c.ltp.toEnu(ll).copy(u = 0.0)
                     when (phase) {
                         FingerPhase.DOWN, FingerPhase.MOVE -> draw.hover = p
-                        FingerPhase.UP -> { draw.hover = null; draw.onTap(c, p) }
+                        FingerPhase.UP -> { draw.hover = null; draw.onTap(c, p, AutoPhoto.enabled(activity)) }
                         FingerPhase.CANCEL -> draw.hover = null
                     }
                 } else null,
@@ -695,14 +702,6 @@ private fun RelocPanel(c: SessionController, pickedTxt: String, ref: (String) ->
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = true) }, modifier = Modifier.testTag("session_recaler_nouveau_recalage")) { Text("Nouveau recalage") }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FamilyGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_releve_famille_" + f.blockName)) }
-    }
-}
-
 @Composable
 private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: Boolean, ref: (String) -> ReferencePoint?, arBlocked: Boolean = false) {
     var family by remember { mutableStateOf<String?>(null) }
@@ -714,8 +713,9 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     // While the photo is proposed the panel shows only that (short, so it is on screen without scrolling).
     photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
-    Text("Relevé : famille du catalogue ${c.catalog.version} (1 tap), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
-    FamilyQuickGrid(c, family) { family = it }
+    val catVersion = c.lsCatalog.collectAsState().value.version
+    Text("Relevé : type du catalogue $catVersion, position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
+    LsCatalogPicker(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
     DetailsForm(family, details)
     OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_releve_commentaire_facultatif"))
@@ -737,7 +737,7 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
     var details by rememberSaveable { mutableStateOf(false) }
     val site = r.site
     Column(Modifier.fillMaxWidth().background(Color(0x22FF8C00)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Relevé sélectionné : ${r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · Photos et sons (${r.event.attachments.size})" else ""), style = MaterialTheme.typography.labelLarge)
+        Text("Relevé sélectionné : ${c.lsItem(r.event.kind)?.label ?: r.event.kind}" + (if (r.event.attachments.isNotEmpty()) " · Photos et sons (${r.event.attachments.size})" else ""), style = MaterialTheme.typography.labelLarge)
         (if (moving) moveTarget ?: site else site)?.let { Text("E %.2f, N %.2f m".format(it.e, it.n), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_coordonnees")) }
         if (moving) {
             Text("Glissez le symbole avec un doigt (deux doigts : déplacer la carte), puis validez.", style = MaterialTheme.typography.bodySmall)
@@ -763,12 +763,12 @@ private fun SelectedSurveyPanel(c: SessionController, r: SurveyPositions.Resolve
             Button({ c.editSurvey(r.event.id, note = note); onDone() }, modifier = Modifier.testTag("session_objet_enregistrer")) { Text("Enregistrer") }
             OutlinedButton({ changeFamily = !changeFamily }, modifier = Modifier.testTag("session_objet_changer_de_famille")) { Text("Changer de famille") }
         }
-        Text("Famille et type actuels : " + app.lumisite.core.survey.SurveyEdits.familyPath(c.catalog.find(r.event.kind), r.event.kind),
+        Text("Famille et type actuels : " + app.lumisite.core.survey.SurveyEdits.familyPath(c.lsItem(r.event.kind), r.event.kind, c.catalog.find(r.event.kind)),
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_objet_famille_actuelle"))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton({ c.editSurvey(r.event.id, delete = true); onDone() }, modifier = Modifier.testTag("session_objet_supprimer")) { Text("Supprimer", color = Color.Red) }
         }
-        if (changeFamily) FamilyGrid(c, r.event.kind) { c.editSurvey(r.event.id, familyId = it); onDone() }
+        if (changeFamily) LsCatalogPicker(c, r.event.kind) { c.editSurvey(r.event.id, familyId = it); onDone() }
     }
 }
 

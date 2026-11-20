@@ -94,7 +94,7 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
         var autoPhoto by remember { mutableStateOf(AutoPhoto.enabled(ctx)) }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
-            Text(" Photo automatique à l'implantation (Session > Relevé)")
+            Text(" Photo après pose (Session > Relevé et Annoter > Poser)")
         }
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)

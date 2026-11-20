@@ -1,0 +1,98 @@
+{
+  "version": "fixture-v176e",
+  "items": [
+    {
+      "code": "LS_ECL_ENC_DOWNLIGHT",
+      "label": "Downlight",
+      "famille": "Éclairage",
+      "sousFamille": "Encastré",
+      "type": "Downlight",
+      "synonyms": [
+        "encastré",
+        "spot encastré"
+      ]
+    },
+    {
+      "code": "LS_ECL_ENC_DALLE",
+      "label": "Dalle LED 600x600",
+      "famille": "Éclairage",
+      "sousFamille": "Encastré",
+      "type": "Dalle LED",
+      "synonyms": [
+        "panneau"
+      ]
+    },
+    {
+      "code": "LS_ECL_PROJ_LED",
+      "label": "Projecteur LED",
+      "famille": "Éclairage",
+      "sousFamille": "Projecteur",
+      "type": "Projecteur LED",
+      "synonyms": [
+        "projo"
+      ]
+    },
+    {
+      "code": "LS_ECL_SUSP",
+      "label": "Suspension",
+      "famille": "Éclairage",
+      "sousFamille": "Suspendu",
+      "type": "Suspension",
+      "synonyms": [
+        "lustre"
+      ]
+    },
+    {
+      "code": "LS_ELEC_PRISE_2PT",
+      "label": "Prise 2P+T",
+      "famille": "Électricité",
+      "sousFamille": "Prise",
+      "type": "Prise 2P+T",
+      "synonyms": [
+        "PC 16A",
+        "prise de courant"
+      ]
+    },
+    {
+      "code": "LS_ELEC_INTER",
+      "label": "Interrupteur",
+      "famille": "Électricité",
+      "sousFamille": "Commande",
+      "type": "Interrupteur"
+    },
+    {
+      "code": "LS_SON_ENCEINTE",
+      "label": "Enceinte",
+      "famille": "Son",
+      "sousFamille": "Diffusion",
+      "type": "Enceinte",
+      "synonyms": [
+        "haut-parleur",
+        "HP"
+      ]
+    },
+    {
+      "code": "LS_SON_AMPLI",
+      "label": "Amplificateur",
+      "famille": "Son",
+      "sousFamille": "Électronique",
+      "type": "Amplificateur"
+    },
+    {
+      "code": "LS_SECU_BAES",
+      "label": "BAES",
+      "famille": "Sécurité",
+      "sousFamille": "Évacuation",
+      "type": "BAES",
+      "synonyms": [
+        "bloc secours"
+      ]
+    },
+    {
+      "code": "LS_AUTRE_A_CLASSER",
+      "label": "À classer",
+      "famille": "Autres",
+      "type": "À classer"
+    }
+  ]
+}

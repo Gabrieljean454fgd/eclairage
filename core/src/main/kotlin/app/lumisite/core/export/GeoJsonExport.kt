@@ -67,6 +67,10 @@ object GeoJsonFeatures {
             put("properties", buildJsonObject {
                 put("rev", rev); put("op", op); put("kind", "equipment")
                 put("block_name", s.dxf?.blockName ?: s.kind)
+                // Catalogue 2.0 (lumisite-equipment/2) : le code LS_*, son libellé et sa famille voyagent avec l'objet.
+                payload?.get("ls_code")?.jsonPrimitive?.contentOrNull?.let { put("ls_code", it) }
+                payload?.get("ls_label")?.jsonPrimitive?.contentOrNull?.let { put("ls_label", it) }
+                payload?.get("ls_famille")?.jsonPrimitive?.contentOrNull?.let { put("ls_famille", it) }
                 put("catalog_version", catalogVersion)
                 put("layer", s.dxf?.layer ?: "RES - Elec")
                 put("status", (payload?.get("status") ?: (payload?.get("details") as? JsonObject)?.get("status"))?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)

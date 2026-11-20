@@ -23,6 +23,8 @@ import app.lumisite.android.data.AndroidClock
 import app.lumisite.android.data.CatalogStore
 import app.lumisite.core.catalog.CatalogEntry
 import app.lumisite.core.catalog.EquipmentCatalog
+import app.lumisite.core.catalog.LsCatalog
+import app.lumisite.core.catalog.LsItem
 import app.lumisite.core.compute.SurveyPositions
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -137,6 +139,9 @@ data class CalibMark(val site: Enu, val headingDeg: Double?, val label: String)
  * user events (calibration, relocalization, survey, sync). Business rules live in :core.
  */
 const val NO_POSITION = "Suivi ou calibration manquant : touchez la carte ou cochez la position manuelle."
+
+/** Payload des relevés du catalogue 2.0 (codes LS_*) : ls_code, ls_label, ls_famille, calque, bloc_dwg. */
+const val LS_PAYLOAD_SCHEMA = "lumisite-equipment/2"
 
 class SessionController(private val ctx: Context, private val repo: Repository, site: Site, val sessionId: String, resume: Boolean) {
     /** Site record; updated when a per-site setting (hauteur sous plafond, 2f) is saved during the session. */
@@ -811,9 +816,53 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     val catalog: EquipmentCatalog = CatalogStore.get(ctx)
 
+    /** Catalogue 2.0 (codes LS_* + types LS_PERSO_* locaux) : sélecteur Relevé / Annoter > Poser. */
+    private val _lsCatalog = MutableStateFlow(CatalogStore.getLs(ctx))
+    val lsCatalog: StateFlow<LsCatalog> = _lsCatalog.asStateFlow()
+
+    /** Item du catalogue 2.0 pour un code LS_* ou un ancien nom de bloc (relecture des relevés 1.0). */
+    fun lsItem(id: String): LsItem? = _lsCatalog.value.byCodeOrLegacy(id)
+
+    /** « Ajouter un type… » : crée un LS_PERSO_<n> dans [famille], persistant et exporté avec son libellé. */
+    fun addPersonalType(famille: String, label: String): LsItem? {
+        val name = label.trim()
+        if (name.isEmpty()) { fail("Nom de type vide."); return null }
+        val code = LsCatalog.nextPersonalCode(_lsCatalog.value.items)
+        val item = LsItem(code = code, label = name, famille = famille, type = name, isBlock = false, symbole = "autre")
+        runCatching { CatalogStore.appendPersonal(ctx, item) }
+            .onFailure { fail("Type non enregistré : ${it.message}"); return null }
+        _lsCatalog.value = CatalogStore.getLs(ctx)
+        return item
+    }
+
+    /** Famille résolue pour [survey]/[editSurvey] : code LS_*, ancien nom via les alias, sinon catalogue 1.0. */
+    private class ResolvedFamily(val kind: String, val label: String, val schema: String?, val dxf: DxfHint?, val payload: (JsonObject?) -> JsonObject)
+
+    private fun resolveFamily(familyId: String): ResolvedFamily? {
+        lsItem(familyId)?.let { it ->
+            return ResolvedFamily(it.code, it.label, LS_PAYLOAD_SCHEMA,
+                if (it.isBlock) DxfHint(layer = it.calque ?: "RES - Elec", blockName = it.blocDwg ?: it.code) else null) { d -> lsPayload(it, d) }
+        }
+        val fam = catalog.find(familyId) ?: return null
+        return ResolvedFamily(fam.blockName, fam.label, EquipmentCatalog.PAYLOAD_SCHEMA,
+            if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) { d -> equipmentPayload(fam, d) }
+    }
+
     private fun equipmentPayload(fam: CatalogEntry, details: JsonObject?) = buildJsonObject {
         put("catalog_version", catalog.version)
         put("block_name", fam.blockName)
+        if (details != null) put("details", details)
+    }
+
+    /** Payload d'un relevé du catalogue 2.0 : le code, le libellé et la correspondance bureau voyagent avec l'objet. */
+    private fun lsPayload(item: LsItem, details: JsonObject?) = buildJsonObject {
+        put("catalog_version", _lsCatalog.value.version)
+        put("ls_code", item.code)
+        put("ls_label", item.label)
+        put("ls_famille", item.famille)
+        item.calque?.let { put("calque", it) }
+        item.blocDwg?.let { put("bloc_dwg", it) }
+        put("block_name", item.blocDwg ?: item.code)
         if (details != null) put("details", details)
     }
 
@@ -823,7 +872,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         private set
 
     fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null): Boolean {
-        val fam = try { catalog.resolve(familyId) } catch (e: IllegalArgumentException) { fail(e.message ?: "Famille inconnue"); return false }
+        val fam = resolveFamily(familyId) ?: return fail("Famille inconnue du catalogue : « $familyId »").let { false }
         val st = _state.value
         val pose = trackedPose()
         val seg = activeSegment()
@@ -841,10 +890,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (manual == null && hit?.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED)
             DiagLog.i("POSITION", "Relevé : plafond estimé (aucun plan plafond détecté, hauteur sous plafond ${site.ceilingHeightM} m)")
         val e = SurveyEvent(
-            id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: latestPose,
+            id = Ids.new("srv"), t = stamps.now(), kind = fam.kind, note = note?.ifBlank { null }, pose = pose ?: latestPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
-            payloadSchema = EquipmentCatalog.PAYLOAD_SCHEMA, payload = equipmentPayload(fam, details),
-            dxf = if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null,
+            payloadSchema = fam.schema, payload = fam.payload(details),
+            dxf = fam.dxf,
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         pushUndo(e.id)
@@ -873,7 +922,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun editSurvey(id: String, moveTo: Enu? = null, familyId: String? = null, note: String? = null, delete: Boolean = false, attach: Attachment? = null, replacePath: String? = null): String? {
         val events = _state.value.events
         val old = SurveyPositions.current(events).firstOrNull { it.id == id } ?: return null.also { fail("Relevé introuvable.") }
-        val fam = familyId?.let { try { catalog.resolve(it) } catch (e: IllegalArgumentException) { return null.also { fail(e.message ?: "Famille inconnue") } } }
+        val fam = familyId?.let { resolveFamily(it) ?: return null.also { fail("Famille inconnue du catalogue : « $familyId »") } }
         val pos = moveTo ?: SurveyPositions.resolveAll(events).first { it.event.id == id }.site
         val moved = moveTo != null
         val e = old.copy(
@@ -881,10 +930,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             note = app.lumisite.core.survey.SurveyEdits.note(old.note, note),
             positionSource = if (moved) "MANUAL_EDIT" else old.positionSource,
             manualSite = if (moved) pos else old.manualSite,
-            kind = fam?.blockName ?: old.kind,
-            payloadSchema = if (fam != null) EquipmentCatalog.PAYLOAD_SCHEMA else old.payloadSchema,
-            payload = if (fam != null) equipmentPayload(fam, old.payload?.get("details") as? JsonObject) else old.payload,
-            dxf = if (fam != null) (if (fam.isBlock) DxfHint(layer = fam.defaultLayer, blockName = fam.blockName) else null) else old.dxf,
+            kind = fam?.kind ?: old.kind,
+            payloadSchema = fam?.schema ?: old.payloadSchema,
+            payload = if (fam != null) fam.payload(old.payload?.get("details") as? JsonObject) else old.payload,
+            dxf = if (fam != null) fam.dxf else old.dxf,
             attachments = if (attach != null) old.attachments.filterNot { it.file == replacePath } + attach else old.attachments,
         )
         record(e, when { attach != null -> "Pièce jointe ajoutée."; delete -> "Relevé supprimé."; moved -> "Relevé déplacé."; else -> "Relevé modifié." })

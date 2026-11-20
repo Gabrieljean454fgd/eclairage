@@ -26,6 +26,7 @@ déplace à la racine `.maestro/`. Tous effacent les données (clearState) : sur
 | `b199_adresses_recentes.yaml` | 3 | `nouveau_site_adresse_recente_N` |
 | `b199_releve_catalogue.yaml` | 8 | `session_releve_categorie_<FAMILLE>`, `session_releve_fil_ariane`, `session_releve_type_<CODE>`, `session_releve_recherche`, `session_releve_ajouter_type`, `session_releve_nouveau_type_nom`, `session_releve_nouveau_type_valider` |
 | `b199_ar_aretes.yaml` | 2d, 2e | `reglages_ar_polygones_bruts` (Réglages > Diagnostic) ; le tracé des arêtes et le filtre mobilier restent des vérifications téléphone/JVM |
+| `b199_ar_drapeaux_plafond.yaml` | 2c, 2f | `session_calibrer_hauteur_plafond`, `session_calibrer_hauteur_mesurer`, `session_calibrer_hauteur_enregistrer`, `session_calibrer_hauteur_valeur` (ancres grises/recréées : vérification manuelle sur le Pixel 7) |
 
 À adapter quand le sélecteur disparaît : `.maestro/v176_ar_contours.yaml` (il touche `session_ar_surface_plafond` / `_tous`).
 À garder vert sans modification : `.maestro/v176_nouveau_site_rectangle.yaml` (point 4, rectangle « impeccable »).

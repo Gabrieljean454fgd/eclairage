@@ -1,0 +1,39 @@
+# Retour terrain build 199 (17/11), points 2c et 2f — SPÉCIFICATION.
+# 2f : Session > Calibrer expose « Hauteur sous plafond » (saisie ou mesure en visant l'angle mur/plafond) ;
+#      la valeur est affichée et conservée par site. Visée PLAFOND sans plan détecté → point « estimé »
+#      (source AR_CEILING_ESTIMATED, journalisée), jamais de repli silencieux. Depth API non activée.
+# 2c : les ancres (drapeaux, luminaires) restent dessinées en gris quand le suivi est PAUSED/dégradé ;
+#      seul STOPPED les retire ; à la reprise, dès le calibrage rétabli, une ancre est recréée par repère
+#      actif et par luminaire via la transformation carte → AR (non vérifiable en CI : contrôle manuel Pixel 7).
+appId: app.lumisite.android
+name: "build199 AR : hauteur sous plafond, ancres conservées"
+---
+- runFlow: ../scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_calibrer" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_hauteur_plafond" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
+- assertVisible: { id: "session_calibrer_hauteur_valeur", text: ".*non saisie.*" }
+- assertVisible: { id: "session_calibrer_hauteur_mesurer" }
+- tapOn: { id: "session_calibrer_hauteur_plafond" }
+- inputText: "2.60"
+- hideKeyboard
+- repeat:
+    while: { notVisible: { id: "session_calibrer_hauteur_enregistrer" } }
+    times: 6
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
+- tapOn: { id: "session_calibrer_hauteur_enregistrer" }
+- assertVisible: { id: "session_calibrer_hauteur_valeur", text: ".*2,60 m.*" }
+# La valeur est conservée : fermer puis rouvrir Session > Calibrer la réaffiche (site persisté).
+- tapOn: { id: "session_calibrer" }
+- tapOn: { id: "session_calibrer" }
+- repeat:
+    while: { notVisible: { id: "session_calibrer_hauteur_valeur" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
+- assertVisible: { id: "session_calibrer_hauteur_valeur", text: ".*2,60 m.*" }
+- takeScreenshot: maestro-out/captures/b199_ar_drapeaux_plafond

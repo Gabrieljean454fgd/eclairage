@@ -608,7 +608,7 @@ private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: S
 @Composable
 private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String) -> ReferencePoint?) {
     var heading by remember { mutableStateOf("") }
-    c.state.collectAsState().value
+    val st = c.state.collectAsState().value
     val rows = c.controlRows("CALIBRATION")
     Text("Calibrage multi-points : touchez sur la carte le point où vous êtes, validez ; 1er point avec le cap de visée, puis 2e, 3e… point.", style = MaterialTheme.typography.labelLarge)
     Text(pickedTxt, style = MaterialTheme.typography.bodySmall)
@@ -633,6 +633,19 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
         Text("Qualité : ${g.level.label}" + (if (g.reasons.isEmpty()) "" else " (" + g.reasons.joinToString(", ") + ")"),
             color = col, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("session_calibrer_qualite"))
     }
+    // 2f : « Hauteur sous plafond » du site — saisie une fois, ou mesurée en visant l'angle mur/plafond. Elle alimente
+    // le plafond virtuel de la visée PLAFOND (point « estimé », jamais de repli silencieux).
+    var hauteur by remember { mutableStateOf("") }
+    Text("Hauteur sous plafond : " + (st.ceilingHeightM?.let { "%.2f m".format(java.util.Locale.FRANCE, it) } ?: "non saisie (plafonds lisses : visée « position à compléter »)"),
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_hauteur_valeur"))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(hauteur, { hauteur = it }, label = { Text("Hauteur (m)") }, singleLine = true,
+            modifier = Modifier.width(130.dp).testTag("session_calibrer_hauteur_plafond"))
+        OutlinedButton({ c.measureCeilingHeight() }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_calibrer_hauteur_mesurer")) { Text("Mesurer en visant l'angle mur/plafond") }
+    }
+    OutlinedButton(enabled = hauteur.replace(',', '.').toDoubleOrNull() != null,
+        onClick = { hauteur.replace(',', '.').toDoubleOrNull()?.let { if (c.setCeilingHeight(it, "saisie manuelle")) hauteur = "" } },
+        modifier = Modifier.testTag("session_calibrer_hauteur_enregistrer")) { Text("Enregistrer la hauteur") }
     OutlinedButton({ c.clearControlPoints(relocalizationsOnly = false) }, modifier = Modifier.testTag("session_calibrer_nouveau_calibrage")) { Text("Nouveau calibrage") }
 }
 

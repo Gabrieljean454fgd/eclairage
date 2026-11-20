@@ -111,6 +111,8 @@ data class LiveState(
     val controlSolution: Solution? = null,
     /** Décision A: last contradictory point refused, that the user may force (« Recaler quand même »). */
     val forcible: ForcibleControlPoint? = null,
+    /** 2f: hauteur sous plafond du site (saisie/mesure dans Session > Calibrer), affichée et utilisée par la visée PLAFOND. */
+    val ceilingHeightM: Double? = null,
 )
 
 /** A point refused as contradictory, kept until the user forces it, adds another point or clears the table. */
@@ -136,7 +138,9 @@ data class CalibMark(val site: Enu, val headingDeg: Double?, val label: String)
  */
 const val NO_POSITION = "Suivi ou calibration manquant : touchez la carte ou cochez la position manuelle."
 
-class SessionController(private val ctx: Context, private val repo: Repository, val site: Site, val sessionId: String, resume: Boolean) {
+class SessionController(private val ctx: Context, private val repo: Repository, site: Site, val sessionId: String, resume: Boolean) {
+    /** Site record; updated when a per-site setting (hauteur sous plafond, 2f) is saved during the session. */
+    var site = site; private set
     val ltp = LocalTangentPlane(site.origin)
     private val _state = MutableStateFlow(LiveState())
     val state: StateFlow<LiveState> = _state.asStateFlow()
@@ -158,7 +162,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
     val ar = ArTracker(ctx, { stamps }, ::onArFrame).also {
-        it.onAnchors = { m -> onAnchors(m) }; it.sensorTiltDeg = { sensors.cameraTiltDeg }
+        it.onAnchors = { m -> onAnchors(m) }; it.sensorTiltDeg = { sensors.cameraTiltDeg }; it.ceilingHeightM = site.ceilingHeightM
         it.rawPolygonsOn.value = app.lumisite.android.capture.ArDiagnose.rawPolygons(ctx)
     }
     val gnss = GnssClassifier()
@@ -176,6 +180,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             notes = "SystemClock.elapsedRealtimeNanos(); UTC from System.currentTimeMillis() captured at the same instant",
             bootId = BootInfo.bootId(), bootCount = BootInfo.bootCount(ctx))
         stamps = StampFactory(AndroidClock, tbRef)
+        _state.update { it.copy(ceilingHeightM = site.ceilingHeightM) }
         val dir = repo.sessionDir(sessionId)
         if (!resume) {
             val arSupport = runCatching { ArTracker.availability(ctx).name }.getOrDefault("UNKNOWN")
@@ -504,6 +509,59 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         } catch (ex: IllegalArgumentException) { fail(ex.message ?: "Erreur") }
     }
 
+    // ------------------------------------------------------------------ hauteur sous plafond (2f)
+
+    /**
+     * 2f: « Hauteur sous plafond » of the site — typed once in Session > Calibrer or measured by aiming at the
+     * wall/ceiling corner ([measureCeilingHeight]). Persisted on the Site, journaled, feeds the virtual ceiling
+     * (AR_CEILING_ESTIMATED) of the PLAFOND aim.
+     */
+    fun setCeilingHeight(m: Double, source: String): Boolean {
+        if (!m.isFinite() || m < 0.5 || m > 20.0) { fail("Hauteur sous plafond refusée : hors limites 0,5–20 m."); return false }
+        val newSite = site.copy(ceilingHeightM = m)
+        runCatching { repo.saveSite(newSite) }.onFailure { fail("Hauteur sous plafond : écriture du site impossible (${it.message})"); return false }
+        site = newSite
+        ar.ceilingHeightM = m
+        streamState(listOf("site"), "CEILING_HEIGHT_M", "$source : %.2f m".format(java.util.Locale.FRANCE, m))
+        _state.update { it.copy(ceilingHeightM = m, message = "Hauteur sous plafond : %.2f m — %s.".format(java.util.Locale.FRANCE, m, source)) }
+        DiagLog.i("POSITION", "Hauteur sous plafond enregistrée pour le site ${site.id} : $m m ($source)")
+        return true
+    }
+
+    /** Session > Calibrer > « Mesurer en visant l'angle mur/plafond » : H = hauteur du point visé − niveau du sol. */
+    fun measureCeilingHeight(): Boolean {
+        val hit = (ar.aim.value as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_WALL" || it.source == "AR_CEILING" }
+        if (hit == null) { fail("Mesure de la hauteur : visez l'angle mur/plafond (mur ou plafond détecté)."); return false }
+        val fy = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M)
+        if (fy == null) { fail("Mesure de la hauteur : sol non détecté et pose AR indisponible."); return false }
+        return setCeilingHeight(hit.point.y - fy, "mesurée en visant l'angle mur/plafond")
+    }
+
+    /**
+     * 2c: on a resumed session the AR frame is new and the previous anchors are gone. As soon as the calibration is
+     * restored (first transform of the new frame, from Calibrer or Recaler), one anchor is recreated per active repère
+     * and per luminaire at its map-projected position (Aim.toSession); ARCore then tracks them normally. Repères are
+     * map points (u = 0): their flag is planted at the detected floor level.
+     */
+    private fun restoreAnchors(seg: TrajectoryCorrector.Segment) {
+        val tr = seg.transform
+        val floorY = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M) ?: 0.0
+        val now = stamps.now()
+        fun anchorPose(at: app.lumisite.core.compute.V3) = PoseSample(now, listOf(at.x, at.y, at.z), listOf(0.0, 0.0, 0.0, 1.0), TrackingState.TRACKING)
+        activeControlEvents().forEach { e ->
+            val at = app.lumisite.core.compute.Aim.toSession(e.observation.reference.site, tr).copy(y = floorY)
+            ar.requestAnchor(e.id, anchorPose(at), app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
+        }
+        var luminaires = 0
+        SurveyPositions.resolveAll(_state.value.events).forEach { r ->
+            val s = r.site ?: return@forEach
+            ar.requestAnchor(r.event.id, anchorPose(app.lumisite.core.compute.Aim.toSession(s, tr)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
+            luminaires++
+        }
+        DiagLog.i("ANCRES", "Calibrage rétabli : ancres recréées via la transformation carte→AR " +
+            "(${activeControlEvents().size} repère(s) au niveau du sol y=%.2f, $luminaires luminaire(s))".format(floorY))
+    }
+
     // ------------------------------------------------------------------ calibration / relocalization tables (D3–D5)
 
     private fun activeControlEvents(): List<ControlPointEvent> {
@@ -723,6 +781,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             trigger?.observation?.pose?.let { markCalibration(it, "Calibrage, point ${evs.count { e -> e.kind == "CALIBRATION" }}") }
         }
         DiagLog.i("POSITION", "Transformation recalculée : $summary rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(tr.rotationRad)) + "° t=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, tr.tx, tr.ty) + ")")
+        // 2c: reprise de session — le calibrage vient d'être rétabli sur un repère AR tout neuf : recréer les ancres.
+        if (before == null && _state.value.events.any { it is TimeBaseAdded }) activeSegment()?.let { runCatching { restoreAnchors(it) } }
     }
 
     private var simThread: Thread? = null
@@ -776,7 +836,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             ?: seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
         if (manual == null && est == null) { fail(NO_POSITION); return false }
         val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
-        if (manual == null && hit != null && hit.source != "ESTIMATED") ar.lastObjectY = hit.point.y
+        // 2f: a virtual-ceiling estimate must never become the « last object » floor fallback either.
+        if (manual == null && hit != null && hit.source != "ESTIMATED" && hit.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED) ar.lastObjectY = hit.point.y
+        if (manual == null && hit?.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED)
+            DiagLog.i("POSITION", "Relevé : plafond estimé (aucun plan plafond détecté, hauteur sous plafond ${site.ceilingHeightM} m)")
         val e = SurveyEvent(
             id = Ids.new("srv"), t = stamps.now(), kind = fam.blockName, note = note?.ifBlank { null }, pose = pose ?: latestPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,

@@ -19,7 +19,8 @@ data class V3(val x: Double, val y: Double, val z: Double) {
 }
 
 sealed interface AimResult {
-    /** [source]: "AR_PLANE" (floor) | "AR_CEILING" | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE"; "ESTIMATED" only in older sessions. */
+    /** [source]: "AR_PLANE" (floor) | "AR_CEILING" | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE" |
+     * "AR_CEILING_ESTIMATED" (virtual ceiling at floor + hauteur sous plafond); "ESTIMATED" only in older sessions. */
     data class Hit(val point: V3, val source: String) : AimResult
     /** Every candidate plane was seen at a grazing angle: refuse rather than return a jumping point. */
     data object Grazing : AimResult
@@ -30,7 +31,8 @@ sealed interface AimResult {
 
 /**
  * Aiming from the camera centre (lot 10, v176c). Fallback chain: ARCore planes, floor, ceiling and walls (with polygon
- * test, nearest hit first) → plane of the last object → central floor plane → « position à compléter » ([AimResult.ToComplete]);
+ * test, nearest hit first) → virtual ceiling (2f, [virtualCeilingY], source [SRC_CEILING_ESTIMATED]) → plane of the last
+ * object → central floor plane → « position à compléter » ([AimResult.ToComplete]);
  * analytic ray/plane intersection, grazing rejection |n·d| < 0.03.
  * Every level returns null instead of throwing.
  */
@@ -39,6 +41,8 @@ object Aim {
     const val MAX_RANGE_M = 20.0
     /** Floor assumed this far below the camera when no plane is known (phone held at chest height). */
     const val DEFAULT_CAMERA_HEIGHT_M = 1.4
+    /** 2f: hit source when the aimed point is the ray ∩ virtual ceiling (floor + hauteur sous plafond), never silent. */
+    const val SRC_CEILING_ESTIMATED = "AR_CEILING_ESTIMATED"
     val UP = V3(0.0, 1.0, 0.0)
 
     data class Plane(val point: V3, val normal: V3, val source: String, val contains: ((V3) -> Boolean)? = null)
@@ -55,16 +59,24 @@ object Aim {
         if (plane.contains?.invoke(p) == false) Ray.Miss else Ray.At(p)
     }.getOrDefault(Ray.Miss)
 
-    /** [fallbacks] = false (v176c, Mur or Plafond chosen): no last-object / floor-estimate fallback. */
-    fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean, fallbacks: Boolean = true): AimResult {
+    /**
+     * [fallbacks] = false (v176c, Mur or Plafond chosen): no last-object / floor-estimate fallback.
+     * [virtualCeilingY] (2f): session-frame height of the virtual ceiling (detected floor + hauteur sous plafond saisie);
+     * a hit on it is reported with source [SRC_CEILING_ESTIMATED] — never a silent fallback.
+     */
+    fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean, fallbacks: Boolean = true,
+                virtualCeilingY: Double? = null): AimResult {
         if (!tracking) return AimResult.NoTarget
         // Nearest detected plane along the ray (a wall in front of a farther floor wins), then the fallbacks.
         nearest(origin, dir, arPlanes)?.let { return it }
         val floorY = arPlanes.filter { it.source == "AR_PLANE" }.minOfOrNull { it.point.y } ?: (origin.y - DEFAULT_CAMERA_HEIGHT_M)
-        val chain = if (!fallbacks) emptyList() else listOfNotNull(
-            lastObjectY?.let { Plane(V3(origin.x, it, origin.z), UP, "AR_LAST_PLANE") },
-            Plane(V3(origin.x, floorY, origin.z), UP, "AR_FLOOR_ESTIMATE"),
-        )
+        val chain = buildList {
+            virtualCeilingY?.let { add(Plane(V3(origin.x, it, origin.z), UP, SRC_CEILING_ESTIMATED)) }
+            if (fallbacks) {
+                lastObjectY?.let { add(Plane(V3(origin.x, it, origin.z), UP, "AR_LAST_PLANE")) }
+                add(Plane(V3(origin.x, floorY, origin.z), UP, "AR_FLOOR_ESTIMATE"))
+            }
+        }
         var grazing = arPlanes.any { intersect(origin, dir, it) == Ray.Grazing }
         for (pl in chain) when (val r = intersect(origin, dir, pl)) {
             is Ray.At -> return AimResult.Hit(r.p, pl.source)
@@ -89,4 +101,10 @@ object Aim {
 
     /** Session-frame point → site ENU through the active calibration segment (same convention as PoseGeometry.plane). */
     fun toSite(p: V3, transform: Similarity2D): Enu = transform.apply(Vec2(p.x, -p.z)).let { Enu(it.x, it.y, p.y) }
+
+    /**
+     * Site ENU → session-frame point, exact inverse of [toSite] (2c: anchors of a resumed session are recreated at the
+     * map-projected position once the transform is restored). u maps to the session y (no vertical calibration).
+     */
+    fun toSession(site: Enu, transform: Similarity2D): V3 = transform.invert(Vec2(site.e, site.n)).let { V3(it.x, site.u, -it.y) }
 }

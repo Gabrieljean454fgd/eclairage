@@ -116,6 +116,14 @@ data class Similarity2D(val scale: Double, val rotationRad: Double, val tx: Doub
         return Vec2(c * p.x - s * p.y + tx, s * p.x + c * p.y + ty)
     }
 
+    /** Inverse of [apply]: p = (1/s)·R(−θ)·(p′ − t). Used by the map → AR transform (anchor restore, 2c). */
+    fun invert(p: Vec2): Vec2 {
+        val c = cos(rotationRad) * scale; val s = sin(rotationRad) * scale
+        val d = c * c + s * s // = scale²
+        val dx = p.x - tx; val dy = p.y - ty
+        return Vec2((c * dx + s * dy) / d, (-s * dx + c * dy) / d)
+    }
+
     fun then(next: Similarity2D): Similarity2D {
         // next(this(p))
         val r = rotationRad + next.rotationRad

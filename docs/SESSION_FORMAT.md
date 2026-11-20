@@ -70,8 +70,10 @@ Un consommateur doit ignorer les champs et types qu'il ne connaît pas (versions
   S'applique aux poses **postérieures** ; les poses antérieures gardent la transformation qui était active (pas de lissage rétroactif dans v0.1).
 - `sync` : `syncCode` commun entre appareils, méthode (`MANUAL_TAP`, `AUDIO_CHIRP`), rôle, `eventMonotonicNs` estimé, détails de détection audio
   (score, plancher de bruit, paire `AudioTimestamp`). Ni la propagation acoustique (~2,9 ms/m) ni la latence d'entrée audio ne sont compensées.
-- `survey` : `kind`, `note`, pose brute, état de suivi, source de position (`AR_POSE`, `MANUAL_MAP`, `MANUAL_EDIT` ; `NONE` dans les
-  anciens fichiers seulement), dernière position GPS, `payloadSchema` + `payload` (objet JSON libre), `attachments`, `dxf`.
+- `survey` : `kind`, `note`, pose brute, état de suivi, source de position (`AR_POSE`, `AR_PLANE`, `AR_WALL`, `AR_CEILING`,
+  `AR_CEILING_ESTIMATED` (2f : plafond virtuel sol + hauteur saisie), `AR_LAST_PLANE`, `AR_FLOOR_ESTIMATE`, `MANUAL_MAP`,
+  `MANUAL_EDIT` ; `NONE`/`ESTIMATED` dans les anciens fichiers seulement), dernière position GPS, `payloadSchema` + `payload`
+  (objet JSON libre), `attachments`, `dxf`.
   - Depuis le lot 2 : `kind` = nom de bloc canonique du catalogue (`catalog/equipment_catalog.json`, ex. `spot`),
     `payloadSchema = "lumisite-equipment/1"`, `payload = { catalog_version, block_name, details? }`,
     `dxf = { layer: "RES - Elec", blockName: <nom de bloc> }`. Plus aucun `LUMI_<KIND>_GENERIC` n'est écrit.

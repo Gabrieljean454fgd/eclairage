@@ -47,6 +47,8 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     aim is AimResult.Hit && aim.source == "AR_WALL" -> Color(0xFF00C853) to "Mur détecté"
     aim is AimResult.Hit && aim.source == "AR_CEILING" -> Color(0xFF00C853) to "Plafond détecté"
     aim is AimResult.Hit && aim.source == "AR_LAST_PLANE" -> Color(0xFF00B0FF) to "Pas de plan : hauteur du dernier objet"
+    // 2f: plafond virtuel (sol + hauteur saisie) — estimée, jamais silencieuse.
+    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED -> Color(0xFFFFEB3B) to "Plafond estimé (hauteur sous plafond saisie)"
     aim is AimResult.Hit -> Color(0xFFFFEB3B) to "Pas de plan : sol estimé 1,4 m sous l'appareil"
     else -> Color(0xFFD50000) to "Point visé : pas de cible"
 }
@@ -91,7 +93,7 @@ fun ArControls(c: SessionController) {
                 Text(if (torch) "🔦●" else "🔦", fontSize = 16.sp)
             }
             OutlinedButton({
-                val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" && it.source != "AR_FLOOR_ESTIMATE" }?.point
+                val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" && it.source != "AR_FLOOR_ESTIMATE" && it.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED }?.point
                 if (p == null) measure = "Mesure : visez une cible"
                 else if (a == null) { a = p; measure = "Point A posé, visez B" }
                 else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null }

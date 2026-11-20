@@ -1,5 +1,6 @@
-# Retour terrain build 199 (17/11), points 7 et 9 — SPÉCIFICATION. En Annoter, la caméra se replie (bande ou masquée)
-# et la carte prend au moins la moitié de l'écran ; un bouton « Carte plein écran » existe dans tous les onglets.
+# Retour terrain build 199 (17/11), point 3 — carte utilisable en Annoter et Export : la caméra se replie en bande
+# (~96 dp, session_camera_repliee) sans détruire la GLSurfaceView, « Carte plein écran » existe dans tous les onglets,
+# la barre d'actions reste visible et le panneau se replie en bandeau (session_panneau_replie).
 appId: app.lumisite.android
 name: "build199 carte : assez grande pour Annoter"
 ---
@@ -11,6 +12,13 @@ name: "build199 carte : assez grande pour Annoter"
 - tapOn: { id: "session_carte_plein_ecran" }
 - assertNotVisible: { id: "session_bloc_ar" }
 - assertVisible: { id: "session_barre_actions" }
+- assertVisible: { id: "session_panneau_replie" }
+- tapOn: { id: "session_panneau_replie" }
+- assertVisible: { id: "session_bloc_ar" }
+- tapOn: { id: "session_carte_plein_ecran" }
+- assertNotVisible: { id: "session_bloc_ar" }
 - tapOn: { id: "session_carte_plein_ecran" }
 - assertVisible: { id: "session_bloc_ar" }
+- tapOn: { id: "session_export" }
+- assertVisible: { id: "session_camera_repliee" }
 - takeScreenshot: maestro-out/captures/b199_carte_annoter

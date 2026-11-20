@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -70,7 +71,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import app.lumisite.core.export.SessionExporter
+import app.lumisite.core.ui.SessionLayout
 import app.lumisite.android.data.DiagLog
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -127,6 +130,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var movingId by remember { mutableStateOf<String?>(null) }
     var moveGrab by remember { mutableStateOf<Enu?>(null) }
     var moveTarget by remember { mutableStateOf<Enu?>(null) }
+    // build 199 : « Carte plein écran » masque la caméra et replie le panneau ; « Replier le panneau » replie le panneau seul.
+    var mapFull by rememberSaveable { mutableStateOf(false) }
+    var panelCollapsed by rememberSaveable { mutableStateOf(false) }
     val draw = remember { DrawState() }
     var follow by remember { mutableStateOf(false) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -296,6 +302,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 OutlinedButton(onClick = { follow = !follow }, modifier = Modifier.heightIn(min = 48.dp).background(Color(0xCCFFFFFF)).testTag("session_trajectoire_estimee_vert_non_gar")) {
                     Text(if (follow) "Suivre : actif" else "Centrer / Suivre")
                 }
+                OutlinedButton(onClick = { mapFull = !mapFull }, modifier = Modifier.heightIn(min = 48.dp).background(Color(0xCCFFFFFF)).testTag("session_carte_plein_ecran")) {
+                    Text(if (mapFull) "Carte : quitter le plein écran" else "Carte plein écran")
+                }
             }
             Column(Modifier.align(Alignment.TopStart).fillMaxWidth(0.5f)) {
                 Text(posStatus.text() + " · GNSS " + st.gnssQuality.label, Modifier.background(if (posStatus.lost) Color(0xE6B00020) else Color(0xE6FFFFFF)).padding(6.dp).testTag("session_carte_source"),
@@ -388,7 +397,10 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 ActionCell(il.first, il.second, mode == m, tag, Modifier.weight(1f)) {
                     // A7: opening Annoter closes the open record.
                     if (m == Mode.DRAW && mode != Mode.DRAW) { selectedSurvey = null; movingId = null }
-                    mode = if (mode == m) Mode.NONE else m; c.clearMessage()
+                    val next = if (mode == m) Mode.NONE else m
+                    // Opening a tab leaves « Carte plein écran » and unfolds the panel so its controls are reachable.
+                    if (next != mode) { panelCollapsed = false; if (next != Mode.NONE) mapFull = false }
+                    mode = next; c.clearMessage()
                 }
             }
             ActionCell("⏹", "Terminer", false, "session_terminer_la_session", Modifier.weight(1f), enabled = !closing) { finish() }
@@ -401,6 +413,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         var keepScroll by remember { mutableStateOf(false) }
         LaunchedEffect(mode, selectedSurvey) { if (keepScroll) keepScroll = false else panelScroll.scrollTo(0) }
         Column(m.verticalScroll(panelScroll), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (mode != Mode.NONE) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton({ panelCollapsed = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_panneau_replier")) { Text("Replier le panneau") }
+            }
             if (arAvail == ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED || arAvail == ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD) {
                 Button(onClick = { ArTracker.ensureInstalled(activity, true); perms = false; perms = true }, modifier = Modifier.testTag("session_installer_mettre_a_jour_arcore")) { Text("Installer / mettre à jour ARCore") }
             }
@@ -450,21 +465,46 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
     }
 
-    // Layout (prompt v4 2.1): status line on top, camera block (≤ 25 % of the height), large map, panel, action bar fixed at the bottom.
+    // Layout: status line on top, camera block, large map, panel, action bar fixed at the bottom.
+    // build 199: SessionLayout picks the shares — in Annoter/Export the camera folds to a ~96 dp band
+    // (session_camera_repliee); « Carte plein écran » clips it to nothing and folds an open panel to a strip.
+    // The GLSurfaceView stays composed in every case (the AR session is never torn down).
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to nothing
-        // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
+        // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to
+        // nothing (still composed) and the map yields room to the input panel.
         val short = maxHeight < 480.dp && maxWidth <= maxHeight
         val topMax = if (short) 0.dp else if (maxWidth > maxHeight) maxHeight * 0.6f else maxHeight * 0.55f
-        val statusBlock: @Composable (Modifier) -> Unit = { m ->
-            Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
+        val split = SessionLayout.resolve(SessionLayout.Tab.valueOf(mode.name), mapFull, panelCollapsed)
+        val cam = if (short) SessionLayout.Camera.HIDDEN else split.camera
+        // One structure for every camera state: the camera content (and its GLSurfaceView) keeps its place in the
+        // composition — only the outer height/clip/tag changes. BAND/HIDDEN let the block measure its natural height.
+        val cameraBlock: @Composable () -> Unit = {
+            Box(Modifier.fillMaxWidth().then(when (cam) {
+                SessionLayout.Camera.FULL -> Modifier
+                SessionLayout.Camera.BAND -> Modifier.height(SessionLayout.CAMERA_BAND_DP.dp).clipToBounds().testTag("session_camera_repliee")
+                SessionLayout.Camera.HIDDEN -> Modifier.height(0.dp).clipToBounds()
+            })) {
+                Column(Modifier.wrapContentHeight(unbounded = true).heightIn(max = topMax).verticalScroll(rememberScrollState())
+                    .then(if (cam == SessionLayout.Camera.HIDDEN) Modifier else Modifier.testTag("session_bloc_ar"))) { header() }
+            }
+        }
+        val tabLabel = when (mode) { Mode.SYNC -> "Synchro"; Mode.CALIBRATE -> "Calibrer"; Mode.SURVEY -> "Relevé"; Mode.DRAW -> "Annoter"; Mode.RELOCALIZE -> "Recaler"; Mode.EXPORT -> "Export"; Mode.NONE -> "Session" }
+        // Folded panel: a ≥ 48 dp strip that reopens it (and leaves « Carte plein écran ») on tap.
+        val panelStrip: @Composable () -> Unit = {
+            Row(Modifier.fillMaxWidth().heightIn(min = SessionLayout.PANEL_STRIP_DP.dp).background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { mapFull = false; panelCollapsed = false }.testTag("session_panneau_replie").padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Panneau replié : $tabLabel — toucher pour rouvrir", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            }
         }
         if (maxWidth > maxHeight) {
+            val mapW = SessionLayout.landscapeMapWeight(mapFull)
             Row(Modifier.fillMaxSize()) {
-                map(Modifier.weight(0.55f).fillMaxHeight())
-                Column(Modifier.weight(0.45f).fillMaxHeight()) {
-                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
-                    HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
+                map(Modifier.weight(mapW).fillMaxHeight())
+                Column(Modifier.weight(1f - mapW).fillMaxHeight()) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); cameraBlock() }
+                    HorizontalDivider()
+                    if (split.panelStrip) panelStrip() else if (split.panel > 0f) panel(Modifier.weight(1f).padding(horizontal = 8.dp)) else Spacer(Modifier.weight(1f))
                     resumeBanner()
                     messageBar()
                     actionBar()
@@ -473,10 +513,17 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         } else {
             Column(Modifier.fillMaxSize()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow() }
-                statusBlock(Modifier)
-                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else 0.55f
-                map(Modifier.fillMaxWidth().weight(1f - panelW))
-                panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
+                cameraBlock()
+                if (split.panelStrip) {
+                    map(Modifier.fillMaxWidth().weight(1f))
+                    panelStrip()
+                } else if (split.panel > 0f) {
+                    val (mapW, panelW) = if (short) 0.25f to 0.75f else split.map to split.panel
+                    map(Modifier.fillMaxWidth().weight(mapW))
+                    panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
+                } else {
+                    map(Modifier.fillMaxWidth().weight(1f))
+                }
                 resumeBanner()
                 messageBar()
                 actionBar()

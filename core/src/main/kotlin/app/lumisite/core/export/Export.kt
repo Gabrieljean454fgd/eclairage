@@ -33,7 +33,8 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 const val FORMAT_ID = "lumisite.session"
-const val FORMAT_VERSION = "0.2.1"
+/** 0.2.2: session exports carry raw/imu.csv.gz (gzipped CSV) instead of raw/imu.ndjson (v176f F2). */
+const val FORMAT_VERSION = "0.2.2"
 
 /** Versions this build reads: 0.1.x (before lot 7) and 0.2.x. Anything newer is refused with a clear message. */
 object FormatVersions {
@@ -343,7 +344,13 @@ object SessionImporter {
             val f = File(dir, fe.path)
             if (!f.isFile) { problems += "${fe.path} missing"; continue }
             if (sha256(f, onBytes) != fe.sha256) problems += "${fe.path} sha256 mismatch"
-            if (fe.path.endsWith(".ndjson")) {
+            if (fe.path == ImuCsv.PATH) {
+                // v176f F2: gzipped CSV — count data rows through the decompressor (no NDJSON scan).
+                val count = java.util.zip.GZIPInputStream(f.inputStream(), 64 * 1024).use { inp ->
+                    inp.bufferedReader().useLines { lines -> lines.count(ImuCsv::isDataLine) }
+                }
+                if (fe.records != count) problems += "${fe.path}: expected ${fe.records} records, read $count"
+            } else if (fe.path.endsWith(".ndjson")) {
                 val (count, bad) = SessionExporter.scan(f, fe.recordType)
                 if (bad.isNotEmpty() && manifest.integrity[fe.path] != bad) problems += "${fe.path}: unreadable lines $bad"
                 if (fe.records != count) problems += "${fe.path}: expected ${fe.records} records, read $count"
@@ -406,10 +413,20 @@ object SessionImporter {
             if (fe != null && fe.records != r.items.size) problems += "$path: expected ${fe.records} records, read ${r.items.size}"
             return r.items
         }
+        /** v176f F2: session exports carry raw/imu.csv.gz; older exports and project archives keep raw/imu.ndjson. */
+        fun loadImu(): List<ImuSample> {
+            val fe = manifest.files.firstOrNull { it.path == ImuCsv.PATH } ?: return load("raw/imu.ndjson", ImuSample.serializer())
+            val b = bytesOf(ImuCsv.PATH)
+            if (b == null) { problems += "${ImuCsv.PATH} missing"; return emptyList() }
+            if (sha256(b) != fe.sha256) problems += "${ImuCsv.PATH} sha256 mismatch"
+            val items = ImuCsv.parse(ImuCsv.ungzip(b.inputStream()), manifest.session.timeBases.associateBy { it.id })
+            if (fe.records != items.size) problems += "${ImuCsv.PATH}: expected ${fe.records} records, read ${items.size}"
+            return items
+        }
         return LoadedExport(
             manifest,
             load("raw/poses.ndjson", PoseSample.serializer()),
-            load("raw/imu.ndjson", ImuSample.serializer()),
+            loadImu(),
             load("raw/gps.ndjson", GpsFix.serializer()),
             load("raw/gps_status.ndjson", GpsStatusSample.serializer()),
             load("derived/trajectory_site.ndjson", CorrectedPoint.serializer()),

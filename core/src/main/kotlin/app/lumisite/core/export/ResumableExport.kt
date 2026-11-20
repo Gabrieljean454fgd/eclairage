@@ -9,6 +9,7 @@ import app.lumisite.core.geo.LocalTangentPlane
 import app.lumisite.core.journal.LumiJson
 import app.lumisite.core.journal.Segments
 import app.lumisite.core.journal.Streams
+import app.lumisite.core.model.ImuSample
 import app.lumisite.core.model.PoseSample
 import app.lumisite.core.model.SessionEvent
 import app.lumisite.core.model.SessionHeader
@@ -17,6 +18,7 @@ import app.lumisite.core.model.SurveyEvent
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -88,7 +90,8 @@ object ResumableExport {
 
     private val rawStreams = listOf(
         Triple(Streams.POSES, "raw/poses.ndjson", "PoseSample"),
-        Triple(Streams.IMU, "raw/imu.ndjson", "ImuSample"),
+        // v176f F2: IMU as a gzipped CSV (same journal order, µs precision) instead of NDJSON.
+        Triple(Streams.IMU, ImuCsv.PATH, "ImuSample"),
         Triple(Streams.GPS, "raw/gps.ndjson", "GpsFix"),
         Triple(Streams.GPS_STATUS, "raw/gps_status.ndjson", "GpsStatusSample"),
         Triple(Streams.EVENTS, "raw/events.ndjson", "SessionEvent"),
@@ -198,18 +201,27 @@ object ResumableExport {
                     entry(target, "raw", type) { out ->
                         var ok = 0; val bad = ArrayList<Int>(); var n = 0
                         val ser = serializerOf(type)
-                        for (f in rawFiles.getValue(stream)) {
-                            var pending = 0L
-                            limited(openInput(current(f)), if (f.name.endsWith(".part")) snapLen.getValue(f) else Long.MAX_VALUE).bufferedReader().useLines { seq -> seq.forEach { line ->
-                                if (line.isEmpty()) return@forEach
-                                n++
-                                val b = (line + "\n").toByteArray(); out.write(b)
-                                if (runCatching { LumiJson.decodeFromString(ser, line) }.isSuccess) ok++ else bad += n
-                                pending += b.size
-                                if (pending > (1 shl 20)) { done += pending; pending = 0; progress(Progress(Step.ASSEMBLAGE, "Capteurs ${i + 1}/$nStreams", done, total)) }
-                            } }
-                            done += pending
-                        }
+                        // v176f F2: IMU rows become CSV cells (gzip stream closed before the entry ends).
+                        val csv = if (stream == Streams.IMU) ImuCsv.Writer(out) else null
+                        try {
+                            for (f in rawFiles.getValue(stream)) {
+                                var pending = 0L
+                                limited(openInput(current(f)), if (f.name.endsWith(".part")) snapLen.getValue(f) else Long.MAX_VALUE).bufferedReader().useLines { seq -> seq.forEach { line ->
+                                    if (line.isEmpty()) return@forEach
+                                    n++
+                                    if (csv != null) {
+                                        val s = runCatching { LumiJson.decodeFromString(ser, line) }.getOrNull() as? ImuSample
+                                        if (s != null) { csv.write(s); ok++ } else bad += n
+                                    } else {
+                                        val b = (line + "\n").toByteArray(); out.write(b)
+                                        if (runCatching { LumiJson.decodeFromString(ser, line) }.isSuccess) ok++ else bad += n
+                                    }
+                                    pending += line.length + 1
+                                    if (pending > (1 shl 20)) { done += pending; pending = 0; progress(Progress(Step.ASSEMBLAGE, "Capteurs ${i + 1}/$nStreams", done, total)) }
+                                } }
+                                done += pending
+                            }
+                        } finally { csv?.finish() }
                         ok to bad
                     }
                 }
@@ -416,6 +428,8 @@ object Releves {
     fun featureCollection(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String): JsonObject {
         val latest = GeoJsonSeq.latest(GeoJsonFeatures.lines(events, ltp, deviceId, sessionId))
         val resolved = SurveyPositions.resolveAll(events).associateBy { SurveyPositions.rootId(events, it.event.id) }
+        // v176f F2: RMS residual of each calibration, reused as sigma_xy_m of the objects it positioned.
+        val calResidual = events.filterIsInstance<app.lumisite.core.model.CalibrationEvent>().associate { it.id to it.residualM }
         val features = latest.values.filter { (it["properties"] as JsonObject)["op"]?.jsonPrimitive?.contentOrNull != "delete" }.map { f ->
             val props = f["properties"] as JsonObject
             val r = resolved[f["id"]?.jsonPrimitive?.contentOrNull]
@@ -436,9 +450,37 @@ object Releves {
                 if (path == null) obj else JsonObject(obj + ("path" to JsonPrimitive("media/" + path.substringAfterLast('/'))))
             }) }
             val media = listOfNotNull(inZip("photos"), inZip("voice_notes")).toMap()
-            JsonObject(f + ("properties" to JsonObject(props + media + ("provenance" to provenance))))
+            // v176f F2: sigma_xy_m = RMS residual of the calibration that positioned the object (null for map taps,
+            // relocalizations and unknown frames); flat name + lumisite:* properties for JOSM/QGIS.
+            val sigma = r?.transformEventId?.let { calResidual[it] }?.let { rd(it, 3) }
+            val accuracy = (props["accuracy"] as? JsonObject)?.let { acc ->
+                JsonObject(acc + ("sigma_xy_m" to (sigma?.let { JsonPrimitive(it) } ?: JsonNull)))
+            }
+            JsonObject(f + ("properties" to JsonObject(props + media + ("provenance" to provenance) +
+                (accuracy?.let { mapOf("accuracy" to it as JsonElement) } ?: emptyMap()) + flatProperties(props, provenance, sigma))))
         }
-        return buildJsonObject { put("type", "FeatureCollection"); put("features", JsonArray(features)) }
+        // v176f F2: repères de calibrage nommés (control_point), résidu = sigma_xy_m.
+        val repereFeatures = ControlPointFeatures.features(ControlPointFeatures.resolve(events), ltp, deviceId, sessionId)
+        return buildJsonObject { put("type", "FeatureCollection"); put("features", JsonArray(features + repereFeatures)) }
+    }
+
+    /** v176f F2: flat properties next to the nested provenance kept for the office tool (name + lumisite:*). */
+    private fun flatProperties(props: JsonObject, provenance: JsonObject, sigma: Double?): Map<String, JsonElement> {
+        val kind = props["kind"]?.jsonPrimitive?.contentOrNull ?: return emptyMap()
+        val block = props["block_name"]?.jsonPrimitive?.contentOrNull
+        val note = props["note"]?.jsonPrimitive?.contentOrNull?.ifBlank { null }
+        val label = props["label"]?.jsonPrimitive?.contentOrNull
+        val out = LinkedHashMap<String, JsonElement>()
+        out["name"] = JsonPrimitive(if (kind == "equipment") note ?: block ?: kind else label ?: kind)
+        out["lumisite:kind"] = JsonPrimitive(kind)
+        if (kind == "equipment" && block != null) out["lumisite:code"] = JsonPrimitive(block)
+        out["lumisite:methode"] = JsonPrimitive(
+            if (kind == "equipment") provenance["methode"]?.jsonPrimitive?.contentOrNull ?: "UNKNOWN" else "MANUAL_MAP")
+        out["lumisite:qualite"] = JsonPrimitive(
+            if (kind == "equipment") provenance["qualite"]?.jsonPrimitive?.contentOrNull ?: "aucune" else "manuelle")
+        provenance["hauteur"]?.jsonPrimitive?.contentOrNull?.let { out["lumisite:hauteur"] = JsonPrimitive(it) }
+        sigma?.let { out["lumisite:residu_m"] = JsonPrimitive(it) }
+        return out
     }
 
     /** Sidecar media/<photo>.json: the photo, its fingerprint and the business tags of its survey feature. */
@@ -457,22 +499,40 @@ object Releves {
 
     fun lisezmoi(header: SessionHeader, site: Site): String = """
         LumiSite — export de la session « ${header.name} » (${header.id}), site « ${site.name} ».
+        Cette archive ZIP est le livrable unique de l'export : un seul fichier à transférer ou à ouvrir.
 
         releves.geojson
-          Objets relevés (équipements, formes, remarques), état final de chaque objet : une seule FeatureCollection
-          GeoJSON (RFC 7946), lisible dans QGIS. Géométrie en WGS84 (longitude, latitude) dans "coordinates".
+          Objets relevés (équipements, formes, remarques) et repères de calibrage (control_point), état final
+          de chaque objet : une seule FeatureCollection GeoJSON (RFC 7946), lisible dans QGIS et JOSM.
+          Géométrie en WGS84 (longitude, latitude) dans "coordinates".
           Les coordonnées locales du site (E/N en mètres, repère "site") sont dans properties.local ; elles ne sont jamais
           dans "coordinates". properties.provenance donne la méthode, l'horodatage, le repère (segment) et la qualité.
-          La valeur z de properties.local est relative à l'origine AR de la session, ce n'est pas une hauteur au-dessus
-          du sol (hauteur non qualifiée tant qu'aucun sol de référence n'est mesuré).
+          Pour JOSM/QGIS, chaque Feature porte aussi des propriétés plates : "name" (nom affiché) et "lumisite:*"
+          (kind, code, méthode, qualité, résidu_m, hauteur). La valeur z de properties.local est relative à
+          l'origine AR de la session, ce n'est pas une hauteur au-dessus du sol (hauteur non qualifiée tant
+          qu'aucun sol de référence n'est mesuré).
+          Repères de calibrage (properties."lumisite:kind" = "control_point") : "name" = l'étiquette du repère
+          (« Calibrage 1 », « Recalage 2 »…), "lumisite:role" = CALIBRATION ou RELOCALIZATION, "lumisite:statut"
+          = retenu / rejeté / ancre / contrôle / en attente / session précédente, "lumisite:residu_m" = écart
+          entre le repère et la position calculée. sigma_xy_m (properties.accuracy) = ce résidu ; la qualité
+          suit le résidu : bon ≤ 0,5 m, moyen ≤ 1 m, insuffisant au-delà. Les repères d'une session AR
+          précédente (après reprise) sont marqués « session précédente » sans résidu.
         session.json
           Manifeste : site, session, appareil, bases de temps, tous les événements, liste des fichiers avec leur nombre
           d'enregistrements, leur taille et leur empreinte SHA-256.
-        raw/*.ndjson, raw/captation.jsonl
-          Journaux bruts des capteurs, une ligne JSON par mesure (NDJSON), tels qu'enregistrés : poses AR, IMU, GNSS,
+        raw/poses.ndjson, raw/gps.ndjson, raw/gps_status.ndjson, raw/events.ndjson, raw/captation.jsonl
+          Journaux bruts des capteurs, une ligne JSON par mesure (NDJSON), tels qu'enregistrés : poses AR, GNSS,
           état GNSS, événements, et trames au format docs/FORMAT_ECHANGE_CAPTATION.md (t_mono_ns, seq, type, valeurs).
           Les horodatages t_mono_ns / monotonicNs suivent l'horloge monotone de l'appareil ; les changements de base de
           temps (redémarrage, reprise) et les interruptions sont des événements explicites, jamais comblés.
+        raw/imu.csv.gz
+          IMU de la session en CSV compacté gzip (format « # lumisite-imu-csv/1 ») : en-tête de colonnes
+          dt_us,sensor_dt_us,type,x,y,z,w puis une ligne par mesure. dt_us = microseconde écoulée depuis le début
+          de la base de temps (un commentaire « # time_base=… t_mono_ns_initial=… » ouvre chaque base ; après un
+          redémarrage il repart de 0), sensor_dt_us = timestamp capteur sur la même origine (vide si absent),
+          type = imu.accel / imu.gyro / imu.mag / imu.rotation / imu.other.<type capteur>, x,y,z = 3 premières
+          composantes et w = les suivantes séparées par « ; ». Lisible dans un tableur ou pandas
+          (comment='#').
         derived/trajectory_site.ndjson, derived/survey_points.ndjson
           Calculs reproductibles depuis raw/ : trajectoire et points relevés dans le repère du site (mètres).
         media/

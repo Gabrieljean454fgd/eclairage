@@ -40,7 +40,7 @@ class SegmentFormatsTest {
         java.util.zip.GZIPInputStream(gz.first().inputStream()).use { i -> again.outputStream().use { i.copyTo(it) } }
         assertEquals(500, SessionReader.read(dir).imu.size)
         val r = ResumableExport.run(Fixtures.site, dir, Files.createTempDirectory("exp").toFile(), "test", 1_700_000_000_000)
-        assertEquals(500, r.manifest.entries.first { it.name == "raw/imu.ndjson" }.records)
+        assertEquals(500, r.manifest.entries.first { it.name == "raw/imu.csv.gz" }.records)
         assertEquals(emptyList(), SessionImporter.verify(r.zip))
     }
 

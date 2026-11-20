@@ -1,0 +1,23 @@
+# v176f F2 (Session > Export) : un seul ZIP est proposé / produit.
+# scenario1_1_creer_releve.yaml porte déjà son launchApp + clearState : pas de clearState supplémentaire ici.
+# L'export reste le même chemin (ExportWorker, WorkManager unique) ; on vérifie le livrable unique affiché :
+# « Un seul fichier ZIP — Fichier : <session>.zip … » sous testTag session_export_zip.
+appId: app.lumisite.android
+name: "build199 Export : un seul ZIP"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_export" }
+- tapOn: { id: "session_export_exporter_la_session" }
+- extendedWaitUntil:
+    visible: { id: "session_export_resultat" }
+    timeout: 120000
+- assertVisible: { id: "session_export_ouvrir" }
+- assertVisible: { id: "session_export_partager" }
+# Le résumé « Un seul fichier ZIP » est sous les boutons : on fait défiler le panneau s'il est hors écran.
+- repeat:
+    while: { notVisible: { id: "session_export_zip" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_export_zip", text: "Un seul fichier ZIP — Fichier : .*\\.zip \\(.*" }
+- assertNotVisible: { id: "session_export_erreur" }

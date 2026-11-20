@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import app.lumisite.android.data.DeviceName
 import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.PublicStore
 import app.lumisite.android.data.Repository
@@ -75,6 +77,17 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
         HorizontalDivider()
         Text("À propos", style = MaterialTheme.typography.titleMedium)
         Text("LumiSite ${appVersionLabel()}", modifier = Modifier.testTag("reglages_a_propos_version"))
+
+        HorizontalDivider()
+        Text("Synchro", style = MaterialTheme.typography.titleMedium)
+        var deviceName by remember { mutableStateOf(DeviceName.userName(ctx) ?: "") }
+        var appliedName by remember { mutableStateOf(DeviceName.label(ctx)) }
+        OutlinedTextField(deviceName, { deviceName = it.take(40) }, label = { Text("Nom de ce téléphone") }, singleLine = true,
+            modifier = Modifier.testTag("reglages_nom_telephone"))
+        OutlinedButton(modifier = Modifier.testTag("reglages_nom_telephone_enregistrer"), onClick = {
+            DeviceName.set(ctx, deviceName); appliedName = DeviceName.label(ctx)
+        }) { Text("Enregistrer le nom") }
+        Text("Nom utilisé par la synchro : $appliedName (à la prochaine synchro)", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("reglages_nom_telephone_applique"))
 
         HorizontalDivider()
         Text("Relevé", style = MaterialTheme.typography.titleMedium)

@@ -40,6 +40,10 @@ import app.lumisite.android.data.Ids
 import app.lumisite.android.data.LastKnownPosition
 import app.lumisite.android.data.OsmClient
 import app.lumisite.android.data.Repository
+import app.lumisite.android.data.RecentZone
+import app.lumisite.android.sync.NearbyMesh
+import app.lumisite.core.sync.Link
+import app.lumisite.core.sync.SyncRole2
 import app.lumisite.core.model.BBox
 import app.lumisite.core.osm.AddressHistory
 import app.lumisite.core.osm.Bboxes
@@ -54,6 +58,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import kotlinx.coroutines.delay
 import app.lumisite.core.compute.SurveyPositions
@@ -76,6 +82,8 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
     val sites = remember { repo.sites() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    // build 199 point 1e: badge showing the Nearby synchro still runs after leaving Accueil > Sync.
+    val mesh by NearbyMesh.state.collectAsState()
     var exporting by remember { mutableStateOf<String?>(null) }
     var exportMsg by remember { mutableStateOf<String?>(null) }
     fun exportProject(s: Site) {
@@ -104,6 +112,12 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
             Button(onClick = onNew, modifier = Modifier.testTag("accueil_nouveau_releve")) { Text("Nouveau relevé") }
             OutlinedButton(onClick = onSettings, modifier = Modifier.testTag("accueil_reglages")) { Text("Réglages") }
             OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Sync", maxLines = 1) }
+        }
+        if (mesh.running) {
+            val connected = mesh.peers.count { it.link == Link.CONNECTED }
+            Text(if (mesh.role == SyncRole2.SAISIE_MAITRE) "Sync maître active · $connected esclave(s)" else "Sync esclave active · " + (mesh.slaveMasterName ?: "recherche du maître"),
+                color = if (mesh.role == SyncRole2.SAISIE_MAITRE) Color(0xFF2E7D32) else Color(0xFFEF6C00),
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_synchro_active"))
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(16.dp))

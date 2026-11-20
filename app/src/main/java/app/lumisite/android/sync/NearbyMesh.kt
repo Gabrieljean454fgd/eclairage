@@ -140,6 +140,8 @@ object NearbyMesh {
         val name = DeviceName.label(ctx)
         _state.update { UiState(role = role, running = true, radio = "Démarrage…") }
         journal("local", "rôle : " + if (role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)")
+        // build 199 point 1f: foreground service so HyperOS does not kill the synchro with the screen off.
+        appCtx?.let(SynchroService::start)
         if (role == SyncRole2.SAISIE_MAITRE) {
             master = MasterMesh(DeviceInfo.deviceId(ctx))
             injectSimulatedSlave(ctx)
@@ -472,6 +474,8 @@ object NearbyMesh {
             client?.apply { stopAdvertising(); stopDiscovery(); if (stops.isEmpty()) stopAllEndpoints() }
             client = null; master = null; slave = null; masterEndpoint = null; simulatedPeers.clear()
             _state.update { UiState() }
+            // build 199 point 1f: the foreground service follows the synchro (also stopped by its « Arrêter » action).
+            appCtx?.let(SynchroService::stop)
         }
     }
 

@@ -44,7 +44,7 @@ fun rememberMeshNowNs(): Long {
 /** Permissions demandées pour la synchro Nearby (Bluetooth, appareil à proximité, localisation ancienne, micro). */
 fun nearbyPermissions(): Array<String> = buildList {
     if (Build.VERSION.SDK_INT >= 31) addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT))
-    if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+    if (Build.VERSION.SDK_INT >= 33) addAll(listOf(Manifest.permission.NEARBY_WIFI_DEVICES, Manifest.permission.POST_NOTIFICATIONS))
     if (Build.VERSION.SDK_INT <= 32) add(Manifest.permission.ACCESS_FINE_LOCATION)
     add(Manifest.permission.RECORD_AUDIO)
 }.toTypedArray()

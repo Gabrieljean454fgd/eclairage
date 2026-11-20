@@ -1,0 +1,34 @@
+# Retour terrain build 199 (18/11), point 1f — SPÉCIFICATION.
+# La synchro Nearby est adossée à un service de premier plan (SynchroService, types connectedDevice|microphone) :
+# notification permanente « Synchro LumiSite active · N esclave(s) » avec action « Arrêter », pour qu'HyperOS
+# (Xiaomi 13T Pro) ne coupe pas la synchro écran éteint. Ce que Maestro vérifie : le rôle démarre, l'état
+# survit aux allers-retours dans l'appli, et l'arrêt (écran ou notification) mène au même état. La notification
+# elle-même et l'écran éteint 2 min sont MANUELS — voir docs/LOCAL_SYNCHRO_SERVICE.md.
+# Hors CI racine (.maestro/build199/) ; clearState initial uniquement.
+appId: app.lumisite.android
+name: "build199 synchro : service de premier plan, rôle actif et arrêt"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_maitre" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+# Le bandeau de connexion reste la source d'état ; le service de premier plan tourne en parallèle (non visible ici).
+- assertVisible: { id: "synchro_bandeau_connexion", text: "Recherche d'esclaves.*" }
+- tapOn: { id: "synchro_retour" }
+- assertVisible: { id: "accueil_synchro_active", text: ".*maître.*" }
+# Session > Synchro : même objet NearbyMesh, le rôle est toujours là.
+- runFlow: _session_depuis_accueil.yaml
+- tapOn: { id: "session_synchro" }
+- assertVisible: { id: "session_synchro_etat", text: ".*Saisie \\(maître\\).*" }
+# Arrêt depuis l'écran : le service de premier plan suit NearbyMesh.stop (la notification disparaît — manuel).
+- tapOn: { id: "session_synchro_arreter" }
+- assertVisible: "Aucun rôle actif sur ce téléphone.*"
+- takeScreenshot: maestro-out/captures/b199_sync_service

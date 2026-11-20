@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }, onSync = { screen = Screen.Synchro }) }
                         Screen.Synchro -> app.lumisite.android.ui.SyncScreen(onBack = { screen = Screen.Home })
                         Screen.Settings -> SettingsScreen(repo, onBack = { screen = Screen.Home }, onReimported = { homeKey++ })
-                        Screen.NewSite -> SiteEditorScreen(repo.recentZones(), stageOsmSource = { f ->
+                        Screen.NewSite -> SiteEditorScreen(repo, stageOsmSource = { f ->
                             repo.stageOsmSource(f.snapshot.retrievedUtcMs, f.snapshot.endpoint, f.raw)
                         }, onSave = { site, staged ->
                             try { repo.saveSite(site) } catch (e: Exception) {

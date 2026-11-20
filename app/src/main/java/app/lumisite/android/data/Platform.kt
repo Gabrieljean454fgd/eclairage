@@ -1,11 +1,17 @@
 package app.lumisite.android.data
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.location.LocationManager
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.content.ContextCompat
 import app.lumisite.android.BuildConfig
+import app.lumisite.core.geo.LatLon
 import app.lumisite.core.model.Device
 import app.lumisite.core.model.SensorDescriptor
 import app.lumisite.core.time.Clock
@@ -40,6 +46,20 @@ object DeviceInfo {
             osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             appVersion = BuildConfig.VERSION_NAME, arSupport = arSupport, sensors = sensors,
         )
+    }
+}
+
+/** Position actuelle pour les adresses récentes et la recherche en ligne : dernier correctif connu, null sans permission. */
+object LastKnownPosition {
+    @SuppressLint("MissingPermission")
+    fun get(ctx: Context): LatLon? {
+        val granted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return null
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { p -> runCatching { lm.allProviders.contains(p) }.getOrDefault(false) }
+            .firstNotNullOfOrNull { p -> runCatching { lm.getLastKnownLocation(p) }.getOrNull()?.let { LatLon(it.latitude, it.longitude) } }
     }
 }
 

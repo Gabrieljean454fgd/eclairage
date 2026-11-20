@@ -10,19 +10,22 @@ name: "build199 Nouveau site : adresses récentes locales"
 - extendedWaitUntil:
     visible: { id: "accueil_nouveau_releve" }
     timeout: 90000
+# 1) « Rechercher » (action Entrée du clavier, ImeAction.Search) enregistre l'adresse tapée, sans choisir de résultat.
 - tapOn: { id: "accueil_nouveau_releve" }
 - tapOn: { id: "nouveau_site_adresse_lieu" }
 - inputText: "39 rue Dupont Toulouse"
 - pressKey: Enter
-- back
-- tapOn: { id: "nouveau_site_annuler", optional: true }
+- hideKeyboard
 - back
 - extendedWaitUntil:
     visible: { id: "accueil_nouveau_releve" }
     timeout: 15000
+# 2) Réouverture : la suggestion locale apparaît dès les premières lettres, avant toute recherche en ligne.
 - tapOn: { id: "accueil_nouveau_releve" }
 - tapOn: { id: "nouveau_site_adresse_lieu" }
 - inputText: "39 rue D"
-- assertVisible: { id: "nouveau_site_adresse_recente_1", text: "39 rue Dupont Toulouse.*" }
+- extendedWaitUntil:
+    visible: { id: "nouveau_site_adresse_recente_1", text: "39 rue Dupont Toulouse.*" }
+    timeout: 10000
 - tapOn: { id: "nouveau_site_adresse_recente_1" }
 - takeScreenshot: maestro-out/captures/b199_adresses_recentes

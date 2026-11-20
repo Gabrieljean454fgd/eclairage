@@ -5,6 +5,7 @@ import app.lumisite.core.geo.LatLon
 import app.lumisite.core.model.BBox
 import app.lumisite.core.model.OsmFeature
 import app.lumisite.core.model.OsmSnapshot
+import app.lumisite.core.osm.AddressHistory
 import app.lumisite.core.osm.Bboxes
 import app.lumisite.core.osm.Geocoding
 import app.lumisite.core.osm.OsmElements
@@ -41,18 +42,23 @@ object OsmClient {
     const val RAW_MAX = 500_000
     private var lastNominatimMs = 0L
 
-    /** IGN first, Nominatim if IGN fails or finds nothing (outside France). Nominatim: at most 1 request per second. */
-    fun search(query: String): List<Geocoding.Place> {
+    /**
+     * IGN first, Nominatim if IGN fails or finds nothing (outside France). Nominatim: at most 1 request per second.
+     * [near] (position actuelle) biases both services towards it: IGN `lat`/`lon`, Nominatim `viewbox` (not `bounded`).
+     */
+    fun search(query: String, near: LatLon? = null): List<Geocoding.Place> {
         val q = URLEncoder.encode(query, "UTF-8")
+        val ignBias = near?.let { AddressHistory.ignProximity(it.lat, it.lon) }.orEmpty()
+        val nominatimBias = near?.let { AddressHistory.nominatimViewbox(it.lat, it.lon) }.orEmpty()
         return Geocoding.search(
-            ign = { get("$ignGeocodeUrl?limit=8&q=$q") },
+            ign = { get("$ignGeocodeUrl?limit=8&q=$q$ignBias") },
             nominatim = {
                 synchronized(this) {
                     val wait = 1_000 - (System.currentTimeMillis() - lastNominatimMs)
                     if (wait > 0) Thread.sleep(wait)
                     lastNominatimMs = System.currentTimeMillis()
                 }
-                get("$nominatimUrl?format=jsonv2&limit=8&q=$q")
+                get("$nominatimUrl?format=jsonv2&limit=8&q=$q$nominatimBias")
             },
         )
     }

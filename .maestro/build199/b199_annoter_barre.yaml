@@ -1,0 +1,52 @@
+# v176f F1 — SPÉCIFICATION. Session > Annoter : les outils de CRÉATION d'abord (« Poser » devient
+# « Poser un symbole » avec une ligne d'aide ; « Se déplacer » est retiré, le pan se fait à deux doigts).
+# L'ÉDITION n'apparaît que quand un objet est touché : barre horizontale (icône + texte court)
+# Supprimer / Modifier / Déplacer / Dupliquer / Fermer. Supprimer est une suppression logique :
+# « Annuler » restaure l'objet, « Refaire » ré-applique la suppression. Le fichier de session n'est
+# jamais détruit (journal append-only).
+appId: app.lumisite.android
+name: "build199 annoter : barre de creation puis d'edition"
+---
+- runFlow: ../scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_annoter" }
+# Création : « Poser un symbole » et sa ligne d'aide ; l'ancien bouton « Se déplacer » n'existe plus.
+- assertVisible: { id: "session_annoter_poser_symbole" }
+- tapOn: { id: "session_annoter_poser_symbole" }
+- assertVisible: { id: "session_annoter_aide" }
+- assertNotVisible: { id: "session_annoter_move" }
+# Un polygone tracé à la carte : à la fermeture l'objet est sélectionné et la barre d'édition s'affiche.
+- tapOn: { id: "session_annoter_polygon" }
+- tapOn: { id: "session_carte", point: "40%,45%" }
+- tapOn: { id: "session_carte", point: "57%,45%" }
+- tapOn: { id: "session_carte", point: "50%,70%" }
+- tapOn: { id: "session_carte", point: "50%,70%" }
+- assertVisible: { id: "session_annoter_barre" }
+- assertVisible: { id: "session_annoter_supprimer" }
+- assertVisible: { id: "session_annoter_modifier" }
+- assertVisible: { id: "session_annoter_deplacer" }
+- assertVisible: { id: "session_annoter_dupliquer" }
+- assertVisible: { id: "session_annoter_fermer" }
+# « Modifier » ouvre le panneau d'édition (libellé/style), « Déplacer » les pas de déplacement.
+- tapOn: { id: "session_annoter_modifier" }
+- assertVisible: { id: "session_annoter_forme_libelle" }
+- tapOn: { id: "session_annoter_deplacer" }
+- assertVisible: { id: "session_annoter_forme_nord_plus_0.1" }
+# « Dupliquer » pose une copie qui prend la sélection ; « Fermer » replie la barre.
+- tapOn: { id: "session_annoter_dupliquer" }
+- assertVisible: ".*Forme dupliquée.*"
+- tapOn: { id: "session_annoter_fermer" }
+- assertNotVisible: { id: "session_annoter_barre" }
+# Resélection au toucher (l'outil Sélection est déjà actif), puis suppression logique.
+- tapOn: { id: "session_carte", point: "50%,55%" }
+- assertVisible: { id: "session_annoter_barre" }
+- tapOn: { id: "session_annoter_supprimer" }
+- assertNotVisible: { id: "session_annoter_barre" }
+- assertVisible: ".*Forme supprimée.*"
+# « Annuler » restaure l'objet ; « Refaire » apparaît et ré-applique la suppression.
+- assertVisible: { id: "session_annoter_annuler" }
+- tapOn: { id: "session_annoter_annuler" }
+- assertVisible: ".*Annulé.*"
+- assertVisible: { id: "session_annoter_refaire" }
+- tapOn: { id: "session_annoter_refaire" }
+- assertVisible: ".*Rétabli.*"
+- takeScreenshot: maestro-out/captures/b199_annoter_barre

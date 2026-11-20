@@ -32,4 +32,19 @@ object ToolIcons {
     val Comment = icon("comment") { moveTo(4f, 5f); lineTo(20f, 5f); lineTo(20f, 16f); lineTo(10f, 16f); lineTo(6f, 20f); lineTo(6f, 16f); lineTo(4f, 16f); close() }
     /** Pointer arrow. */
     val Select = icon("select") { moveTo(5f, 3f); lineTo(5f, 19f); lineTo(9.5f, 14.5f); lineTo(13f, 21f); lineTo(15.5f, 20f); lineTo(12f, 13.5f); lineTo(18f, 13.5f); close() }
+    /** Bent arrow to the left (Annuler). */
+    val Undo = icon("undo") {
+        moveTo(9f, 5f); lineTo(4f, 10f); lineTo(9f, 15f)
+        moveTo(4f, 10f); lineTo(15f, 10f); lineTo(15f, 19f)
+    }
+    /** Bent arrow to the right (Refaire). */
+    val Redo = icon("redo") {
+        moveTo(15f, 5f); lineTo(20f, 10f); lineTo(15f, 15f)
+        moveTo(20f, 10f); lineTo(9f, 10f); lineTo(9f, 19f)
+    }
+    /** Two stacked rectangles (Dupliquer). */
+    val Copy = icon("copy") {
+        moveTo(9f, 4f); lineTo(20f, 4f); lineTo(20f, 15f); lineTo(9f, 15f); close()
+        moveTo(4f, 9f); lineTo(15f, 9f); lineTo(15f, 20f); lineTo(4f, 20f); close()
+    }
 }

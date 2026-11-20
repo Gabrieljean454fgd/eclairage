@@ -17,23 +17,21 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +51,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -72,16 +72,19 @@ import app.lumisite.core.survey.Sketch
 import java.io.File
 import kotlin.math.hypot
 
-/** Annotation toolbar (fiche F). Material icons (Apache-2.0) + French word; no Xodo/PDFTron resource is used. */
-enum class Tool(val icon: ImageVector, val label: String) {
-    MOVE(ToolIcons.Move, "Se déplacer"),
-    PLACE(Icons.Default.Place, "Poser"),
-    SHAPE(ToolIcons.Rectangle, "Forme"),
-    LINE(ToolIcons.Line, "Ligne"),
-    POLYGON(ToolIcons.Polygon, "Polygone"),
-    ANNOTATION(Icons.Default.Warning, "Annotation"),
-    COMMENT(ToolIcons.Comment, "Commentaire"),
-    SELECT(ToolIcons.Select, "Sélection"),
+/**
+ * Annotation toolbar (fiche F). Material icons (Apache-2.0) + French word; no Xodo/PDFTron resource is used.
+ * v176f F1: creation tools only (the map pans with two fingers, « Se déplacer » was removed); the edit
+ * actions are in the horizontal bar shown when an object is selected. [tag] is the testTag of the button.
+ */
+enum class Tool(val icon: ImageVector, val label: String, val tag: String) {
+    PLACE(Icons.Default.Place, "Poser un symbole", "session_annoter_poser_symbole"),
+    SHAPE(ToolIcons.Rectangle, "Forme", "session_annoter_shape"),
+    LINE(ToolIcons.Line, "Ligne", "session_annoter_line"),
+    POLYGON(ToolIcons.Polygon, "Polygone", "session_annoter_polygon"),
+    ANNOTATION(Icons.Default.Warning, "Annotation", "session_annoter_annotation"),
+    COMMENT(ToolIcons.Comment, "Commentaire", "session_annoter_comment"),
+    SELECT(ToolIcons.Select, "Sélection", "session_annoter_select"),
 }
 
 val NAMED_COLORS = linkedMapOf(
@@ -94,7 +97,10 @@ private val PRESETS = listOf(Preset("Défaut", "rouge", null, 3f), Preset("Câbl
 
 /** Single active state: the current tool and the points of the shape being drawn. */
 class DrawState {
-    var tool by mutableStateOf(Tool.MOVE)
+    /** Sub-panel under the edit bar for the selected object (« Modifier » / « Déplacer »). */
+    enum class EditPanel { EDIT, MOVE }
+
+    var tool by mutableStateOf(Tool.SELECT)
     val pts = mutableStateListOf<Enu>()
 
     /** Polygon guidance, shown over the map (the tool panel below may be scrolled out of view in portrait). */
@@ -114,11 +120,16 @@ class DrawState {
     var recent by mutableStateOf<String?>(null)
     var family by mutableStateOf<String?>(null)
     var selected by mutableStateOf<String?>(null)
+    /** Sub-panel opened from the edit bar (null = the bar alone is shown). */
+    var editPanel by mutableStateOf<EditPanel?>(null)
     var pendingSwitch by mutableStateOf<Tool?>(null)
     /** Finger position while drawing (elastic preview), null when no finger is down. */
     var hover by mutableStateOf<Enu?>(null)
     /** Touch tolerance in metres at the current zoom (Sketch.toleranceM). */
     var tolM = 0.5
+
+    /** Selecting (or clearing) an object closes the edit sub-panel: the bar alone is shown first. */
+    fun select(id: String?) { selected = id; editPanel = null }
 
     fun style() = ShapeStyle(stroke, fill, width, opacity)
     fun consumesTap() = tool in setOf(Tool.PLACE, Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION, Tool.SELECT)
@@ -138,7 +149,7 @@ class DrawState {
     fun commit(c: SessionController, kind: String, type: String, points: List<Enu>, radius: Double? = null, annotation: String? = null) {
         val id = c.addShape(kind, type, points, radius, label.ifBlank { null }, comment.ifBlank { null }, annotation, style())
         if (id.isEmpty()) return // refused (e.g. self-intersecting zone): keep the drawing so it can be fixed
-        selected = id
+        select(id)
         recent = stroke; pts.clear(); label = ""; comment = ""
     }
 
@@ -160,7 +171,7 @@ class DrawState {
                 Sketch.PolygonTap.IGNORE -> c.notify("Il faut au moins 3 sommets pour fermer le polygone.")
             }
             Tool.ANNOTATION -> commit(c, "annotation", "point", listOf(p), annotation = annotationType)
-            Tool.SELECT -> selected = Shapes.nearest(c.currentShapes(), p)?.id
+            Tool.SELECT -> select(Shapes.nearest(c.currentShapes(), p)?.id)
             else -> {}
         }
     }
@@ -205,10 +216,15 @@ private fun ToolButton(label: String, icon: ImageVector, selected: Boolean, tag:
 fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: String?, onSelectSurvey: (String?) -> Unit) {
     val events = c.state.collectAsState().value.events
     val shapes = Shapes.current(events)
+    val canRedo by c.canRedo.collectAsState()
+    // Creation tools first (Poser un symbole, tracer…); « Refaire » appears once an action has been undone.
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Tool.entries.forEach { t -> ToolButton(t.label, t.icon, d.tool == t, "session_annoter_" + t.name.lowercase()) { d.request(t) } }
-        ToolButton("Annuler la dernière action", Icons.Default.Refresh, false, "session_annoter_annuler") { d.pts.clear(); c.undo() }
+        Tool.entries.forEach { t -> ToolButton(t.label, t.icon, d.tool == t, t.tag) { d.editPanel = null; d.request(t) } }
+        ToolButton("Annuler la dernière action", ToolIcons.Undo, false, "session_annoter_annuler") { d.pts.clear(); c.undo() }
+        if (canRedo) ToolButton("Refaire l'action annulée", ToolIcons.Redo, false, "session_annoter_refaire") { c.redo() }
     }
+    // Edition: only when an object is selected (touched on the map or in the list below).
+    shapes.firstOrNull { it.id == d.selected }?.let { SelectedShapeBar(c, d, it) }
     Text("Outil : ${d.tool.label}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("session_annoter_outil_actif"))
     d.pendingSwitch?.let { t ->
         AlertDialog(
@@ -223,8 +239,7 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         OutlinedTextField(d.comment, { d.comment = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_annoter_commentaire_facultatif"))
     }
     when (d.tool) {
-        Tool.MOVE -> Text("Se déplacer : faites glisser la carte, les taps ne posent rien.", style = MaterialTheme.typography.bodySmall)
-        Tool.PLACE -> { Text("Poser : touchez une famille, puis la carte.", style = MaterialTheme.typography.bodySmall); FamilyQuickGrid(c, d.family) { d.family = it } }
+        Tool.PLACE -> { Text("Touchez une famille, puis la carte pour poser le symbole.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_annoter_aide")); FamilyQuickGrid(c, d.family) { d.family = it } }
         Tool.SHAPE -> {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(d.shapeKind == "rectangle", { d.shapeKind = "rectangle"; d.pts.clear() }, { Text("Rectangle") }, modifier = Modifier.testTag("session_annoter_rectangle"))
@@ -262,8 +277,12 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
         }
         Tool.SELECT -> {
             val s = shapes.firstOrNull { it.id == d.selected }
-            if (s == null) Text("Touchez une forme sur la carte ou dans la liste.", style = MaterialTheme.typography.bodySmall)
-            else SelectedShape(c, d, s, center)
+            if (s == null) Text("Sélection : touchez une forme sur la carte ou dans la liste (un doigt déplace la carte).", style = MaterialTheme.typography.bodySmall)
+            else when (d.editPanel) {
+                DrawState.EditPanel.EDIT -> SelectedShape(c, d, s)
+                DrawState.EditPanel.MOVE -> ShapeMover(c, d, s, center)
+                null -> {} // the bar above carries the actions
+            }
         }
     }
     if (d.tool in setOf(Tool.SHAPE, Tool.LINE, Tool.POLYGON, Tool.ANNOTATION, Tool.SELECT)) StyleSheet(d)
@@ -271,20 +290,68 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
     val surveys = app.lumisite.core.compute.SurveyPositions.current(events)
     if (shapes.isEmpty() && surveys.isEmpty()) Text("Aucun objet sur ce relevé", style = MaterialTheme.typography.bodySmall)
     Column {
-        surveys.forEachIndexed { i, sv -> Text("• ${sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().testTag("session_objets_releve_" + (i + 1)).clickable { onSelectSurvey(sv.id); d.selected = null }.padding(4.dp),
+        surveys.forEachIndexed { i, sv -> Text("• ${sv.kind}${sv.note?.let { " · $it" } ?: ""}", Modifier.fillMaxWidth().testTag("session_objets_releve_" + (i + 1)).clickable { onSelectSurvey(sv.id); d.select(null) }.padding(4.dp),
             color = if (sv.id == selectedSurvey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
         shapes.forEach { sh -> Text("◇ ${sh.annotationType ?: sh.geometryType}${sh.label?.let { " · $it" } ?: ""}${sh.comment?.let { " · $it" } ?: ""}",
-            Modifier.fillMaxWidth().clickable { d.selected = sh.id; d.tool = Tool.SELECT; onSelectSurvey(null) }.padding(4.dp),
+            Modifier.fillMaxWidth().clickable { d.select(sh.id); d.tool = Tool.SELECT; onSelectSurvey(null) }.padding(4.dp),
             color = if (sh.id == d.selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
     }
 }
 
+/** One action of the edit bar: icon + short word, ≥ 48 dp touch target. */
 @Composable
-private fun SelectedShape(c: SessionController, d: DrawState, s: ShapeEvent, center: Enu?) {
+private fun BarItem(icon: ImageVector, label: String, tag: String, tint: Color? = null, onClick: () -> Unit) {
+    OutlinedButton(onClick, modifier = Modifier.heightIn(min = 48.dp).testTag(tag),
+        colors = tint?.let { ButtonDefaults.outlinedButtonColors(contentColor = it) } ?: ButtonDefaults.outlinedButtonColors()) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+/**
+ * Session > Annoter (v176f F1): touching an object opens this horizontal bar at once —
+ * Supprimer, Modifier, Déplacer, Dupliquer, Fermer. Supprimer is a logical deletion: « Annuler » restores it.
+ */
+@Composable
+private fun SelectedShapeBar(c: SessionController, d: DrawState, s: ShapeEvent) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("session_annoter_barre"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(s.annotationType ?: s.geometryType, style = MaterialTheme.typography.labelLarge)
+        BarItem(Icons.Default.Delete, "Supprimer", "session_annoter_supprimer", MaterialTheme.colorScheme.error) {
+            c.editShape(s.id, delete = true); d.select(null)
+        }
+        // request() keeps the « abandonner le tracé ? » confirmation when a drawing is in progress.
+        BarItem(Icons.Default.Edit, "Modifier", "session_annoter_modifier") { d.editPanel = DrawState.EditPanel.EDIT; d.request(Tool.SELECT) }
+        BarItem(ToolIcons.Move, "Déplacer", "session_annoter_deplacer") { d.editPanel = DrawState.EditPanel.MOVE; d.request(Tool.SELECT) }
+        BarItem(ToolIcons.Copy, "Dupliquer", "session_annoter_dupliquer") { c.duplicateShape(s.id)?.let { d.selected = it } }
+        BarItem(Icons.Default.Close, "Fermer", "session_annoter_fermer") { d.select(null) }
+    }
+}
+
+/** « Modifier » : size, style and text of the selected shape (append-only edits). */
+@Composable
+private fun SelectedShape(c: SessionController, d: DrawState, s: ShapeEvent) {
     var label by remember(s.id) { mutableStateOf(s.label ?: "") }
     var comment by remember(s.id) { mutableStateOf(s.comment ?: "") }
-    fun edit(delete: Boolean = false, f: (ShapeEvent) -> ShapeEvent = { it }) { d.selected = c.editShape(s.id, delete, f).takeUnless { delete } }
-    Text("Forme sélectionnée : ${s.annotationType ?: s.geometryType}", style = MaterialTheme.typography.labelLarge)
+    fun edit(f: (ShapeEvent) -> ShapeEvent) { c.editShape(s.id, change = f)?.let { d.selected = it } }
+    Text("Modifier la forme : ${s.annotationType ?: s.geometryType}", style = MaterialTheme.typography.labelLarge)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedButton({ edit { Shapes.scale(it, 1.25) } }, modifier = Modifier.testTag("session_annoter_forme_agrandir")) { Text("Agrandir") }
+        OutlinedButton({ edit { Shapes.scale(it, 0.8) } }, modifier = Modifier.testTag("session_annoter_forme_reduire")) { Text("Réduire") }
+        OutlinedButton({ edit { it.copy(style = d.style()) } }, modifier = Modifier.testTag("session_annoter_forme_appliquer_le_style")) { Text("Appliquer le style") }
+    }
+    OutlinedTextField(label, { label = it }, label = { Text("Libellé") }, singleLine = true, modifier = Modifier.testTag("session_annoter_forme_libelle"))
+    OutlinedTextField(comment, { comment = it }, label = { Text("Commentaire") }, modifier = Modifier.testTag("session_annoter_forme_commentaire"))
+    OutlinedButton({ edit { it.copy(label = label.ifBlank { null }, comment = comment.ifBlank { null }) } }, modifier = Modifier.testTag("session_annoter_forme_enregistrer_le_texte")) { Text("Enregistrer le texte") }
+}
+
+/** « Déplacer » : 10 cm / 50 cm nudges on the site axes, or recentre on the map cross. */
+@Composable
+private fun ShapeMover(c: SessionController, d: DrawState, s: ShapeEvent, center: Enu?) {
+    fun edit(f: (ShapeEvent) -> ShapeEvent) { c.editShape(s.id, change = f)?.let { d.selected = it } }
+    Text("Déplacer la forme : par pas de 10 cm / 50 cm, ou au centre de la carte.", style = MaterialTheme.typography.bodySmall)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         listOf(0.1, 0.5).forEach { st ->
             OutlinedButton({ edit { Shapes.translate(it, 0.0, st) } }, modifier = Modifier.testTag("session_annoter_forme_nord_plus_$st")) { Text("N +$st") }
@@ -293,17 +360,7 @@ private fun SelectedShape(c: SessionController, d: DrawState, s: ShapeEvent, cen
             OutlinedButton({ edit { Shapes.translate(it, -st, 0.0) } }, modifier = Modifier.testTag("session_annoter_forme_est_moins_$st")) { Text("E −$st") }
         }
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedButton(enabled = center != null, onClick = { center?.let { ctr -> edit { val o = Shapes.centroid(it); Shapes.translate(it, ctr.e - o.e, ctr.n - o.n) } } }, modifier = Modifier.testTag("session_annoter_forme_a_la_croix")) { Text("À la croix") }
-        OutlinedButton({ edit { Shapes.scale(it, 1.25) } }, modifier = Modifier.testTag("session_annoter_forme_agrandir")) { Text("Agrandir") }
-        OutlinedButton({ edit { Shapes.scale(it, 0.8) } }, modifier = Modifier.testTag("session_annoter_forme_reduire")) { Text("Réduire") }
-        OutlinedButton({ d.selected = c.duplicateShape(s.id) }, modifier = Modifier.testTag("session_annoter_forme_dupliquer")) { Text("Dupliquer") }
-        OutlinedButton({ edit { it.copy(style = d.style()) } }, modifier = Modifier.testTag("session_annoter_forme_appliquer_le_style")) { Text("Appliquer le style") }
-        OutlinedButton({ edit(delete = true) }, modifier = Modifier.testTag("session_annoter_forme_supprimer")) { Text("Supprimer") }
-    }
-    OutlinedTextField(label, { label = it }, label = { Text("Libellé") }, singleLine = true, modifier = Modifier.testTag("session_annoter_forme_libelle"))
-    OutlinedTextField(comment, { comment = it }, label = { Text("Commentaire") }, modifier = Modifier.testTag("session_annoter_forme_commentaire"))
-    OutlinedButton({ edit { it.copy(label = label.ifBlank { null }, comment = comment.ifBlank { null }) } }, modifier = Modifier.testTag("session_annoter_forme_enregistrer_le_texte")) { Text("Enregistrer le texte") }
+    OutlinedButton(enabled = center != null, onClick = { center?.let { ctr -> edit { val o = Shapes.centroid(it); Shapes.translate(it, ctr.e - o.e, ctr.n - o.n) } } }, modifier = Modifier.testTag("session_annoter_forme_a_la_croix")) { Text("À la croix") }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

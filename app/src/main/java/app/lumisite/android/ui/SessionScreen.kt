@@ -214,7 +214,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val surveyPts = surveys.mapNotNull { r ->
         (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { c.catalog.find(r.event.kind).let { e -> val f = e?.let { c.catalog.family(it.famille) }
             MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${e?.label ?: r.event.kind} ${r.event.note ?: ""}", f?.let { x -> android.graphics.Color.parseColor(x.color) } ?: android.graphics.Color.MAGENTA, r.event.id,
-                symbol = f?.symbol ?: "CROIX", selected = r.event.id == selectedSurvey) } }
+                symbol = e?.symbole ?: f?.symbol ?: "AUTRE", selected = r.event.id == selectedSurvey) } }
     }
     val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
@@ -649,7 +649,7 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     var photoFor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     // While the photo is proposed the panel shows only that (short, so it is on screen without scrolling).
     photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
-    Text("Relevé : type du catalogue ${c.catalog.version} (Famille › Sous-famille › Type, ou recherche), position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
+    Text("Relevé : choisissez une famille puis un type (ou recherchez), puis la position : AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
     FamilyQuickGrid(c, family) { family = it }
     val details = remember { mutableStateMapOf<String, String>() }
     DetailsForm(family, details)

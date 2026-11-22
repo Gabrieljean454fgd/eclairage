@@ -10,15 +10,43 @@ name: "Releve apres calibrage"
     commands:
       - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
 - assertVisible: "(Position estimée|Position du téléphone) \\(repère site\\).*"
+- evalScript: ${output.catalogue2 = false}
 - repeat:
-    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+    while: { notVisible: { id: "session_releve_recherche|session_annoter_famille_Amplificateur" } }
     times: 10
     commands:
       - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
-# Le haut du panneau défile sous la carte : deux glissements de plus pour amener la puce dans la partie visible du panneau.
-- swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
-- swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
-- tapOn: { id: "session_annoter_famille_Amplificateur" }
+# Catalogue 2 (build ≥ v176e) : famille Son puis type Amplificateur ; sinon puce historique « Amplificateur ».
+- runFlow:
+    when:
+      visible: { id: "session_releve_recherche" }
+    commands:
+      - evalScript: ${output.catalogue2 = true}
+      - repeat:
+          while: { notVisible: { id: "session_releve_categorie_SON" } }
+          times: 10
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - tapOn: { id: "session_releve_categorie_SON" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+- runFlow:
+    when:
+      true: ${!output.catalogue2}
+    commands:
+      - repeat:
+          while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+          times: 10
+          commands:
+            - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+      # Le haut du panneau défile sous la carte : deux glissements de plus pour amener la puce dans la partie visible du panneau.
+      - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+      - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
+      - tapOn: { id: "session_annoter_famille_Amplificateur" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

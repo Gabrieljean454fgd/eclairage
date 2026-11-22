@@ -745,12 +745,15 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         record(e, "Recalage : écart estimé/recalé = %.2f m.".format(e.deltaM))
     }
 
-    val catalog: EquipmentCatalog = CatalogStore.get(ctx)
+    /** Shipped catalog plus the local LS_PERSO_n types (re-read after « Ajouter un type… »). */
+    val catalog: EquipmentCatalog get() = CatalogStore.get(ctx)
 
     private fun equipmentPayload(fam: CatalogEntry, details: JsonObject?) = buildJsonObject {
         put("catalog_version", catalog.version)
         put("code", fam.code)
         put("famille", fam.famille)
+        put("label", fam.label)
+        if (!fam.isBlock) put("a_classer_au_bureau", true)
         if (details != null) put("details", details)
     }
 

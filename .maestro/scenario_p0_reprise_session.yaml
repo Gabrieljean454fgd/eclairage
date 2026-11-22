@@ -52,13 +52,22 @@ name: "Session reprise donnees affichees"
     times: 2
     commands:
       - repeat:
-          while: { notVisible: { id: "session_catalogue_famille_SON" } }
+          while: { notVisible: { id: "session_releve_categorie_SON" } }
+          times: 12
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - tapOn: { id: "session_releve_categorie_SON" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_(type|recent)_LS_SON_AMPLIFICATEUR" } }
           times: 8
           commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - repeat:
+          while: { notVisible: { id: "session_releve_(type|recent)_LS_SON_AMPLIFICATEUR" } }
+          times: 16
+          commands:
             - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-      - tapOn: { id: "session_catalogue_famille_SON" }
-      - tapOn: { id: "session_catalogue_sous_famille_amplification_et_prises" }
-      - tapOn: { id: "session_annoter_famille_LS_SON_AMPLIFICATEUR" }
+      - tapOn: { id: "session_releve_(type|recent)_LS_SON_AMPLIFICATEUR" }
       - repeat:
           while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
           times: 8

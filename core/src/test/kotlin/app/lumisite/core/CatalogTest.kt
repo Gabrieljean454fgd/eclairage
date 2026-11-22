@@ -66,7 +66,7 @@ class CatalogTest {
 
     @Test fun hierarchyAndBreadcrumb() {
         val d = catalog.resolve("LS_ECLAIRAGE_DOWNLIGHT")
-        assertEquals("Éclairage › Encastré › Downlight encastre au plafond", catalog.breadcrumb(d))
+        assertEquals("Éclairage › Encastré › Downlight encastré au plafond", catalog.breadcrumb(d))
         assertTrue(d in catalog.types("ECLAIRAGE", "Encastré"))
         assertTrue("Encastré" in catalog.sousFamilles("ECLAIRAGE"))
         assertEquals("amplification_et_prises", EquipmentCatalog.slug("Amplification et prises"))

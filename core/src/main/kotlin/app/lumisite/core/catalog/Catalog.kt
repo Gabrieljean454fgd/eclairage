@@ -17,6 +17,11 @@ data class CatalogEntry(
     /** Family code (ECLAIRAGE, ELEC, …). */
     val famille: String,
     @SerialName("sous_famille") val sousFamille: String = "",
+    /** Office layer LUMI-* and DWG block of the template (read by the office tool; the app records only [code]). */
+    val calque: String? = null,
+    @SerialName("bloc_dwg") val blocDwg: String? = null,
+    /** Plan symbol id (PlanSymbols), same glyph in the picker and on the map. */
+    val symbole: String? = null,
     val orientable: Boolean = false,
     @SerialName("details_schema") val detailsSchema: JsonObject = JsonObject(emptyMap()),
     val keywords: List<String> = emptyList(),
@@ -53,6 +58,10 @@ data class EquipmentCatalog(
 
     fun family(code: String): CatalogFamily? = familles.firstOrNull { it.code == code }
 
+    /** Delivered catalog plus the user's local types (LS_PERSO_n), each placed in its family. */
+    fun withCustom(custom: List<CatalogEntry>): EquipmentCatalog =
+        if (custom.isEmpty()) this else copy(entries = entries + custom.filter { c -> entries.none { it.code == c.code } })
+
     /** Families in display order (« Autres » last), then sub-families and types: Famille › Sous-famille › Type. */
     fun sousFamilles(famille: String): List<String> = entries.filter { it.famille == famille }.map { it.sousFamille }.distinct()
     fun types(famille: String, sousFamille: String): List<CatalogEntry> = entries.filter { it.famille == famille && it.sousFamille == sousFamille }
@@ -71,6 +80,27 @@ data class EquipmentCatalog(
     }
 
     companion object {
+        const val CUSTOM_PREFIX = "LS_PERSO_"
+        const val CUSTOM_SUB = "Types ajoutés (à classer au bureau)"
+
+        /** Next free LS_PERSO_n code. */
+        fun nextCustomCode(existing: Collection<String>): String =
+            CUSTOM_PREFIX + ((existing.mapNotNull { it.removePrefix(CUSTOM_PREFIX).takeIf { _ -> it.startsWith(CUSTOM_PREFIX) }?.toIntOrNull() }.maxOrNull() ?: 0) + 1)
+
+        /**
+         * « Ajouter un type… »: a local entry LS_PERSO_n (is_block = false, à classer au bureau) in [famille].
+         * Refuses an empty name, an unknown family and a label already present in that family.
+         */
+        fun customType(catalog: EquipmentCatalog, famille: String, label: String): CatalogEntry {
+            val name = label.trim()
+            require(name.isNotEmpty()) { "Nom du type vide" }
+            require(name.length <= 60) { "Nom du type trop long (60 caractères au plus)" }
+            val fam = requireNotNull(catalog.family(famille)) { "Famille inconnue : $famille" }
+            require(catalog.entries.none { it.famille == famille && fold(it.label) == fold(name) }) { "« $name » existe déjà dans ${fam.label}" }
+            return CatalogEntry(code = nextCustomCode(catalog.entries.map { it.code }), label = name, famille = famille, sousFamille = CUSTOM_SUB,
+                symbole = fam.symbol, keywords = listOf("perso", "ajouté"), isBlock = false)
+        }
+
         const val PAYLOAD_SCHEMA = "lumisite-equipment/2"
         const val ASSET = "lumisite_catalog_2.json"
         private val json = Json { ignoreUnknownKeys = true }

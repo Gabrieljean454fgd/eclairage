@@ -491,47 +491,14 @@ private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int 
 }
 
 /**
- * v176e E4: plan symbols by family, ≥ 7 mm on screen (44 dp). Selection = white halo + thick blue outline around the same
- * shape; the orange flag stays reserved for calibration marks.
+ * v176e E4: plan symbols (PlanSymbols, same glyph as the picker), ≥ 7 mm on screen (44 dp). Selection = white halo + blue
+ * outline around the same shape; the orange flag stays reserved for calibration marks.
  */
 internal fun symbolIcon(mv: MapView, symbol: String, color: Int, selected: Boolean, sizeDp: Int = 44): android.graphics.drawable.Drawable {
     val d = mv.resources.displayMetrics.density
     val px = (sizeDp * d).toInt()
     val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
-    val cv = android.graphics.Canvas(bmp)
-    val c = px / 2f; val r = px * 0.30f
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; style = Paint.Style.FILL }
-    val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.2f * d }
-    val path = android.graphics.Path()
-    fun poly(vararg p: Float) { path.reset(); path.moveTo(p[0], p[1]); var i = 2; while (i < p.size) { path.lineTo(p[i], p[i + 1]); i += 2 }; path.close() }
-    when (symbol) {
-        "LUMINAIRE" -> path.addCircle(c, c, r, android.graphics.Path.Direction.CW)
-        // Calibration / relocalisation mark: a flag (mast + pennant), a shape no equipment uses.
-        "DRAPEAU" -> poly(c - r * 0.6f, c - r, c + r, c - r * 0.5f, c - r * 0.6f, c)
-        "SECOURS", "CAMERA" -> path.addRect(c - r, c - r * 0.7f, c + r, c + r * 0.7f, android.graphics.Path.Direction.CW)
-        "TRIANGLE" -> poly(c, c - r, c + r, c + r * 0.8f, c - r, c + r * 0.8f)
-        "CARRE" -> path.addRect(c - r * 0.85f, c - r * 0.85f, c + r * 0.85f, c + r * 0.85f, android.graphics.Path.Direction.CW)
-        "HEXAGONE" -> { path.reset(); for (i in 0 until 6) { val a = Math.toRadians(60.0 * i).toFloat(); val x = c + r * kotlin.math.cos(a); val y = c + r * kotlin.math.sin(a); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }; path.close() }
-        "LOSANGE" -> poly(c, c - r, c + r, c, c, c + r, c - r, c)
-        else -> path.addCircle(c, c, r * 0.8f, android.graphics.Path.Direction.CW)
-    }
-    if (selected) {
-        cv.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 10f * d; strokeJoin = Paint.Join.ROUND })
-        cv.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.rgb(0, 90, 220); style = Paint.Style.STROKE; strokeWidth = 5f * d; strokeJoin = Paint.Join.ROUND })
-    }
-    cv.drawPath(path, fill)
-    cv.drawPath(path, ink)
-    val k = r * 0.55f
-    when (symbol) {
-        "LUMINAIRE" -> { cv.drawLine(c - k, c - k, c + k, c + k, ink); cv.drawLine(c + k, c - k, c - k, c + k, ink) }
-        "SECOURS" -> { cv.drawCircle(c, c, r * 0.45f, ink); cv.drawLine(c - k * 0.6f, c - k * 0.6f, c + k * 0.6f, c + k * 0.6f, ink); cv.drawLine(c + k * 0.6f, c - k * 0.6f, c - k * 0.6f, c + k * 0.6f, ink) }
-        "CAMERA" -> { poly(c + r, c, c + r * 1.55f, c - r * 0.6f, c + r * 1.55f, c + r * 0.6f); cv.drawPath(path, fill); cv.drawPath(path, ink) }
-        "CARRE" -> cv.drawCircle(c, c, 2.5f * d, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.WHITE })
-        "LOSANGE" -> cv.drawArc(c - k, c - k, c + k, c + k, -60f, 120f, false, ink)
-        "HEXAGONE" -> { cv.drawLine(c - k, c, c + k, c, ink); cv.drawLine(c + k * 0.4f, c - k * 0.5f, c + k, c, ink); cv.drawLine(c + k * 0.4f, c + k * 0.5f, c + k, c, ink) }
-        "CROIX" -> { cv.drawLine(c - k, c, c + k, c, ink); cv.drawLine(c, c - k, c, c + k, ink) }
-        "DRAPEAU" -> cv.drawLine(c - r * 0.6f, c - r, c - r * 0.6f, c + r, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.rgb(90, 50, 0); strokeWidth = 3f * d })
-    }
+    drawPlanSymbol(android.graphics.Canvas(bmp), symbol, color, px / 2f, px / 2f, px * 0.36f, d, selected)
     return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
 }
 

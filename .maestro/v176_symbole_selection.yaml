@@ -5,6 +5,7 @@ name: "v176e symbole et sélection"
 ---
 - runFlow: v176/releve_au_centre.yaml
 - extendedWaitUntil:
-    visible: { id: "session_objet_famille_actuelle" }
+    visible: { id: "session_objet_details" }
     timeout: 15000
+- assertVisible: "Relevé sélectionné : LS_SON_AMPLIFICATEUR"
 - takeScreenshot: v176_symbole_selection

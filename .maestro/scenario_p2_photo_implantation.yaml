@@ -1,15 +1,24 @@
 # Session > Relevé > « Enregistrer le relevé » : l'appareil photo s'ouvre aussitôt (photo facultative).
 # Retour sans photo, puis panneau « Prendre la photo / Reprendre / Passer » ; « Passer » le ferme.
-# Ensuite Accueil > Réglages > Relevé > « Photo automatique à l'implantation » : désactivée, le panneau n'apparaît plus.
+# Ensuite Accueil > Réglages > Relevé > « Photo après pose » : désactivée, le panneau n'apparaît plus.
 appId: app.lumisite.android
 name: Session releve photo automatique a l implantation
 ---
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
 - tapOn: { id: "session_point_a_la_croix" }
-- tapOn: { id: "session_catalogue_famille_SON" }
-- tapOn: { id: "session_catalogue_sous_famille_amplification_et_prises" }
-- tapOn: { id: "session_annoter_famille_LS_SON_AMPLIFICATEUR" }
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_SON" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- tapOn: { id: "session_releve_categorie_SON" }
+- repeat:
+    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
 # Le panneau du bas défile jusqu'au bouton (la longueur de la grille des familles varie).
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }

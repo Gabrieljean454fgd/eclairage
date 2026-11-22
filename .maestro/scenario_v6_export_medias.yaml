@@ -34,12 +34,14 @@ name: "Export medias photo wav sidecar"
 - runFlow: maj/v6_calibrer_2_points.yaml
 - tapOn: { id: "session_releve" }
 - repeat:
-    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+    while: { notVisible: { id: "session_catalogue_famille_SON" } }
     times: 10
     commands:
       - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
 - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- tapOn: { id: "session_catalogue_famille_SON" }
+- tapOn: { id: "session_catalogue_sous_famille_amplification_et_prises" }
+- tapOn: { id: "session_annoter_famille_LS_SON_AMPLIFICATEUR" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

@@ -1,0 +1,10 @@
+# v176e E4 — un relevé « Amplificateur » (famille Son : losange brun) posé puis sélectionné : il garde sa forme et sa
+# couleur et prend un contour (halo blanc + trait bleu). Le contrôle de forme/couleur se fait sur la capture.
+appId: app.lumisite.android
+name: "v176e symbole et sélection"
+---
+- runFlow: v176/releve_au_centre.yaml
+- extendedWaitUntil:
+    visible: { id: "session_objet_famille_actuelle" }
+    timeout: 15000
+- takeScreenshot: v176_symbole_selection

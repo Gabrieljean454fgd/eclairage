@@ -1,0 +1,19 @@
+# v176e E1 — Session > Relevé : Famille › Sous-famille › Type avec flèches et fil d'Ariane ; un downlight en 3 appuis.
+appId: app.lumisite.android
+name: "v176e catalogue navigation"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- assertVisible: { id: "session_catalogue_fil", text: "Catalogue" }
+- tapOn: { id: "session_catalogue_famille_ECLAIRAGE" }
+- assertVisible: { id: "session_catalogue_fil", text: "Catalogue › Éclairage" }
+- tapOn: { id: "session_catalogue_sous_famille_encastre" }
+- assertVisible: { id: "session_catalogue_fil", text: "Catalogue › Éclairage › Encastré" }
+- tapOn: { id: "session_annoter_famille_LS_ECLAIRAGE_DOWNLIGHT" }
+- assertVisible: { id: "session_catalogue_choisi", text: "Choisi : Éclairage › Encastré › Downlight encastre au plafond" }
+- takeScreenshot: v176_catalogue_navigation
+- tapOn: { id: "session_catalogue_retour" }
+- assertVisible: { id: "session_catalogue_fil", text: "Catalogue › Éclairage" }
+- tapOn: { id: "session_catalogue_retour" }
+- assertVisible: { id: "session_catalogue_famille_AUTRE" }

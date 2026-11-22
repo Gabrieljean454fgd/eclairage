@@ -212,7 +212,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     }
     val surveys = SurveyPositions.resolveAll(events)
     val surveyPts = surveys.mapNotNull { r ->
-        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", if (r.event.id == selectedSurvey) android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.MAGENTA, r.event.id) }
+        (if (r.event.id == movingId) moveTarget ?: r.site else r.site)?.let { c.catalog.find(r.event.kind).let { e -> val f = e?.let { c.catalog.family(it.famille) }
+            MapPoint(c.ltp.toLatLon(it.copy(u = 0.0)), "${e?.label ?: r.event.kind} ${r.event.note ?: ""}", f?.let { x -> android.graphics.Color.parseColor(x.color) } ?: android.graphics.Color.MAGENTA, r.event.id,
+                symbol = f?.symbol ?: "CROIX", selected = r.event.id == selectedSurvey) } }
     }
     val shapes = Shapes.current(events)
     val currentLl = st.currentSite?.let { c.ltp.toLatLon(it.copy(u = 0.0)) }
@@ -250,7 +252,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val relocPreview = if (relocTarget != null && st.currentSite != null)
         listOf(MapLine(c.ltp.toLatLon(st.currentSite!!.copy(u = 0.0)), picked!!, android.graphics.Color.rgb(255, 140, 0), "Décalage à corriger")) else emptyList()
     val controlPts = (c.controlRows("CALIBRATION").map { it to "Calibrage" } + c.controlRows("RELOCALIZATION").map { it to "Recalage" }).map { (r, k) ->
-        MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id)
+        MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id, symbol = "DRAPEAU")
     }
     val map: @Composable (Modifier) -> Unit = { m ->
         Box(m.testTag("session_carte")) {

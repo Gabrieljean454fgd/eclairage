@@ -5,7 +5,9 @@ appId: app.lumisite.android
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
 - tapOn: { id: "session_point_a_la_croix" }
-- tapOn: { id: "session_annoter_famille_Amplificateur" }
+- tapOn: { id: "session_catalogue_famille_SON" }
+- tapOn: { id: "session_catalogue_sous_famille_amplification_et_prises" }
+- tapOn: { id: "session_annoter_famille_LS_SON_AMPLIFICATEUR" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

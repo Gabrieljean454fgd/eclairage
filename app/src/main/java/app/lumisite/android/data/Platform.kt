@@ -25,7 +25,7 @@ object AndroidClock : Clock {
 }
 
 object Ids {
-    fun new(prefix: String) = "$prefix-" + UUID.randomUUID().toString().substring(0, 13)
+    fun new(prefix: String) = app.lumisite.core.ids.Ids.new(prefix)
 }
 
 object DeviceInfo {

@@ -201,3 +201,14 @@ def test_catalog2_ls_codes_map_to_dwg_blocks(tmp_path):
     assert pkg.out_of_catalog == []
     assert [f["properties"]["block_name"] for f in pkg.features if f["id"] == "a"] == [dwg]
     assert len(pkg.to_classify) == 1
+
+
+def test_catalog2_codes_follow_pending_renames(tmp_path):
+    """--apply-pending-renames: an LS_* code whose bloc_dwg is an old spelling (« Camera ») goes to the renamed block."""
+    from session2dxf.package import ALIASES_PENDING, alias_map
+    cat2 = json.loads((Path(__file__).resolve().parents[3] / "catalog" / "lumisite_catalog_2.json").read_text(encoding="utf-8"))
+    m = alias_map(cat2, apply_pending=True)
+    renamed = [e["code"] for e in cat2["entries"] if e.get("bloc_dwg") in ALIASES_PENDING]
+    assert renamed
+    for code in renamed:
+        assert m[code] not in ALIASES_PENDING

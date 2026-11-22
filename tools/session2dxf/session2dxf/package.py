@@ -76,6 +76,8 @@ def alias_map(catalog: dict, apply_pending: bool) -> dict[str, str]:
         if e.get("code"):
             m[e["code"]] = target
     if apply_pending:
+        # Targets too (LS_* code → old DWG spelling), otherwise they point to a block the renaming removed.
+        m = {k: ALIASES_PENDING.get(v, v) for k, v in m.items()}
         m.update(ALIASES_PENDING)
     return m
 

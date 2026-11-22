@@ -38,6 +38,7 @@ import app.lumisite.core.sync.Link
 import app.lumisite.core.sync.SyncRole2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Accueil > Synchro (paquet 2): role choice, then the 4 separate states (connexion, alignement, capture, repère). */
 @Composable
@@ -81,8 +82,42 @@ fun SyncScreen(onBack: () -> Unit) {
             if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st, nowNs, onStartCapture = { userStoppedCapture = false; NearbyMesh.startCapture() }, onStopCapture = { userStoppedCapture = true; NearbyMesh.stopCapture() }) else SlavePanel(st)
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
+        SynchroExportBar()
         SynchroJournal(st.log, "synchro_journal")
     }
+}
+
+/** Export de la captation locale (esclave ou maître), même format que l'export du site. Visible même après Arrêter. */
+@Composable
+private fun SynchroExportBar() {
+    val ctx = LocalContext.current
+    val repo = remember { app.lumisite.android.data.Repository(ctx.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    val n = repo.synchroArchives().size
+    if (n == 0) return
+    Text("Sauvegarde locale : $n captation(s) enregistrée(s) sur cet appareil (conservées après veille ou arrêt).", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_sauvegarde_locale"))
+    Button(enabled = !running, onClick = {
+        running = true; msg = null
+        scope.launch {
+            try {
+                val zip = withContext(Dispatchers.IO) { repo.exportSynchro(null) }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    withContext(Dispatchers.IO) { repo.publishToDownloads(zip) }
+                    msg = "Enregistré dans Téléchargements : ${zip.name}"
+                } else msg = "Paquet prêt : ${zip.name}"
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", zip)
+                ctx.startActivity(android.content.Intent.createChooser(
+                    android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                    "Partager la captation"
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) { msg = "Échec de l'export : ${e.message ?: e}" }
+            finally { running = false }
+        }
+    }, modifier = Modifier.testTag("synchro_esclave_exporter")) { Text(if (running) "Export…" else "Exporter la captation") }
+    msg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_esclave_export_resultat")) }
 }
 
 @Composable

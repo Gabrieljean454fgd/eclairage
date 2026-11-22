@@ -21,6 +21,7 @@ import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
 import app.lumisite.core.survey.Shapes
 import app.lumisite.core.sync.AudioOffset
+import app.lumisite.core.sync.SynchroArchive
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -291,6 +292,7 @@ object ExportPackage {
      */
     fun build(
         site: Site, sessions: List<SessionInput>, catalogJson: String?, osmSource: File?, parent: File, nowUtcMs: Long, generator: String,
+        synchroArchives: List<File> = emptyList(),
     ): File {
         val root = File(parent, "LumiSite_${site.id}").apply { deleteRecursively(); mkdirs() }
         val ltp = LocalTangentPlane(site.origin)
@@ -321,6 +323,23 @@ object ExportPackage {
             rawDir.deleteRecursively()
             out += PackageSession(sid, dev, "sessions/$dev/$sid.geojsonl", "sessions/$dev/$sid.frames.json",
                 GeoJsonSeq.latest(lines).size, data.events.any { it is SessionStopped }, truncated)
+        }
+        val staged = sessions.flatMap { si ->
+            File(si.dir, "synchro").takeIf { it.isDirectory }
+                ?.listFiles()?.filter { it.isDirectory && SynchroArchive.readHeader(it) != null }
+                .orEmpty()
+                .toList()
+        }
+        val archives = LinkedHashMap<String, File>()
+        (staged + synchroArchives).forEach { d -> if (d.isDirectory) archives[d.canonicalPath] = d }
+        for (arch in archives.values) {
+            val h = SynchroArchive.readHeader(arch)
+            val dev = (h?.deviceId ?: "inconnu").replace(Regex("[^A-Za-z0-9._-]"), "_").ifEmpty { "inconnu" }
+            val folder = arch.name.replace(Regex("[^A-Za-z0-9._-]"), "_").ifEmpty { "synchro" }
+            arch.walkTopDown().filter { it.isFile }.forEach { src ->
+                val rel = src.relativeTo(arch).invariantSeparatorsPath
+                src.copyTo(File(root, "synchro/$dev/$folder/$rel"), overwrite = true)
+            }
         }
         writeManifest(root, ExportPackageManifest(
             projectId = site.id, projectName = site.name, catalogVersion = catalogVersion,

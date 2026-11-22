@@ -863,7 +863,7 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     // build 199 point 1e: Session > Synchro reads the same NearbyMesh.state as Accueil > Sync.
     val mesh by NearbyMesh.state.collectAsState()
     val meshNow = rememberMeshNowNs()
-    NearbyMeshSection(activity, mesh, meshNow)
+    NearbyMeshSection(activity, mesh, meshNow, c)
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
@@ -940,15 +940,22 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
  * esclaves, journal — visible depuis l'onglet Session > Synchro, avec démarrage du rôle maître ici.
  */
 @Composable
-private fun NearbyMeshSection(activity: Activity, mesh: NearbyMesh.UiState, nowNs: Long) {
+private fun NearbyMeshSection(activity: Activity, mesh: NearbyMesh.UiState, nowNs: Long, c: SessionController) {
     val permsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE)
+        NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE, c.site.id, c.sessionId)
+        NearbyMesh.bindToVisit(c.site.id, c.sessionId, c.site.name)
+    }
+    androidx.compose.runtime.LaunchedEffect(c.site.id, c.sessionId, mesh.running) {
+        if (mesh.running) NearbyMesh.bindToVisit(c.site.id, c.sessionId, c.site.name)
     }
     Text("Synchro entre téléphones (réseau local)", style = MaterialTheme.typography.titleSmall)
     if (!mesh.running) {
         Text("Aucun rôle actif sur ce téléphone.", style = MaterialTheme.typography.bodySmall)
         Button(modifier = Modifier.testTag("session_synchro_demarrer_maitre"), onClick = {
-            if (nearbyPermissionsGranted(activity)) NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE) else permsLauncher.launch(nearbyPermissions())
+            if (nearbyPermissionsGranted(activity)) {
+                NearbyMesh.start(activity, SyncRole2.SAISIE_MAITRE, c.site.id, c.sessionId)
+                NearbyMesh.bindToVisit(c.site.id, c.sessionId, c.site.name)
+            } else permsLauncher.launch(nearbyPermissions())
         }) { Text("Démarrer la synchro maître") }
         return
     }
@@ -963,6 +970,7 @@ private fun NearbyMeshSection(activity: Activity, mesh: NearbyMesh.UiState, nowN
     }
     else Text("Maître : " + (mesh.slaveMasterName ?: "recherche…") + " · capture ${mesh.slaveCapture.label}", style = MaterialTheme.typography.bodySmall)
     SynchroJournal(mesh.log, "session_synchro_journal")
+    if (mesh.role == SyncRole2.CAPTATION_ESCLAVE) Text("Les données de captation sont enregistrées localement sur cet appareil.", style = MaterialTheme.typography.bodySmall)
     OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("session_synchro_arreter")) { Text("Arrêter la synchro") }
 }
 

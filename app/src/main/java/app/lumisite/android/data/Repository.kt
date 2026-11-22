@@ -21,6 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import app.lumisite.core.journal.SessionReader
 import app.lumisite.core.export.SessionExporter
+import app.lumisite.core.sync.SynchroArchive
 import app.lumisite.core.export.SessionImporter
 import app.lumisite.core.export.ResumableExport
 import app.lumisite.core.export.ResumableManifest
@@ -31,6 +32,7 @@ import app.lumisite.core.journal.LumiJson
 import app.lumisite.core.journal.Streams
 import app.lumisite.core.model.SessionHeader
 import app.lumisite.core.model.Site
+import app.lumisite.core.geo.LatLon
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -135,6 +137,7 @@ class Repository(private val ctx: Context) {
         val root = ExportPackage.build(
             site, sessions(site.id).map { ExportPackage.SessionInput(sessionDir(it.id)) }, catalog,
             File(sitesDir, "${site.id}/osm_source.json"), work, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}",
+            synchroArchives = synchroArchives(site.id),
         )
         val problems = ExportPackage.verify(root)
         check(problems.isEmpty()) { "Vérification du paquet : $problems" }
@@ -225,6 +228,41 @@ class Repository(private val ctx: Context) {
         val l = AddressHistory.record(recentAddresses(), text, lat, lon, System.currentTimeMillis())
         recentAddressesFile.writeText(LumiJson.encodeToString(ListSerializer(SavedAddress.serializer()), l))
         return l
+    }
+
+    /** Archives de synchro encore sur l'appareil, éventuellement filtrées par site. */
+    fun synchroArchives(siteId: String? = null): List<File> {
+        val root = File(ctx.filesDir, "synchro")
+        return root.listFiles().orEmpty().filter { it.isDirectory && SynchroArchive.readHeader(it) != null }
+            .filter { d -> siteId == null || SynchroArchive.readHeader(d)?.siteId == siteId }
+            .sortedByDescending { SynchroArchive.readHeader(it)?.startedUtcMs ?: 0L }
+    }
+
+    /**
+     * Export esclave (ou maître) au format du paquet site : ZIP `LumiSite_<siteId>_*.zip`
+     * contenant `synchro/<appareil>/<visite>/` (en-tête, journal, capteurs, wav, médias).
+     */
+    fun exportSynchro(site: Site?, archives: List<File> = synchroArchives(site?.id)): File {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
+        val pkgSite = site ?: Site(
+            id = "sans-site", name = "Captation synchro", origin = LatLon(0.0, 0.0),
+            originSource = "SYNCHRO", createdUtcMs = System.currentTimeMillis(), crs = emptyList(),
+        )
+        val work = File(exportsDir, "synchro_${pkgSite.id}_$stamp").apply { mkdirs() }
+        val catalog = runCatching { ctx.assets.open("equipment_catalog.json").bufferedReader().use { it.readText() } }.getOrNull()
+        val sessions = if (site != null) sessions(site.id).map { ExportPackage.SessionInput(sessionDir(it.id)) } else emptyList()
+        val root = ExportPackage.build(
+            pkgSite, sessions, catalog,
+            site?.let { File(sitesDir, "${it.id}/osm_source.json") },
+            work, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}",
+            synchroArchives = archives.ifEmpty { synchroArchives(site?.id) },
+        )
+        val problems = ExportPackage.verify(root)
+        check(problems.isEmpty()) { "Vérification du paquet : $problems" }
+        val zip = File(exportsDir, "LumiSite_${pkgSite.id}_synchro_$stamp.zip")
+        ExportPackage.zipStored(root, zip)
+        work.deleteRecursively()
+        return zip
     }
 
     /** Copie le(s) dossier(s) files/synchro/<horodatage> dans la session, pour les inclure à l'export ZIP. */

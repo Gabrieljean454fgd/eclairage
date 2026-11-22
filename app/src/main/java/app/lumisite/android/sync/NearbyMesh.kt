@@ -21,6 +21,13 @@ import app.lumisite.core.sync.SlaveMesh
 import app.lumisite.core.sync.SyncDisplay
 import app.lumisite.core.sync.SyncRole2
 import app.lumisite.core.sync.HeardChirp
+import app.lumisite.core.sync.SynchroArchive
+import app.lumisite.core.sync.SynchroHeader
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
+import android.os.Looper
 import app.lumisite.core.sync.SensorInventory
 import app.lumisite.core.sync.SensorState
 import app.lumisite.android.capture.AudioSync
@@ -100,9 +107,33 @@ object NearbyMesh {
     private var masterEndpoint: String? = null
     private var loop: Job? = null
     private var dir: File? = null
+    private var archive: SynchroArchive? = null
+    private var boundSiteId: String? = null
+    private var boundVisitId: String? = null
+    private val clockSent = HashMap<String, Long>()
+    private var gpsListener: LocationListener? = null
 
-    /** Dossier files/synchro/<horodatage>/ de la session de synchro courante, ou null. */
-    fun synchroDirectory(): File? = dir
+    /** Dossier files/synchro/<horodatage>/ de la session de synchro courante, ou le dernier dossier conservé. */
+    fun synchroDirectory(): File? = dir ?: archive?.dir
+
+    /** Dossiers de captation encore sur l'appareil (avec en-tête), pour l'export esclave / l'export du lieu. */
+    fun archives(ctx: Context, siteId: String? = null): List<File> {
+        val root = File(ctx.applicationContext.filesDir, "synchro")
+        return root.listFiles().orEmpty().filter { it.isDirectory && SynchroArchive.readHeader(it) != null }
+            .filter { d -> siteId == null || SynchroArchive.readHeader(d)?.siteId == siteId }
+            .sortedByDescending { SynchroArchive.readHeader(it)?.startedUtcMs ?: 0L }
+    }
+
+    /** Lie la captation en cours (et les prochains esclaves) au site et à la visite. */
+    fun bindToVisit(siteId: String, visitId: String, siteName: String? = null) {
+        boundSiteId = siteId
+        boundVisitId = visitId
+        archive?.bind(siteId, visitId)
+        journal("local", "lié au site $siteId, visite $visitId")
+        synchronized(lock) {
+            master?.peers?.keys?.forEach { send(it, MeshMsg.VisitBind(siteId, visitId, siteName)) }
+        }
+    }
     private var appCtx: Context? = null
     private val pendingMedia = HashMap<Long, MeshMsg.Media>()
     private val pendingFiles = HashMap<Long, Payload>()
@@ -112,8 +143,12 @@ object NearbyMesh {
     private fun now() = AndroidClock.monotonicNs()
 
     private fun journal(endpoint: String, what: String, screen: String? = null) {
-        val line = "{\"t_mono_ns\":${now()},\"utc_ms\":${AndroidClock.utcEpochMs()},\"appareil\":${q(endpoint)},\"quoi\":${q(what)}}\n"
-        runCatching { dir?.let { File(it, "synchro.ndjson").appendText(line) } }
+        val tMono = now(); val utc = AndroidClock.utcEpochMs()
+        runCatching {
+            val a = archive
+            if (a != null) a.appendJournal(endpoint, what, tMono, utc)
+            else dir?.let { File(it, "synchro.ndjson").appendText("{\"t_mono_ns\":$tMono,\"utc_ms\":$utc,\"appareil\":${q(endpoint)},\"quoi\":${q(what)}}\n") }
+        }
         DiagLog.i("SYNCHRO", "$endpoint : $what")
         val label = master?.peers?.get(endpoint)?.name ?: endpoint
         val hms = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date(AndroidClock.utcEpochMs()))
@@ -132,15 +167,29 @@ object NearbyMesh {
         }
     }
 
-    fun start(ctx: Context, role: SyncRole2) {
+    fun start(ctx: Context, role: SyncRole2, siteId: String? = null, visitId: String? = null) {
         stop()
         appCtx = ctx.applicationContext
         val c = Nearby.getConnectionsClient(ctx.applicationContext)
         client = c
-        dir = File(ctx.filesDir, "synchro/" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())).apply { mkdirs() }
+        boundSiteId = siteId
+        boundVisitId = visitId
+        clockSent.clear()
+        val root = File(ctx.filesDir, "synchro")
+        val resume = SynchroArchive.resumableDirs(root, AndroidClock.utcEpochMs()).firstOrNull()
+        dir = resume ?: File(root, SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())).apply { mkdirs() }
+        val name = DeviceName.label(ctx)
+        val roleName = if (role == SyncRole2.SAISIE_MAITRE) SynchroHeader.ROLE_MAITRE else SynchroHeader.ROLE_ESCLAVE
+        archive = if (resume != null) SynchroArchive.open(dir!!) else SynchroArchive.create(dir!!, SynchroHeader(
+            role = roleName,
+            startedUtcMs = AndroidClock.utcEpochMs(),
+            deviceName = name,
+            deviceId = DeviceInfo.deviceId(ctx),
+        ))
+        if (siteId != null && visitId != null) archive?.bind(siteId, visitId)
+        if (resume != null) journal("local", "reprise de la captation ${dir!!.name}")
         // build 199 point 1a: readable name (Réglages > Nom de ce téléphone, sinon device_name système, sinon modèle),
         // same name as Nearby endpointName and in the Hello message.
-        val name = DeviceName.label(ctx)
         _state.update { UiState(role = role, running = true, radio = "Démarrage…") }
         journal("local", "rôle : " + if (role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)")
         // build 199 point 1f: foreground service so HyperOS does not kill the synchro with the screen off.
@@ -158,6 +207,15 @@ object NearbyMesh {
                         val t = now()
                         m.pings(t).forEach { (id, p) -> send(id, p) }
                         logs(m.tick(t))
+                        m.peers.forEach { (id, peer) ->
+                            val off = peer.offsetNs
+                            if (off != null && clockSent[id] != off) {
+                                val unc = peer.uncertaintyNs ?: 0L
+                                send(id, MeshMsg.ClockInfo(off, unc, peer.timeBaseId))
+                                clockSent[id] = off
+                            }
+                        }
+                        archive?.flush()
                         publish()
                     }
                     delay(MasterMesh.PING_PERIOD_NS / 1_000_000)
@@ -179,6 +237,7 @@ object NearbyMesh {
                             client?.let { discover(it) }
                         }
                     }
+                    archive?.flush()
                     publish(); delay(1000)
                 }
             }
@@ -205,7 +264,10 @@ object NearbyMesh {
     private val lifecycle = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(id: String, info: ConnectionInfo) {
             synchronized(lock) { master?.let { logs(it.onConnecting(id, info.endpointName, now())) } }
-            if (slave != null) _state.update { it.copy(slaveMasterName = info.endpointName) }
+            if (slave != null) {
+                _state.update { it.copy(slaveMasterName = info.endpointName) }
+                archive?.setMasterName(info.endpointName)
+            }
             client?.acceptConnection(id, payloads)
             publish()
         }
@@ -213,7 +275,13 @@ object NearbyMesh {
         override fun onConnectionResult(id: String, r: ConnectionResolution) {
             val ok = r.status.isSuccess
             synchronized(lock) {
-                master?.let { logs(if (ok) it.onConnected(id, now()) else it.onDisconnected(id, now())) }
+                master?.let {
+                    logs(if (ok) it.onConnected(id, now()) else it.onDisconnected(id, now()))
+                    if (ok) {
+                        val sid = boundSiteId; val vid = boundVisitId
+                        if (sid != null && vid != null) send(id, MeshMsg.VisitBind(sid, vid))
+                    }
+                }
                 slave?.let { s ->
                     if (ok) { masterEndpoint = id; s.onConnected(); client?.stopDiscovery(); send(id, s.hello()); send(id, MeshMsg.Sensors(_state.value.sensors))
                         journal(id, "connexion : connecté") }
@@ -255,6 +323,15 @@ object NearbyMesh {
                                 is MeshMsg.StartCapture -> appCtx?.let { startRecording(it, m.captureId, id) }
                                 is MeshMsg.StopCapture -> stopRecording(id)
                                 is MeshMsg.SyncRound -> slaveRound(id, m)
+                                is MeshMsg.VisitBind -> {
+                                    boundSiteId = m.siteId; boundVisitId = m.visitId
+                                    archive?.bind(m.siteId, m.visitId)
+                                    journal("local", "lié au site ${m.siteId}, visite ${m.visitId}")
+                                }
+                                is MeshMsg.ClockInfo -> {
+                                    archive?.setClockOffset(m.offsetNs, m.uncertaintyNs, m.timeBaseId)
+                                    journal("local", "décalage d'horloge ${m.offsetNs} ns ± ${m.uncertaintyNs} ns")
+                                }
                                 else -> {}
                             }
                             s.onMessage(m, t, ::now)?.let { send(id, it) }
@@ -420,13 +497,20 @@ object NearbyMesh {
             cm.cameraIdList.firstOrNull { id -> cm.getCameraCharacteristics(id).get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
                 ?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT) == true }?.let { present["DEPTH"] = "caméra $it, non enregistrée" }
         }
-        val out = runCatching { File(dir, "capteurs.csv").bufferedWriter().also { it.write("t_mono_ns,capteur,x,y,z\n") } }.getOrNull()
-        sensorOut = out
         val names = HashMap<Int, String>()
         val l = object : SensorEventListener {
             override fun onSensorChanged(e: SensorEvent) {
                 val v = e.values
-                runCatching { synchronized(this) { out?.write("${e.timestamp},${names[e.sensor.type]},${v.getOrElse(0) { 0f }},${v.getOrElse(1) { 0f }},${v.getOrElse(2) { 0f }}\n") } }
+                val kind = names[e.sensor.type] ?: return
+                runCatching {
+                    archive?.appendSensor(
+                        e.timestamp,
+                        kind,
+                        v.getOrElse(0) { 0f }.toDouble(),
+                        v.getOrElse(1) { 0f }.toDouble(),
+                        v.getOrElse(2) { 0f }.toDouble(),
+                    )
+                }
             }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
@@ -436,9 +520,52 @@ object NearbyMesh {
             present[k] = sensor.name; names[t] = k
             if (sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_GAME)) active += k
         }
+        startGps(ctx, present, active)
         val list = SensorInventory.report(present, active)
         _state.update { it.copy(sensors = list) }
         journal("local", "capteurs : " + list.joinToString { it.text })
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun startGps(ctx: Context, present: HashMap<String, String?>, active: HashSet<String>) {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            || androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val enabled = runCatching {
+            if (Build.VERSION.SDK_INT >= 28) lm.isLocationEnabled else lm.allProviders.any { lm.isProviderEnabled(it) }
+        }.getOrDefault(false)
+        present["GPS"] = if (!granted) "permission manquante" else if (!enabled) "désactivé" else "en écoute"
+        journal("local", "GPS : " + present["GPS"])
+        if (!granted) return
+        val listener = object : LocationListener {
+            override fun onLocationChanged(l: Location) {
+                active += "GPS"
+                runCatching {
+                    archive?.appendSensor(
+                        if (l.elapsedRealtimeNanos != 0L) l.elapsedRealtimeNanos else AndroidClock.monotonicNs(),
+                        "GPS", l.latitude, l.longitude, (if (l.hasAccuracy()) l.accuracy else 0f).toDouble(),
+                    )
+                }
+            }
+            override fun onProviderEnabled(provider: String) { journal("local", "GPS : $provider activé") }
+            override fun onProviderDisabled(provider: String) { journal("local", "GPS : $provider désactivé") }
+            @Deprecated("Deprecated in Java") override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        }
+        gpsListener = listener
+        var requested = false
+        for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+            if (lm.allProviders.contains(p) && lm.isProviderEnabled(p)) {
+                runCatching { lm.requestLocationUpdates(p, 1000L, 0f, listener, Looper.getMainLooper()); requested = true }
+                    .onFailure { journal("local", "GPS : échec $p (${it.message})") }
+            }
+        }
+        if (requested) active += "GPS"
+    }
+
+    private fun stopGps(ctx: Context?) {
+        val l = gpsListener ?: return
+        gpsListener = null
+        runCatching { (ctx?.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)?.removeUpdates(l) }
     }
 
     private fun stopSensors(ctx: Context?) {
@@ -466,10 +593,15 @@ object NearbyMesh {
     fun stop() {
         synchronized(lock) {
             if (_state.value.running) journal("local", "synchro arrêtée")
+            runCatching { archive?.flush() }
             // Master: end the slaves' captures first, so they send their media instead of recording on after the link drops.
             val stops = master?.stop(now()).orEmpty()
             stops.forEach { (id, msg) -> send(id, msg) }
             stopSensors(appCtx)
+            stopGps(appCtx)
+            runCatching { archive?.close() }
+            archive = null
+            clockSent.clear()
             recorder?.let { r -> recorder = null; r.stop(); journal("local", "interruption : capture locale arrêtée avec la synchro (${r.file.name} gardé sur l'appareil)") }
             loop?.cancel(); loop = null
             val c = client

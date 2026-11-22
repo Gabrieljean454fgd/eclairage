@@ -40,6 +40,10 @@ sealed interface MeshMsg {
     /** v176d: sensors detected and activated by the slave. */
     @Serializable @SerialName("sensors") data class Sensors(val list: List<SensorState>) : MeshMsg
     @Serializable @SerialName("media") data class Media(val payloadId: Long, val name: String, val tStartNs: Long, val tEndNs: Long, val bytes: Long, val sha256: String, val timeBaseId: String) : MeshMsg
+    /** Master → slaves: the site and visit (session) this capture belongs to. */
+    @Serializable @SerialName("visit_bind") data class VisitBind(val siteId: String, val visitId: String, val siteName: String? = null) : MeshMsg
+    /** Master → slave: clock offset (slave − master) once alignment is known. */
+    @Serializable @SerialName("clock_info") data class ClockInfo(val offsetNs: Long, val uncertaintyNs: Long, val timeBaseId: String? = null) : MeshMsg
 
     companion object {
         private val json = Json { classDiscriminator = "type"; ignoreUnknownKeys = true; encodeDefaults = false }

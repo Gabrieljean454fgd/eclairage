@@ -35,7 +35,7 @@ for f in .maestro/*.yaml; do
 done
 # LOT 1.5 : conservation des données à la mise à jour. Version N = dernière pré-release publiée de la même étape (même clé
 # de test), session créée, arrêt brutal, puis adb install -r de cette version N+1 : la session doit rester lisible et exportable.
-N_ETAPE=$(basename "$APK" | sed -nE 's/^lumisite-etape([0-9]+)-.*/\1/p')
+N_ETAPE=${N_ETAPE:-$(basename "$APK" | sed -nE 's/^lumisite-etape([0-9]+)-.*/\1/p')}
 PREV_TAG=$(gh release list --limit 50 --json tagName -q ".[] | .tagName" 2>/dev/null | grep -E "^etape${N_ETAPE}-" | head -1)
 if [ -n "$PREV_TAG" ] && gh release download "$PREV_TAG" -p '*.apk' -D prev >/dev/null 2>&1; then
   PREV_APK=$(ls prev/*.apk | head -1)

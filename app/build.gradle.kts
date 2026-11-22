@@ -10,6 +10,12 @@ val gitCommitCount: Int = (project.findProperty("versionCode") as String?)?.toIn
     providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
 }.getOrDefault(1)
 
+// Package name shown on Accueil (« Build N · v176g »): -Ppaquet=v176g (CI, from the branch name), else the local branch.
+val paquet: String = (project.findProperty("paquet") as String?)?.takeIf { it.isNotBlank() } ?: runCatching {
+    val branch = providers.exec { commandLine("git", "rev-parse", "--abbrev-ref", "HEAD") }.standardOutput.asText.get().trim()
+    Regex("^etape-?[0-9]+-(v[0-9]+[a-z]*(-bis)?)-.*").find(branch)?.groupValues?.get(1) ?: "" // same rule as core BuildLabel
+}.getOrDefault("")
+
 android {
     namespace = "app.lumisite.android"
     compileSdk = 35
@@ -20,6 +26,7 @@ android {
         targetSdk = 35
         versionCode = gitCommitCount
         versionName = "0.3.0-alpha"
+        buildConfigField("String", "PAQUET", "\"$paquet\"")
     }
 
     // PUBLIC TEST KEY (docs/SIGNATURE_APK.md): committed on purpose so that every debug APK, built locally or by CI,

@@ -28,6 +28,7 @@ jobs:
       n: ${{ steps.id.outputs.n }}
       short: ${{ steps.id.outputs.short }}
       vc: ${{ steps.id.outputs.vc }}
+      pkt: ${{ steps.id.outputs.pkt }}
       apk: ${{ steps.id.outputs.apk }}
       tag: ${{ steps.id.outputs.tag }}
     steps:
@@ -59,11 +60,13 @@ jobs:
           echo "vc=$VC" >> "$GITHUB_OUTPUT"
           # Paquets v176 : branche etape-3-v176a-…, etape-3-v176a-bis-… → tag etape3-v176a-<hash>, etape3-v176a-bis-<hash>.
           PKT=$(echo "$BRANCH" | sed -nE 's/^etape-?[0-9]+-(v[0-9]+[a-z]*(-bis)?)-.*/\1/p')
-          echo "apk=lumisite-etape${N}${PKT:+-$PKT}-v${VC}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
+          echo "pkt=$PKT" >> "$GITHUB_OUTPUT"
+          # « Build N · paquet » (Accueil) → lumisite-build<N>-<paquet>-<hash>.apk
+          echo "apk=lumisite-build${VC}${PKT:+-$PKT}-${SHORT}.apk" >> "$GITHUB_OUTPUT"
           echo "tag=etape${N}${PKT:+-$PKT}-${SHORT}" >> "$GITHUB_OUTPUT"
 
       - name: Tests JVM et APK debug signé
-        run: ./gradlew --no-daemon -PversionCode=${{ steps.id.outputs.vc }} :core:test :app:assembleDebug
+        run: ./gradlew --no-daemon -PversionCode=${{ steps.id.outputs.vc }} -Ppaquet=${{ steps.id.outputs.pkt }} :core:test :app:assembleDebug
 
       - name: Vérification de la signature (clé de test)
         run: |
@@ -128,6 +131,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           GH_TOKEN: ${{ github.token }} # lecture des pré-releases (version N du test de mise à jour)
+          N_ETAPE: ${{ needs.apk.outputs.n }} # le nom de l'APK ne porte plus l'étape (lumisite-build<N>-<paquet>-<hash>.apk)
         with:
           api-level: 34
           target: google_apis
@@ -175,5 +179,5 @@ jobs:
             gh release edit "$TAG" --notes-file notes-final.md
           else
             gh release create "$TAG" "$APK" --prerelease --target "$GITHUB_SHA" \
-              --title "Étape ${{ needs.apk.outputs.n }} — ${{ needs.apk.outputs.short }} (versionCode ${{ needs.apk.outputs.vc }})" --notes-file notes-final.md
+              --title "Build ${{ needs.apk.outputs.vc }}${{ needs.apk.outputs.pkt && format(' · {0}', needs.apk.outputs.pkt) || '' }} — ${{ needs.apk.outputs.short }} (étape ${{ needs.apk.outputs.n }})" --notes-file notes-final.md
           fi

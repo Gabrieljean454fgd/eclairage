@@ -8,6 +8,7 @@
     <cloud-backup>
         <include domain="file" path="sites/" />
         <include domain="file" path="sessions/" />
+        <include domain="file" path="catalog/" />
         <include domain="file" path="diag/" />
         <include domain="sharedpref" path="." />
         <exclude domain="file" path="exports/" />
@@ -16,6 +17,7 @@
     <device-transfer>
         <include domain="file" path="sites/" />
         <include domain="file" path="sessions/" />
+        <include domain="file" path="catalog/" />
         <include domain="file" path="diag/" />
         <include domain="sharedpref" path="." />
         <exclude domain="file" path="exports/" />

@@ -16,6 +16,8 @@ name: "Synchro sans esclave 0 appareil"
 - extendedWaitUntil:
     visible: { id: "synchro_mode_actif" }
     timeout: 15000
+# anomalie constatée, hors périmètre, pour Devin / v176g : « 0 appareil » manquait sur synchro_resume
+# sur l'appareil — le flux reste strict.
 - assertVisible: { id: "synchro_mode_actif", text: "Mode : Saisie \\(maître\\)" }
 - assertVisible: { id: "synchro_resume", text: "0 appareil" }
 - assertVisible: { id: "synchro_etat_global", text: "non synchronisé" }

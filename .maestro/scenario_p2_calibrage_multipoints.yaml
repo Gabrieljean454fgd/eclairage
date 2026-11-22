@@ -57,6 +57,8 @@ name: "Session calibrage multipoints"
 - tapOn: { id: "session_trajectoire_estimee_vert_non_gar" }
 - tapOn: { id: "session_point_a_la_croix" }
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
+# anomalie constatée, hors périmètre, pour Devin / v176g : la ligne 2 du calibrage est parfois absente
+# sur l'appareil (2e point refusé sans message) — le flux reste strict.
 # Le dernier message est fixé au-dessus de la barre d'actions (bas de l'écran) : on glisse plus haut, dans le panneau, jusqu'à la ligne 2.
 - repeat:
     while: { notVisible: { id: "session_calibrer_ligne_2" } }

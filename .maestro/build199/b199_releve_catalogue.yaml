@@ -6,19 +6,50 @@ name: "build199 Relevé : catégories et ajout de type"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
+# build 244 (sélecteur catalogue 2.0) : Éclairage est la 1re famille, visible sans défiler ; les 6 autres
+# familles se parcourent en descendant — SON n'est plus visible sans défiler (cause des échecs du 18-19/11).
 - assertVisible: { id: "session_releve_categorie_ECLAIRAGE" }
 - assertVisible: { id: "session_releve_categorie_ELEC" }
-# La grille des familles peut dépasser l'écran : on défile pour voir les dernières catégories.
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_SECOURS" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_SECOURS" }
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_SECURITE" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_SECURITE" }
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_INCENDIE" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_INCENDIE" }
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_CAMERA" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_CAMERA" }
 - repeat:
     while: { notVisible: { id: "session_releve_categorie_SON" } }
     times: 8
     commands:
       - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
-- assertVisible: { id: "session_releve_categorie_INCENDIE" }
 - assertVisible: { id: "session_releve_categorie_SON" }
 - repeat:
-    while: { notVisible: { id: "session_releve_categorie_ECLAIRAGE" } }
+    while: { notVisible: { id: "session_releve_categorie_AUTRE" } }
     times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_AUTRE" }
+# Remonter en haut de la liste des familles pour choisir Éclairage.
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_ECLAIRAGE" } }
+    times: 10
     commands:
       - swipe: { start: "50%,58%", end: "50%,74%", duration: 600 }
 - tapOn: { id: "session_releve_categorie_ECLAIRAGE" }

@@ -67,6 +67,7 @@ data class AudioOffset(val roundId: String, val masterHeardSlave: Boolean, val s
         error != null -> "$name : échec ($error)"
         offsetNs != null -> "$name : entendu, décalage %.1f ms ± %.1f".format(offsetNs / 1e6, (uncertaintyNs ?: 0) / 1e6)
         !masterHeardSlave && !slaveHeardMaster -> "$name : non entendu (ni par le maître, ni l'inverse)"
+        masterHeardSlave && slaveHeardMaster -> "$name : entendu dans les deux sens, mais un téléphone n'a pas détecté son propre chirp : décalage non calculable"
         !masterHeardSlave -> "$name : a entendu le maître, mais le maître ne l'a pas entendu"
         else -> "$name : entendu par le maître, mais n'a pas entendu le maître"
     }

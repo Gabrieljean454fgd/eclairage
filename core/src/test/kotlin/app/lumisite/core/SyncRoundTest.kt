@@ -1,5 +1,6 @@
 package app.lumisite.core
 
+import app.lumisite.core.sync.AudioOffset
 import app.lumisite.core.sync.HeardChirp
 import app.lumisite.core.sync.Link
 import app.lumisite.core.sync.MasterMesh
@@ -91,5 +92,10 @@ class SyncRoundTest {
         s.onDisconnected(); s.onConnected(30_000_000_000L)
         assertFalse(s.masterSilent(31_000_000_000L))
         assertTrue(s.masterSilent(46_000_000_000L)) // no ping at all after the reconnection: lost after 15 s as well
+    }
+
+    @Test fun missingSelfDetectionIsNotReportedAsOneWayHearing() {
+        val t = AudioOffset("r", masterHeardSlave = true, slaveHeardMaster = true, offsetNs = null, uncertaintyNs = null).text("B")
+        assertTrue("propre chirp" in t, t)
     }
 }

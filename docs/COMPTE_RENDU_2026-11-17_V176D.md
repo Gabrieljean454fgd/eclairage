@@ -23,5 +23,12 @@ Branche `etape-3-v176d-synchro-reelle`, empilée sur `etape-3-v176c-ar-depouille
 - Le micro de l'esclave peut être occupé par une capture en cours pendant un top : l'échec est alors renvoyé et affiché, pas masqué.
 - `clock_offset_ms` de l'export n'est pas encore rempli par le résultat du top.
 
-## CI / pré-release
-À compléter.
+## Revue automatique (Devin Review) — 4 points, tous corrigés
+- Fenêtre d'écoute reçue d'un maître : bornée à 3–30 s (`2de8eab`).
+- Échéance du ping réinitialisée après une reconnexion, plus de « perdu » immédiat (`6b85652`).
+- Chirp de l'esclave absent de son propre enregistrement : « décalage non calculable » explicite, distinct d'une écoute à sens unique (`de507ce`).
+- Micro refusé : message et bouton d'autorisation au lieu d'une synchro muette (`e22bdb3`).
+
+## CI / pré-release (22/11/2026)
+- CI verte : [run 45036514073](https://github.com/Gabrieljean454fgd/eclairage/actions/runs/45036514073) (APK, tests JVM, tous les flows Maestro, mise à jour depuis le build 199, release).
+- Pré-release **build 206** : [etape3-v176d-447d10d](https://github.com/Gabrieljean454fgd/eclairage/releases/tag/etape3-v176d-447d10d), APK `lumisite-etape3-v176d-v206-447d10d.apk`.

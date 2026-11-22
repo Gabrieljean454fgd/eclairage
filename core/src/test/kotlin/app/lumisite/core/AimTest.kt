@@ -73,4 +73,28 @@ class AimTest {
             assertEquals("ESTIMATED", (LumiJson.decodeFromString(SessionEvent.serializer(), LumiJson.encodeToString(SessionEvent.serializer(), est)) as SurveyEvent).positionSource)
         } else throw AssertionError("0.1 survey not readable: ${e.exceptionOrNull()?.message}")
     }
+
+
+    @Test fun wallEstimateIsUsedWhenNoWallPlane() {
+        val cam = V3(0.0, 1.4, 0.0)
+        val dir = V3(0.0, 0.0, -1.0)
+        val extra = listOf(Aim.wallEstimate(cam, dir))
+        val r = Aim.resolve(cam, dir, emptyList(), null, tracking = true, fallbacks = false, extraPlanes = extra)
+        val hit = r as AimResult.Hit
+        assertEquals(Aim.SRC_WALL_ESTIMATE, hit.source)
+        assertEquals(0.0, hit.point.x, 1e-9)
+        assertEquals(-Aim.DEFAULT_WALL_DISTANCE_M, hit.point.z, 1e-9)
+    }
+
+    @Test fun ceilingEstimateWithoutEnteredHeight() {
+        val cam = V3(0.0, 1.4, 0.0)
+        val dir = V3(0.0, 1.0, 0.0)
+        val floorY = cam.y - Aim.DEFAULT_CAMERA_HEIGHT_M
+        val extra = listOf(Aim.ceilingEstimate(cam, floorY))
+        val r = Aim.resolve(cam, dir, emptyList(), null, tracking = true, fallbacks = false, extraPlanes = extra)
+        val hit = r as AimResult.Hit
+        assertEquals(Aim.SRC_CEILING_ESTIMATED, hit.source)
+        assertEquals(floorY + Aim.DEFAULT_CEILING_HEIGHT_M, hit.point.y, 1e-9)
+    }
+
 }

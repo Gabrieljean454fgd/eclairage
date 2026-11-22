@@ -225,6 +225,44 @@ object LsText {
     }
 
     fun isOtherLabel(s: String): Boolean = normalize(s) in setOf("autre", "autres")
+
+    /**
+     * Libellé court pour les listes de relevé (retour terrain 22/11, build 230) :
+     * « Encastré au plafond » → « Écl. enc. plaf. » quand la famille est l'éclairage.
+     */
+    fun shortLabel(label: String, famille: String? = null): String {
+        val words = normalize(label).split(' ').filter { it.isNotEmpty() && it !in SKIP }
+        val abbreviated = words.map { ABBR[it] ?: it }
+        val body = abbreviated.joinToString(" ")
+        val fam = famille?.let { normalize(it) }.orEmpty()
+        val prefix = if (fam.startsWith("eclair") || fam == "eclairage") "Écl. " else ""
+        return (prefix + body).replace(Regex("\\s+"), " ").trim().ifEmpty { label }
+    }
+
+    private val SKIP = setOf("au", "aux", "de", "des", "du", "la", "le", "les", "un", "une", "et", "a")
+    private val ABBR = mapOf(
+        "encastre" to "enc.", "encastres" to "enc.",
+        "plafond" to "plaf.", "plafonds" to "plaf.",
+        "eclairage" to "Écl.", "eclairages" to "Écl.",
+        "apparent" to "app.", "apparents" to "app.",
+        "suspendu" to "susp.", "suspendus" to "susp.",
+        "applique" to "appl.", "appliques" to "appl.",
+        "lineaire" to "lin.", "lineaires" to "lin.",
+        "projecteur" to "proj.", "projecteurs" to "proj.",
+        "detecteur" to "détect.", "detection" to "détect.",
+        "interrupteur" to "int.", "interrupteurs" to "int.",
+        "boitier" to "boît.", "boitiers" to "boît.",
+        "encastrement" to "enc.",
+        "mural" to "mur", "muraux" to "mur",
+        "exterieur" to "ext.", "interieur" to "int.",
+        "etanche" to "ét.", "etancheite" to "ét.",
+        "downlight" to "downlight",
+        "spot" to "spot", "spots" to "spots",
+        "reglette" to "régl.", "reglettes" to "régl.",
+        "plafonnier" to "plafonnier",
+        "luminaire" to "lum.", "luminaires" to "lum.",
+        "light" to "Écl.",
+    )
 }
 
 /** Favoris / récents : opérations pures sur des listes de codes (persistance hors de ce fichier). */

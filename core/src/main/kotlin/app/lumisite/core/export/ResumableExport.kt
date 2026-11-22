@@ -165,7 +165,10 @@ object ResumableExport {
         val media = refs.mapNotNull { a -> File(sessionDir, a.file).takeIf { it.isFile }?.let { a to it } }
         // Synchro recordings (sync_*.wav) are not attachments of a survey: exported as they are next to the photos.
         val audio = sessionDir.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".wav") && media.none { m -> m.second == it } }.sortedBy { it.name }
-        val inputs = (rawFiles.values.flatten().map { it to snapLen.getValue(it) } + (media.map { it.second } + audio).map { it to it.length() })
+        // Accueil > Sync : dossier files/synchro recopié sous session/synchro/ (capteurs, wav, journal).
+        val synchro = File(sessionDir, "synchro").takeIf { it.isDirectory }
+            ?.walkTopDown()?.filter { it.isFile }?.sortedBy { it.path }.orEmpty()
+        val inputs = (rawFiles.values.flatten().map { it to snapLen.getValue(it) } + (media.map { it.second } + audio + synchro).map { it to it.length() })
             .map { (f, n) -> ExportInput(f.relativeTo(sessionDir).invariantSeparatorsPath, n) }
         progress(Progress(Step.INSTANTANE, "Instantané : ${inputs.size} fichiers", 0, 1))
         val exportId = header.id + "-" + sha256(LumiJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(ExportInput.serializer()), inputs).toByteArray()).take(10)
@@ -256,6 +259,10 @@ object ResumableExport {
                 }
                 audio.forEach { f ->
                     entry("media/" + f.name, "media", "audio/x-wav") { out -> f.inputStream().use { copyBlocks(it, out) { b -> done += b } }; 1 to emptyList() }
+                }
+                synchro.forEach { f ->
+                    val name = f.relativeTo(sessionDir).invariantSeparatorsPath
+                    entry(name, "media", "application/octet-stream") { out -> f.inputStream().use { copyBlocks(it, out) { b -> done += b } }; 1 to emptyList() }
                 }
                 entry(LISEZMOI, "doc", "text/plain") { out -> out.write(Releves.lisezmoi(header, site).toByteArray()); 1 to emptyList() }
                 val summary = TrajectoryCorrector.summarize(rawFiles.getValue(Streams.POSES).asSequence().flatMap { lines(it, snapLen.getValue(it)) }

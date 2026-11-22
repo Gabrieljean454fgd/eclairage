@@ -65,7 +65,7 @@ fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) 
 /** Below the camera view: aim hint, plane counters (2 Hz), aimed support (from the tilt, automatic), torch and two-aim
  *  measurement (P2, not journaled). Always fully shown, whatever the open tab (build 199, point 5: no jumping menus). */
 @Composable
-fun ArControls(c: SessionController) {
+fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boolean) -> Unit = {}) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
@@ -74,6 +74,9 @@ fun ArControls(c: SessionController) {
     val torch by c.ar.torchOn.collectAsState()
     var a by remember { mutableStateOf<V3?>(null) }
     var measure by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(measureReset) {
+        if (measureReset > 0) { a = null; measure = null; onMeasureArmed(false) }
+    }
     val (color, hint) = aimState(st.tracking, aim)
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         val calLabel = remember(st.events.size) { c.calibrationLabel() }
@@ -94,9 +97,9 @@ fun ArControls(c: SessionController) {
             }
             OutlinedButton({
                 val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" && it.source != "AR_FLOOR_ESTIMATE" && it.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED }?.point
-                if (p == null) measure = "Mesure : visez une cible"
-                else if (a == null) { a = p; measure = "Point A posé, visez B" }
-                else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null }
+                if (p == null) { measure = "Mesure : visez une cible"; onMeasureArmed(true) }
+                else if (a == null) { a = p; measure = "Point A posé, visez B"; onMeasureArmed(true) }
+                else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null; onMeasureArmed(false) }
             }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (a == null) "Mesure A" else "Mesure B" }.testTag("session_ar_mesure_a")) { Text(if (a == null) "📏 A" else "📏 B", fontSize = 16.sp) }
         }
         measure?.let { Text(it, style = MaterialTheme.typography.labelSmall) }

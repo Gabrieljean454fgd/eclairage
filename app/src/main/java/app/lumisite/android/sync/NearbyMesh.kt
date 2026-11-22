@@ -100,6 +100,9 @@ object NearbyMesh {
     private var masterEndpoint: String? = null
     private var loop: Job? = null
     private var dir: File? = null
+
+    /** Dossier files/synchro/<horodatage>/ de la session de synchro courante, ou null. */
+    fun synchroDirectory(): File? = dir
     private var appCtx: Context? = null
     private val pendingMedia = HashMap<Long, MeshMsg.Media>()
     private val pendingFiles = HashMap<Long, Payload>()

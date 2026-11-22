@@ -120,9 +120,13 @@ fun OsmMap(
     onScale: ((metersPerDp: Double) -> Unit)? = null,
     /** When set, ONE finger draws (DOWN/MOVE/UP reported here) and TWO fingers pan/zoom the map. */
     onFinger: ((FingerPhase, LatLon) -> Unit)? = null,
+    /** Centre et niveau de zoom courants (conservés quand le panneau de Calibrage est replié). */
+    onCamera: ((center: LatLon, zoom: Double) -> Unit)? = null,
 ) {
     val fingerCb = rememberUpdatedState(onFinger)
+    val reticleCb = rememberUpdatedState(reticle)
     val scaleCb = rememberUpdatedState(onScale)
+    val cameraCb = rememberUpdatedState(onCamera)
     val tapCb = rememberUpdatedState(onTap)
     val featureCb = rememberUpdatedState(onFeatureTap)
     val pointCb = rememberUpdatedState(onPointTap)
@@ -171,6 +175,7 @@ fun OsmMap(
                 val w = TileMath.widthM(bb.centerLatitude, bb.longitudeSpanWithDateLine)
                 widthM = w
                 onViewport?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), w)
+                cameraCb.value?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), map.zoomLevelDouble)
                 val dpW = map.width / map.resources.displayMetrics.density
                 if (dpW > 0) scaleCb.value?.invoke(w / dpW)
                 return false
@@ -182,8 +187,9 @@ fun OsmMap(
         val magnifier = if (Build.VERSION.SDK_INT >= 28) Magnifier.Builder(map).setSize(300, 200).setInitialZoom(2f).build() else null
         map.setOnTouchListener { _, e ->
             // Magnifier above the finger while placing at room scale (zoom ≥ 20).
-            if (magnifier != null && Build.VERSION.SDK_INT >= 28 && map.zoomLevelDouble >= 20.0 && e.pointerCount == 1) when (e.actionMasked) {
+            if (magnifier != null && Build.VERSION.SDK_INT >= 28 && reticleCb.value && map.zoomLevelDouble >= 20.0 && e.pointerCount == 1) when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> magnifier.show(e.x, e.y)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> magnifier.dismiss()
                 else -> magnifier.dismiss()
             } else if (magnifier != null && Build.VERSION.SDK_INT >= 28) magnifier.dismiss()
             val cb = fingerCb.value
@@ -211,7 +217,7 @@ fun OsmMap(
                 }
             }
         }
-        onDispose { map.removeMapListener(l) }
+        onDispose { runCatching { if (Build.VERSION.SDK_INT >= 28) magnifier?.dismiss() }; map.removeMapListener(l) }
     }
     DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
     if (holder[0] != recenterKey) {

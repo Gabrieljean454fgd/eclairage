@@ -3,6 +3,7 @@ package app.lumisite.android.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +51,17 @@ fun SyncScreen(onBack: () -> Unit) {
         wanted = role
         if (nearbyPermissionsGranted(ctx)) NearbyMesh.start(ctx, role) else launcher.launch(perms)
     }
+    var userStoppedCapture by remember { mutableStateOf(false) }
+    // Retour terrain 22/11 : la capture démarre par défaut dès que le maître tourne ; l'utilisateur peut l'arrêter.
+    androidx.compose.runtime.LaunchedEffect(st.running, st.role, st.capturing) {
+        if (st.running && st.role == SyncRole2.SAISIE_MAITRE && !st.capturing && !userStoppedCapture) {
+            NearbyMesh.startCapture()
+        }
+        if (!st.running) userStoppedCapture = false
+    }
+    BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("← Retour") }
         Text("Sync", style = MaterialTheme.typography.headlineSmall)
         Text("Réseau local (Nearby, sans cloud). Le maître fait le relevé ; les esclaves envoient horodatages et médias.", style = MaterialTheme.typography.bodySmall)
         if (!st.running) {
@@ -67,16 +78,15 @@ fun SyncScreen(onBack: () -> Unit) {
             if (st.radio.contains("impossible", ignoreCase = true) || st.radio.contains("refusée", ignoreCase = true))
                 Text(st.radio, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_radio"))
             Prerequisites()
-            if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st, nowNs) else SlavePanel(st)
+            if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st, nowNs, onStartCapture = { userStoppedCapture = false; NearbyMesh.startCapture() }, onStopCapture = { userStoppedCapture = true; NearbyMesh.stopCapture() }) else SlavePanel(st)
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
-        OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("Retour") }
         SynchroJournal(st.log, "synchro_journal")
     }
 }
 
 @Composable
-private fun MasterPanel(st: NearbyMesh.UiState, nowNs: Long) {
+private fun MasterPanel(st: NearbyMesh.UiState, nowNs: Long, onStartCapture: () -> Unit, onStopCapture: () -> Unit) {
     val s = st.master
     val ok = s?.allSynced == true
     Text(s?.text ?: "0 appareil", style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("synchro_resume"),
@@ -99,8 +109,11 @@ private fun MasterPanel(st: NearbyMesh.UiState, nowNs: Long) {
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_top_etat"))
     SceneActive(st)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button({ NearbyMesh.startCapture() }, enabled = !st.capturing, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Démarrer les captures") }
-        OutlinedButton({ NearbyMesh.stopCapture() }, enabled = st.capturing, modifier = Modifier.testTag("synchro_arreter_captures")) { Text("Arrêter") }
+        if (st.capturing) {
+            OutlinedButton(onStopCapture, modifier = Modifier.testTag("synchro_arreter_captures")) { Text("Arrêter la capture") }
+        } else {
+            Button(onStartCapture, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Reprendre la capture") }
+        }
     }
     st.peers.forEachIndexed { i, p -> SynchroPeerCard(p, i, nowNs) }
 }

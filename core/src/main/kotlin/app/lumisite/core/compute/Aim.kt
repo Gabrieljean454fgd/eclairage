@@ -43,6 +43,12 @@ object Aim {
     const val DEFAULT_CAMERA_HEIGHT_M = 1.4
     /** 2f: hit source when the aimed point is the ray ∩ virtual ceiling (floor + hauteur sous plafond), never silent. */
     const val SRC_CEILING_ESTIMATED = "AR_CEILING_ESTIMATED"
+    /** Inclination fallback when ARCore has no wall plane (explicit estimate, never silent). */
+    const val SRC_WALL_ESTIMATE = "AR_WALL_ESTIMATE"
+    /** Default ceiling height used only when the user has not entered « hauteur sous plafond ». */
+    const val DEFAULT_CEILING_HEIGHT_M = 2.5
+    /** Default distance of a vertical wall estimate in front of the camera. */
+    const val DEFAULT_WALL_DISTANCE_M = 2.0
     val UP = V3(0.0, 1.0, 0.0)
 
     data class Plane(val point: V3, val normal: V3, val source: String, val contains: ((V3) -> Boolean)? = null)
@@ -65,13 +71,14 @@ object Aim {
      * a hit on it is reported with source [SRC_CEILING_ESTIMATED] — never a silent fallback.
      */
     fun resolve(origin: V3, dir: V3, arPlanes: List<Plane>, lastObjectY: Double?, tracking: Boolean, fallbacks: Boolean = true,
-                virtualCeilingY: Double? = null): AimResult {
+                virtualCeilingY: Double? = null, extraPlanes: List<Plane> = emptyList()): AimResult {
         if (!tracking) return AimResult.NoTarget
         // Nearest detected plane along the ray (a wall in front of a farther floor wins), then the fallbacks.
         nearest(origin, dir, arPlanes)?.let { return it }
         val floorY = arPlanes.filter { it.source == "AR_PLANE" }.minOfOrNull { it.point.y } ?: (origin.y - DEFAULT_CAMERA_HEIGHT_M)
         val chain = buildList {
             virtualCeilingY?.let { add(Plane(V3(origin.x, it, origin.z), UP, SRC_CEILING_ESTIMATED)) }
+            addAll(extraPlanes)
             if (fallbacks) {
                 lastObjectY?.let { add(Plane(V3(origin.x, it, origin.z), UP, "AR_LAST_PLANE")) }
                 add(Plane(V3(origin.x, floorY, origin.z), UP, "AR_FLOOR_ESTIMATE"))
@@ -92,6 +99,22 @@ object Aim {
 
     /** v176c, surface chosen by the user at the survey (Sol / Mur / Plafond): keeps only the detected planes of that kind. */
     fun sourceOf(surface: String?): String? = when (surface) { "SOL" -> "AR_PLANE"; "MUR" -> "AR_WALL"; "PLAFOND" -> "AR_CEILING"; else -> null }
+
+    /**
+     * Vertical plane in front of the camera, used when the tilt says MUR but ARCore has no wall.
+     * [forward] is the camera look direction; the plane is placed [DEFAULT_WALL_DISTANCE_M] ahead,
+     * facing the camera, source [SRC_WALL_ESTIMATE].
+     */
+    fun wallEstimate(origin: V3, forward: V3, distanceM: Double = DEFAULT_WALL_DISTANCE_M): Plane {
+        val h = V3(forward.x, 0.0, forward.z)
+        val n = if (h.norm() < 1e-6) V3(0.0, 0.0, -1.0) else h.unit()
+        val d = distanceM.coerceIn(0.3, MAX_RANGE_M)
+        return Plane(origin + n * d, n, SRC_WALL_ESTIMATE)
+    }
+
+    /** Horizontal ceiling estimate at floor + height (default 2,5 m) when no height was entered. */
+    fun ceilingEstimate(origin: V3, floorY: Double, heightM: Double = DEFAULT_CEILING_HEIGHT_M): Plane =
+        Plane(V3(origin.x, floorY + heightM, origin.z), UP, SRC_CEILING_ESTIMATED)
 
     /** Camera forward (-Z) rotated by quaternion (x, y, z, w). */
     fun forward(q: List<Double>): V3 {

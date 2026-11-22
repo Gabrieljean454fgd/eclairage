@@ -25,6 +25,7 @@ import app.lumisite.core.export.SessionImporter
 import app.lumisite.core.export.ResumableExport
 import app.lumisite.core.export.ResumableManifest
 import app.lumisite.android.ExportWorker
+import app.lumisite.android.sync.NearbyMesh
 import app.lumisite.core.export.SessionManifest
 import app.lumisite.core.journal.LumiJson
 import app.lumisite.core.journal.Streams
@@ -83,6 +84,7 @@ class Repository(private val ctx: Context) {
     fun export(site: Site, sessionId: String, progress: (ResumableExport.Progress) -> Unit = {}): ExportResult {
         val parts = listOf(PublicStore.siteFolder(site), sessionId, "exports")
         var copied: PublicStore.Copied? = null
+        stageSynchroInto(sessionDir(sessionId))
         val r = ResumableExport.run(site, sessionDir(sessionId), exportsDir, "LumiSite Android ${BuildConfig.VERSION_NAME}", System.currentTimeMillis(), progress) { zip ->
             runCatching { publicStore.copy(zip, parts, "${sessionId}_${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())}.zip") }
                 .onFailure { DiagLog.e("EXPORT", "Copie de ${zip.name} vers ${PublicStore.displayPath(parts)}", it) }
@@ -224,7 +226,21 @@ class Repository(private val ctx: Context) {
         recentAddressesFile.writeText(LumiJson.encodeToString(ListSerializer(SavedAddress.serializer()), l))
         return l
     }
+
+    /** Copie le(s) dossier(s) files/synchro/<horodatage> dans la session, pour les inclure à l'export ZIP. */
+    private fun stageSynchroInto(sessionDir: File) {
+        val root = File(ctx.filesDir, "synchro")
+        val dirs = buildList {
+            NearbyMesh.synchroDirectory()?.let { add(it) }
+            root.listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name }?.take(2)?.forEach { add(it) }
+        }.distinctBy { it.canonicalPath }
+        dirs.forEach { src ->
+            val dest = File(sessionDir, "synchro/${src.name}")
+            runCatching { src.copyRecursively(dest, overwrite = true) }
+        }
+    }
 }
 
+
 @kotlinx.serialization.Serializable
-data class RecentZone(val name: String, val bbox: BBox)
+data class RecentZone(val name: String, val bbox: BBox, val zoom: Double = 17.0)

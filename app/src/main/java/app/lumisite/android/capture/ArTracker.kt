@@ -271,10 +271,21 @@ class ArTracker(
         }.filter { it.source == only }
         // 2f: visée PLAFOND — plafond virtuel à « sol + hauteur sous plafond » quand la hauteur est connue
         // (sol détecté, sinon l'estimation 1,4 m sous l'appareil ; la source du point reste AR_CEILING_ESTIMATED).
+        val origin = V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble())
+        val dir = Aim.forward(q)
+        val floorLevel = floorY ?: (origin.y - Aim.DEFAULT_CAMERA_HEIGHT_M)
         val virtualCeilingY = if (support == SupportFromTilt.Support.PLAFOND)
-            ceilingHeightM?.let { (floorY ?: (p.ty().toDouble() - Aim.DEFAULT_CAMERA_HEIGHT_M)) + it } else null
-        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true,
-            fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY)
+            ceilingHeightM?.let { floorLevel + it } else null
+        // Retour terrain 22/11 : si ARCore n'a pas de plan mur/plafond, estimation d'après l'inclinaison
+        // (source explicite AR_WALL_ESTIMATE / AR_CEILING_ESTIMATED), au lieu de « position à compléter ».
+        val extras = when (support) {
+            SupportFromTilt.Support.MUR -> listOf(Aim.wallEstimate(origin, dir))
+            SupportFromTilt.Support.PLAFOND ->
+                if (virtualCeilingY == null) listOf(Aim.ceilingEstimate(origin, floorLevel)) else emptyList()
+            else -> emptyList()
+        }
+        aim.value = Aim.resolve(origin, dir, ap, lastObjectY, true,
+            fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY, extraPlanes = extras)
     }
 
     @Suppress("DEPRECATION")
@@ -332,8 +343,10 @@ class ArTracker(
 private fun ArTracker.lowLight(frame: Frame): Boolean {
     val le = frame.lightEstimate
     if (le.state != LightEstimate.State.VALID) return false
-    val i = le.environmentalHdrMainLightIntensity
-    return 0.2126 * i[0] + 0.7152 * i[1] + 0.0722 * i[2] < 0.15 // threshold to tune on site
+    // pixelIntensity is 0 (black) … 1 (saturated). HDR main-light units were far too low in a bright
+    // office, so the torch came on by default (retour terrain 22/11, build 230).
+    @Suppress("DEPRECATION")
+    return le.pixelIntensity < 0.12f
 }
 
 private fun ArTracker.applyTorchInternal(s: Session, on: Boolean) {

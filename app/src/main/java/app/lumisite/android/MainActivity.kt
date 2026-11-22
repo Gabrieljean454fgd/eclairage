@@ -20,9 +20,11 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.ExperimentalComposeUiApi
 import app.lumisite.android.data.Repository
 import app.lumisite.android.ui.HomeScreen
+import app.lumisite.android.ui.KeepAwake
+import app.lumisite.android.sync.NearbyMesh
+import androidx.compose.runtime.collectAsState
 import app.lumisite.android.ui.SessionScreen
 import app.lumisite.android.ui.SiteEditorScreen
-import app.lumisite.android.data.RecentZone
 import app.lumisite.android.ui.SiteScreen
 import app.lumisite.android.ui.MapPrefs
 import app.lumisite.android.ui.LumiTheme
@@ -115,6 +117,8 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxWidth().statusBarsPadding(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
                     ) { ThemeToggle(this@MainActivity, Modifier.padding(end = 4.dp)) }
                     Box(Modifier.fillMaxWidth().weight(1f)) {
+                    val mesh by NearbyMesh.state.collectAsState()
+                    KeepAwake(active = mesh.running || screen is Screen.Live)
                     when (val s = screen) {
                         Screen.Home -> androidx.compose.runtime.key(homeKey) { HomeScreen(repo, onOpen = { screen = Screen.SiteDetail(it.id) }, onNew = { screen = Screen.NewSite }, onSettings = { screen = Screen.Settings }, onSync = { screen = Screen.Synchro }) }
                         Screen.Synchro -> app.lumisite.android.ui.SyncScreen(onBack = { screen = Screen.Home })
@@ -129,7 +133,6 @@ class MainActivity : ComponentActivity() {
                             }
                             DiagLog.i("SITE", "Site créé ${site.id}")
                             staged?.let { scope.launch(Dispatchers.IO) { runCatching { repo.saveOsmSource(site.id, it) } } }
-                            site.bbox?.let { repo.addRecentZone(RecentZone(site.name, it)) }
                             screen = Screen.SiteDetail(site.id)
                         }, onCancel = { screen = Screen.Home })
                         is Screen.SiteDetail -> {

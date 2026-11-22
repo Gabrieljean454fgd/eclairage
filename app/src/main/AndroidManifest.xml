@@ -25,6 +25,7 @@
          radio Nearby, microphone = enregistrement esclave ; RECORD_AUDIO déjà demandée au démarrage du rôle). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 9 and below only: copy to Documents/LumiSite without MediaStore (stage 1.2). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />

@@ -81,6 +81,8 @@ fun SynchroPeerCard(p: Peer, index: Int, nowNs: Long) {
             Text("Alignement temporel : " + if (p.clock == Clock.ALIGNED) SyncDisplay.alignmentText(p.offsetNs, p.uncertaintyNs) else p.clock.label)
             Text("Capture : ${if (p.link == Link.LOST) "inconnue (perdu)" else p.capture.label}" + if (p.media > 0) " · ${p.media} média(s)" else "")
             val ageS = if (p.lastHeardNs > 0) ((nowNs - p.lastHeardNs) / 1_000_000_000).coerceAtLeast(0) else null
+            Text("Ping : " + (ageS?.let { "$it s" } ?: "aucun"), style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.testTag("synchro_esclave_${index + 1}_ping"))
             Text("Dernier message : " + (ageS?.let { "il y a $it s" } ?: "aucun reçu") +
                 " (ping toutes les ${app.lumisite.core.sync.MasterMesh.PING_PERIOD_NS / 1_000_000_000} s, perdu après ${app.lumisite.core.sync.MasterMesh.LOST_AFTER_NS / 1_000_000_000} s)",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_esclave_${index + 1}_dernier"))

@@ -55,7 +55,8 @@ class ExportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         try {
             val r = repo.export(site, sessionId) { p ->
                 if (isStopped) throw CancellationException("export interrompu")
-                val pct = (p.fraction * 100).toInt()
+                // Never publish 100 % before Step.TERMINE (retour terrain 22/11 : barre à 100 % trop tôt).
+                val pct = if (p.step == ResumableExport.Step.TERMINE) 100 else (p.fraction * 100).toInt().coerceAtMost(99)
                 live[sessionId] = pct
                 val now = SystemClock.elapsedRealtime()
                 if (now - last > 400 || p.step == ResumableExport.Step.TERMINE) {

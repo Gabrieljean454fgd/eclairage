@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import app.lumisite.android.SessionController
+import app.lumisite.core.catalog.LsText
 import app.lumisite.core.catalog.LsCatalog
 import app.lumisite.core.catalog.LsItem
 import app.lumisite.core.catalog.LsSymbols
@@ -65,7 +66,7 @@ fun LsCatalogPicker(c: SessionController, selected: String?, onPick: (String) ->
             label = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     LsSymbol(LsSymbols.symbolOf(it), Color(LsSymbols.familyColor(it.famille)), 24.dp)
-                    Text(it.label, style = MaterialTheme.typography.bodySmall)
+                    Text(LsText.shortLabel(it.label, it.famille), style = MaterialTheme.typography.bodySmall)
                 }
             }, modifier = Modifier.testTag("session_releve_type_" + it.code))
     }

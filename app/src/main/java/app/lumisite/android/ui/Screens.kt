@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -76,6 +77,16 @@ import java.util.Date
 import java.util.Locale
 
 fun fmtTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date(ms))
+
+/** Nom de lieu court à partir d'un libellé IGN/Nominatim (ville ou lieu, comme le dictaphone d'Apple). */
+internal fun placeName(full: String): String {
+    val parts = full.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.isEmpty()) return full.trim()
+    if (parts.size == 1) return parts[0]
+    val last = parts.last()
+    val firstIsNumbered = parts.first().firstOrNull()?.isDigit() == true
+    return if (firstIsNumbered && last.any { it.isLetter() }) last else parts.first()
+}
 
 @Composable
 fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSettings: () -> Unit = {}, onSync: () -> Unit = {}) {
@@ -146,6 +157,8 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
     val ctx = LocalContext.current
     val recentZones = remember { repo.recentZones() }
     var recentAddresses by remember { mutableStateOf(repo.recentAddresses()) }
+    var addressFocused by remember { mutableStateOf(false) }
+    var nameTouched by remember { mutableStateOf(false) }
     val nearPos = remember { LastKnownPosition.get(ctx) }
     BackHandler(onBack = onCancel)
     val scope = rememberCoroutineScope()
@@ -258,6 +271,23 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
         }
     }
 
+
+    // Retour terrain 22/11 : plus de bouton « Récupérer » — les contours partent tout seuls une fois le rectangle posé.
+    // (on ne retrace pas le rectangle : seul l'appel OSM est lancé, après un court délai et hors glissé.)
+    LaunchedEffect(rects, grab, editPreview) {
+        if (rects.isEmpty() || grab != null || editPreview != null) return@LaunchedEffect
+        delay(800)
+        if (!busy && fetched == null && !tooLarge) fetch(split = false)
+    }
+
+    // Nom du site = nom du lieu (géocodage inverse) tant que l'utilisateur n'a pas saisi lui-même.
+    LaunchedEffect(origin) {
+        val o = origin ?: return@LaunchedEffect
+        if (nameTouched || name.isNotBlank()) return@LaunchedEffect
+        val place = withContext(Dispatchers.IO) { runCatching { OsmClient.reverse(o) }.getOrNull() } ?: return@LaunchedEffect
+        if (!nameTouched && name.isBlank()) name = placeName(place.name)
+    }
+
     val mapView: @Composable (Modifier) -> Unit = { m ->
         OsmMap(
             m, center, zoom,
@@ -311,24 +341,26 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
                 Text("Nouveau site", style = MaterialTheme.typography.titleLarge)
             }
             OutlinedTextField(
-                name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
+                name, { name = it; nameTouched = true }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
                 isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
             )
             HorizontalDivider()
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
-                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
+                query, { query = it }, label = { Text("Adresse / lieu") },
+                modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth().onFocusChanged { addressFocused = it.isFocused },
+                singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
                     val q = query.trim()
                     if (q.length >= 3) recentAddresses = repo.addRecentAddress(q, null, null)
                     lastSearched = ""; doSearch()
                 }),
             )
-            // Build 199 : adresses déjà validées, proposées hors réseau dès la première lettre, les plus proches d'abord.
+            // Build 199 + retour 22/11 : récentes proposées dès le clic dans le champ (même vide), hors réseau.
             val qNorm = AddressHistory.normalize(query)
             val recentSugg = AddressHistory.suggest(recentAddresses, query, nearPos?.lat, nearPos?.lon)
                 .filter { AddressHistory.normalize(it.text) != qNorm }
-            if (query.isNotBlank() && recentSugg.isNotEmpty()) {
+            if ((addressFocused || query.isNotBlank()) && recentSugg.isNotEmpty()) {
                 Text("Adresses récentes", style = MaterialTheme.typography.labelMedium)
                 recentSugg.forEachIndexed { i, a ->
                     Text(a.text, Modifier.fillMaxWidth().testTag("nouveau_site_adresse_recente_${i + 1}").clickable {
@@ -336,8 +368,8 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
                         recentAddresses = repo.addRecentAddress(a.text, a.lat, a.lon)
                         val la = a.lat; val lo = a.lon
                         if (la != null && lo != null) {
-                            setOrigin(LatLon(la, lo), "ADRESSE RECENTE"); zoom = 18.0; missingOrigin = false
-                            if (name.isBlank()) name = a.text.substringBefore(",")
+                            setOrigin(LatLon(la, lo), "ADRESSE RECENTE"); zoom = 19.0; missingOrigin = false
+                            if (name.isBlank() && !nameTouched) name = placeName(a.text)
                             results = emptyList()
                         } else { lastSearched = ""; doSearch() }
                     }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
@@ -345,9 +377,9 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
             }
             results.forEach { r ->
                 Text("${r.name} (${r.source})", Modifier.fillMaxWidth().clickable {
-                    setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0; missingOrigin = false
+                    setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 19.0; missingOrigin = false
                     recentAddresses = repo.addRecentAddress(r.name, r.lat, r.lon)
-                    if (name.isBlank()) name = r.name.substringBefore(","); results = emptyList()
+                    if (name.isBlank() && !nameTouched) name = placeName(r.name); results = emptyList()
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
@@ -377,7 +409,7 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
             }
             if (recentZones.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Zones récentes :", style = MaterialTheme.typography.bodySmall, modifier = Modifier.align(Alignment.CenterVertically))
-                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = 17.0; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
+                recentZones.forEach { z -> AssistChip({ setRect(z.bbox); center = Bboxes.center(z.bbox); zoom = z.zoom; recenter++ }, { Text(z.name) }, modifier = Modifier.testTag("nouveau_site_zone_recente_" + z.name.lowercase().replace(Regex("[^a-z0-9]+"), "_"))) }
             }
             fun sizeM(b: BBox) = "%.0f × %.0f m".format((b.east - b.west) * 111_320.0 * kotlin.math.cos(Math.toRadians((b.north + b.south) / 2)), (b.north - b.south) * 111_320.0)
             if (tapMode == TapMode.RECT) Text("Glissez un doigt pour tracer un rectangle ; touchez un rectangle pour le sélectionner, puis glissez un coin ou un côté pour l'étirer, l'intérieur pour le déplacer. Deux doigts : déplacer ou zoomer la carte.",
@@ -398,9 +430,7 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
             } }
             HorizontalDivider()
             Text("3. (Optionnel) Contours OSM du rectangle (API OSM v0.6)", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && rects.isNotEmpty(), onClick = { fetch(split = false) }, modifier = Modifier.testTag("nouveau_site_recuperer")) { Text("Récupérer") }
-                if (tooLarge || failure == OsmGuard.Failure.TOO_MANY_NODES || failure == OsmGuard.Failure.BBOX_TOO_LARGE)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {                if (tooLarge || failure == OsmGuard.Failure.TOO_MANY_NODES || failure == OsmGuard.Failure.BBOX_TOO_LARGE)
                     OutlinedButton(enabled = !busy, onClick = { setRects(rects.map { Bboxes.scaled(it, 0.5) }); status = "Rectangle réduit de moitié (côtés). Touchez « Récupérer »." }, modifier = Modifier.testTag("nouveau_site_reduire")) { Text("Réduire") }
                 if (failure == OsmGuard.Failure.TOO_MANY_NODES)
                     OutlinedButton(enabled = !busy, onClick = { fetch(split = true) }, modifier = Modifier.testTag("nouveau_site_decouper_et_fusionner")) { Text("Découper et fusionner") }
@@ -426,6 +456,7 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
                 Button(onClick = {
                     val o = origin ?: run { missingOrigin = true; return@Button }
                     val siteName = name.trim().ifEmpty { "Site " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date()) }
+                    envelope()?.let { repo.addRecentZone(app.lumisite.android.data.RecentZone(siteName, it, zoom)) }
                     onSave(Site(
                         id = Ids.new("site"), name = siteName, origin = o, originSource = originSource, createdUtcMs = System.currentTimeMillis(),
                         crs = listOf(
@@ -440,7 +471,8 @@ fun SiteEditorScreen(repo: Repository, stageOsmSource: (OsmClient.Fetched) -> ja
             }
         }
     }
-    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); panel(Modifier.fillMaxWidth().weight(0.62f)) }
+    val mapShare = if (portrait) (if (rects.isEmpty()) 0.58f else 0.50f) else 0.6f
+    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(mapShare)); panel(Modifier.fillMaxWidth().weight(1f - mapShare)) }
     else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); panel(Modifier.weight(0.4f)) }
     }
 }

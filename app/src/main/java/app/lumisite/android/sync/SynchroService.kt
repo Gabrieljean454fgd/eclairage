@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -39,6 +40,7 @@ class SynchroService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var collect: Job? = null
     private var lastNotice: SyncService.Notice? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -51,6 +53,7 @@ class SynchroService : Service() {
         ensureChannel()
         goForeground()
         observe()
+        acquireWakeLock()
         return START_NOT_STICKY
     }
 
@@ -113,9 +116,21 @@ class SynchroService : Service() {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Synchro entre téléphones", NotificationManager.IMPORTANCE_LOW))
     }
 
+    @Suppress("DEPRECATION")
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lumisite:synchro").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
     override fun onDestroy() {
         collect?.cancel(); collect = null
         scope.cancel()
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        wakeLock = null
         super.onDestroy()
     }
 

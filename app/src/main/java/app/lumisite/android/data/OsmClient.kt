@@ -63,6 +63,19 @@ object OsmClient {
         )
     }
 
+    /** Géocodage inverse IGN puis Nominatim : nom du lieu pour préremplir le nom du site. */
+    fun reverse(p: LatLon): Geocoding.Place? = Geocoding.reverse(
+        ign = { get(ignGeocodeUrl.removeSuffix("/search") + "/reverse?limit=1&lat=${p.lat}&lon=${p.lon}") },
+        nominatim = {
+            synchronized(this) {
+                val wait = 1_000 - (System.currentTimeMillis() - lastNominatimMs)
+                if (wait > 0) Thread.sleep(wait)
+                lastNominatimMs = System.currentTimeMillis()
+            }
+            get(nominatimUrl.removeSuffix("/search") + "/reverse?format=jsonv2&lat=${p.lat}&lon=${p.lon}")
+        },
+    )
+
     fun bboxAround(c: LatLon, radiusM: Double): BBox {
         val dLat = radiusM / 111_320.0
         val dLon = radiusM / (111_320.0 * cos(Math.toRadians(c.lat)))

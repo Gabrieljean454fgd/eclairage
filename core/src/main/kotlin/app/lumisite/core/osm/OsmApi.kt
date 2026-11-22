@@ -224,4 +224,18 @@ object Geocoding {
     /** IGN first; Nominatim only if IGN fails or returns nothing (outside France). */
     fun search(ign: () -> String, nominatim: () -> String): List<Place> =
         runCatching { parseIgn(ign()) }.getOrDefault(emptyList()).ifEmpty { parseNominatim(nominatim()) }
+
+    /** Nominatim reverse returns a single object, not an array. */
+    fun parseNominatimReverse(text: String): Place? = runCatching {
+        val o = json.parseToJsonElement(text).jsonObject
+        val lat = o["lat"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: return@runCatching null
+        val lon = o["lon"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: return@runCatching null
+        val name = o["name"]?.jsonPrimitive?.contentOrNull
+            ?: o["display_name"]?.jsonPrimitive?.contentOrNull
+            ?: return@runCatching null
+        Place(name, lat, lon, "NOMINATIM", null)
+    }.getOrNull()
+
+    fun reverse(ign: () -> String, nominatim: () -> String): Place? =
+        runCatching { parseIgn(ign()).firstOrNull() }.getOrNull() ?: parseNominatimReverse(nominatim())
 }

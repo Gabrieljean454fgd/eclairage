@@ -386,7 +386,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 ArControls(c)
             }
             if (arReady) {
-                CameraFrame(camAspect, Modifier) {
+                CameraFrame(camAspect, Modifier.testTag("session_ar_camera")) {
                     AndroidView(factory = { ctx ->
                         GLSurfaceView(ctx).apply {
                             preserveEGLContextOnPause = true; setEGLContextClientVersion(2)

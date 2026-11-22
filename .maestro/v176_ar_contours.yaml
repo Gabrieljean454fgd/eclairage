@@ -1,13 +1,14 @@
 # v176c : interrupteur « Contours » (traits des plans, arêtes verticales des murs), compteurs de plans sol / murs / plafond.
 # build 199 (points 5 et 6) : la surface visée n'est plus un jeu de puces Tous / Sol / Mur / Plafond mais une ligne
 # « Visée : … (auto) » déduite de l'inclinaison ; les commandes restent en place quel que soit l'onglet ouvert.
-# Sur émulateur sans ARCore : compteurs à 0, visée « mur » par défaut ; le tracé lui-même (traits seuls, drapeaux,
-# symbole du luminaire) se vérifie au téléphone.
+# build 244 : le flux passe aussi sur un appareil réel (ARCore) — les compteurs de plans ne sont plus exigés à 0,
+# seule la forme de la ligne fixe est vérifiée. Sur émulateur sans ARCore : compteurs à 0, visée « mur » par défaut ;
+# le tracé lui-même (traits seuls, drapeaux, symbole du luminaire) se vérifie au téléphone.
 appId: app.lumisite.android
 name: "v176c contours AR"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
-- assertVisible: "Plans : sol 0 · murs 0 · plafond 0"
+- assertVisible: "Plans : sol [0-9]+ · murs [0-9]+ · plafond [0-9]+"
 - assertVisible: { id: "session_ar_support_auto", text: "Visée : (sol|mur|plafond) \\(auto\\).*" }
 - assertNotVisible: { id: "session_ar_surface_tous" }
 - assertVisible: "Contours : affichés"

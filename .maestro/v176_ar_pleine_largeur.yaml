@@ -1,10 +1,11 @@
 # v176c (décision 3) : Session > caméra sur toute la largeur de l'écran (4:3), visée / plans / torche / mesure en dessous,
-# carte et barre d'actions toujours visibles. Bloc caméra simulé (APK debug, lumisite_simuler_entete_ar = 1, émulateur sans ARCore).
+# carte et barre d'actions toujours visibles. Bloc caméra simulé (APK debug, lumisite_simuler_entete_ar = 1, émulateur sans ARCore)
+# ou caméra ARCore réelle : build 244, le cadre réel porte session_ar_camera, le simulé session_ar_simule — l'un ou l'autre.
 appId: app.lumisite.android
 name: "v176c caméra pleine largeur"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
-- assertVisible: { id: "session_ar_simule" }
+- assertVisible: { id: "session_ar_(camera|simule)" }
 - assertVisible: "Caméra pleine largeur"
 - assertVisible: { id: "session_ar_plans" }
 - assertVisible: { id: "session_ar_torche_oui" }

@@ -8,12 +8,40 @@ name: "Mise a jour avant creer session"
 - tapOn: { id: "session_releve" }
 # Sans calibrage : position manuelle, point touché sur la carte (relative à la carte, en bande en portrait).
 - tapOn: { id: "session_carte", point: "50%,55%" }
+- evalScript: ${output.catalogue2 = false}
 - repeat:
-    while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
-    times: 8
+    while: { notVisible: { id: "session_releve_recherche|session_annoter_famille_Amplificateur" } }
+    times: 10
     commands:
       - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-- tapOn: { id: "session_annoter_famille_Amplificateur" }
+# Catalogue 2 (build ≥ v176e) : famille Son puis type Amplificateur ; sinon puce historique « Amplificateur ».
+- runFlow:
+    when:
+      visible: { id: "session_releve_recherche" }
+    commands:
+      - evalScript: ${output.catalogue2 = true}
+      - repeat:
+          while: { notVisible: { id: "session_releve_categorie_SON" } }
+          times: 10
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - tapOn: { id: "session_releve_categorie_SON" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+- runFlow:
+    when:
+      true: ${!output.catalogue2}
+    commands:
+      - repeat:
+          while: { notVisible: { id: "session_annoter_famille_Amplificateur" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+      - tapOn: { id: "session_annoter_famille_Amplificateur" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

@@ -1,0 +1,618 @@
+{
+ "_commentaire": "Lue au bureau seulement (outil de conversion DWG), jamais par l'application. Code LS_* -> bloc du gabarit DWG de Sébastien, calque et attributs. Table de départ (tableau E3, section 17), à valider par Sébastien.",
+ "version": "correspondance-dwg-1.0",
+ "blocs": [
+  {
+   "block_name": "spot",
+   "code": "LS_ECLAIRAGE_DOWNLIGHT",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "lampe",
+   "code": "LS_ECLAIRAGE_POINT_LUMINEUX",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "projecteur",
+   "code": "LS_ECLAIRAGE_PROJECTEUR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "projecteur thorn contrast",
+   "code": "LS_ECLAIRAGE_PROJECTEUR",
+   "calque": "RES - Elec",
+   "attributs": {
+    "modele": "Thorn Contrast"
+   }
+  },
+  {
+   "block_name": "Lustre",
+   "code": "LS_ECLAIRAGE_LUSTRE",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "bougeoir électrifié",
+   "code": "LS_ECLAIRAGE_BOUGEOIR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "Lanterne EP moderne",
+   "code": "LS_ECLAIRAGE_LANTERNE_EP",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "hublot ecl",
+   "code": "LS_ECLAIRAGE_HUBLOT",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "lineaire fluo",
+   "code": "LS_ECLAIRAGE_REGLE_IMMERSION",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "bloc secours",
+   "code": "LS_SECOURS_BAES",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "prise électrique",
+   "code": "LS_ELEC_PRISE_2P_T_16A",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "interrupteur",
+   "code": "LS_ELEC_INTERRUPTEUR_SIMPLE",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "boîte de dérivation",
+   "code": "LS_ELEC_BOITE_DERIVATION",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "tableau divisionnaire",
+   "code": "LS_ELEC_TABLEAU_DIVISIONNAIRE",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "tgbt",
+   "code": "LS_ELEC_TABLEAU_GENERAL",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "PDL",
+   "code": "LS_ELEC_PDL",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "Camera",
+   "code": "LS_CAMERA_FIXE_INTERIEUR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "Déclencheur Manuel",
+   "code": "LS_INCENDIE_DECLENCHEUR_MANUEL",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "extincteur",
+   "code": "LS_INCENDIE_EXTINCTEUR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "Diffuseur Sonore Radio",
+   "code": "LS_SON_DIFFUSEUR_SONORE_RADIO",
+   "calque": "RES - Elec",
+   "attributs": {},
+   "_commentaire": "PROVISOIRE : classé en famille SON, à confirmer par Sébastien."
+  },
+  {
+   "block_name": "Amplificateur",
+   "code": "LS_SON_AMPLIFICATEUR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "enceinte",
+   "code": "LS_SON_ENCEINTE",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "haut-parleur",
+   "code": "LS_SON_HAUT_PARLEUR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "micro col",
+   "code": "LS_SON_MICRO_COL",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": "prise xlr",
+   "code": "LS_SON_PRISE_XLR",
+   "calque": "RES - Elec",
+   "attributs": {}
+  },
+  {
+   "block_name": null,
+   "code": "LS_AUTRE_A_CLASSER",
+   "calque": "RES - Elec",
+   "attributs": {},
+   "_commentaire": "aucun bloc DWG : à classer au bureau"
+  }
+ ],
+ "codes": [
+  {
+   "code": "LS_ELEC_PRISE_2P_T_16A",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_PRISE_2P_T_32A",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_PRISE_RJ45",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_INTERRUPTEUR_SIMPLE",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_INT_VA_ET_VIENT",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_VARIATEUR",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_TABLEAU_GENERAL",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_TABLEAU_DIVISIONNAIRE",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_COFFRET_PROTECTION",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_BOITE_DERIVATION",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_INT_DIFFERENTIEL",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_CHEMIN_CABLES",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ELEC_DETECTEUR_MOUVEMENT",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": "NF C 15-100 (installations electriques basse tension) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques) ; NF EN 60617-7 (appareillage et dispositifs de commande et de protection)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_DOWNLIGHT",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_SPOT_SURFACE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_REGLE_IMMERSION",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_LINEAIRE_LED",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_PROJECTEUR",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_LUSTRE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_LANTERNE_BOUGIES",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_SUSPENSION",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_APPLIQUE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_BALISE_BASSE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_SPOT_SOL",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_PROJO_LED_FACADE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_HERSE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_VITRAIL",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_ECLAIRAGE_LAMPE_TEMPORAIRE",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": "NF EN 12464-1 (eclairage des lieux de travail interieurs) ; NF EN 60617-11 (schemas et plans d'installation, architecturaux et topographiques)"
+  },
+  {
+   "code": "LS_CAMERA_DOME",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_BULLET",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_PTZ",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_FIXE_INTERIEUR",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_THERMIQUE",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_FISHEYE",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_NVR",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_SERVEUR_VMS",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_LECTEUR_BADGE",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_INTERPHONE",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_CENTRALE_INTRUSION",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_CAMERA_DETECTEUR_IR",
+   "calque_bureau": "LUMI-CAMERA",
+   "norme": "NF EN 62676-4 (systemes de videosurveillance — application)"
+  },
+  {
+   "code": "LS_SECOURS_BAES",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_BAES_ADRESSE",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_BAEH",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_BLOC_AUTONOME_NP",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_LSC",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_LSE",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_CAT",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_ASI",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_GE",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_INVERSEUR_SOURCE",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_COFFRET_RELAIS",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECOURS_LUMINAIRE_SUR_GE",
+   "calque_bureau": "LUMI-SECOURS",
+   "norme": "NF C 71-800 (blocs autonomes d'eclairage de securite) ; NF EN IEC 60598-2-22 (luminaires pour eclairage de secours) ; NF EN 1838 (eclairage de securite des batiments)"
+  },
+  {
+   "code": "LS_SECURITE_EVACUATION",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_ANTI_PANIQUE",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_AMBIANCE_RENFORCEE",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_REMPLACEMENT",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_SORTIE",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_DIRECTION",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_ISSUE",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_BALISAGE_SOL",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_POINT_RASSEMBLEMENT",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_PREMIERS_SECOURS",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_SECURITE_PICTO_EXTINCTEUR",
+   "calque_bureau": "LUMI-SECURITE",
+   "norme": "NF EN 1838 (eclairage de securite des batiments) ; ISO 7010:2019 (signaux de securite enregistres)"
+  },
+  {
+   "code": "LS_INCENDIE_DETECTEUR_FUMEE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_DETECTEUR_THERMIQUE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_DETECTEUR_FLAMME",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_DETECTEUR_LINEAIRE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_CENTRALE_INCENDIE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_CMSI",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_DECLENCHEUR_MANUEL",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_ALARME_GENERALE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_ALARME_VISUELLE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_REPETEUR",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_SIRENE",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_MODULE_RELAIS",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_EXTINCTEUR",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_RIA",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_INCENDIE_BAAS",
+   "calque_bureau": "LUMI-INCENDIE",
+   "norme": "NF S 61-932 (SSI — regles d'installation) [page AFNOR : version 2015 marquee 'cancelled', verifier la version en vigueur]"
+  },
+  {
+   "code": "LS_ECLAIRAGE_POINT_LUMINEUX",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": null
+  },
+  {
+   "code": "LS_ECLAIRAGE_BOUGEOIR",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": null
+  },
+  {
+   "code": "LS_ECLAIRAGE_LANTERNE_EP",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": null
+  },
+  {
+   "code": "LS_ECLAIRAGE_HUBLOT",
+   "calque_bureau": "LUMI-ECLAIRAGE",
+   "norme": null
+  },
+  {
+   "code": "LS_ELEC_PDL",
+   "calque_bureau": "LUMI-ELEC",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_DIFFUSEUR_SONORE_RADIO",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_AMPLIFICATEUR",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_ENCEINTE",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_HAUT_PARLEUR",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_MICRO_COL",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_SON_PRISE_XLR",
+   "calque_bureau": "LUMI-SON",
+   "norme": null
+  },
+  {
+   "code": "LS_AUTRE_A_CLASSER",
+   "calque_bureau": null,
+   "norme": null
+  }
+ ]
+}

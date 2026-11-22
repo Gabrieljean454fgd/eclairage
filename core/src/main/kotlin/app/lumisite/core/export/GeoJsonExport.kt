@@ -67,6 +67,10 @@ object GeoJsonFeatures {
             put("properties", buildJsonObject {
                 put("rev", rev); put("op", op); put("kind", "equipment")
                 put("block_name", s.dxf?.blockName ?: s.kind)
+                payload?.get("code")?.let { put("code", it) }
+                payload?.get("famille")?.let { put("famille", it) }
+                payload?.get("label")?.let { put("label", it) }
+                payload?.get("a_classer_au_bureau")?.let { put("a_classer_au_bureau", it) }
                 put("catalog_version", catalogVersion)
                 put("layer", s.dxf?.layer ?: "RES - Elec")
                 put("status", (payload?.get("status") ?: (payload?.get("details") as? JsonObject)?.get("status"))?.jsonPrimitive?.contentOrNull ?: DEFAULT_STATUS)
@@ -277,7 +281,7 @@ object ExportPackage {
     ): File {
         val root = File(parent, "LumiSite_${site.id}").apply { deleteRecursively(); mkdirs() }
         val ltp = LocalTangentPlane(site.origin)
-        catalogJson?.let { File(root, "catalog/equipment_catalog.json").apply { parentFile.mkdirs() }.writeText(it) }
+        catalogJson?.let { File(root, "catalog/" + app.lumisite.core.catalog.EquipmentCatalog.ASSET).apply { parentFile.mkdirs() }.writeText(it) }
         osmSource?.takeIf { it.exists() }?.copyTo(File(root, "refs/osm_source.json"))
         val out = ArrayList<PackageSession>(); val devices = LinkedHashSet<String>(); var catalogVersion: String? = null
         for (si in sessions) {

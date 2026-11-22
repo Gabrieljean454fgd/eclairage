@@ -27,5 +27,5 @@ name: "v176a Detail compteurs et famille actuelle"
     times: 10
     commands:
       - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
-- assertVisible: { id: "session_objet_famille_actuelle", text: "Famille et type actuels : Sonorisation › Amplificateur" }
+- assertVisible: { id: "session_objet_famille_actuelle", text: "Famille et type actuels : Son › Amplification et prises › Amplificateur" }
 - takeScreenshot: maestro-out/captures/v176_detail_compteurs

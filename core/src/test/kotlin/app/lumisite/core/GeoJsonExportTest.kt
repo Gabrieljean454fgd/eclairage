@@ -54,6 +54,17 @@ class GeoJsonExportTest {
         assertEquals(JsonNull, GeoJsonFeatures.feature(srv("b", 1, 0.0, 0.0), null, ltp, "b", 1, "d", "s")["geometry"])
     }
 
+    @Test fun customTypeIsExportedWithItsLabel() {
+        val e = srv("p", 1_000, 1.0, 1.0).copy(kind = "LS_PERSO_1", dxf = null, payload = buildJsonObject {
+            put("catalog_version", "2.0"); put("code", "LS_PERSO_1"); put("famille", "SON"); put("label", "Boucle magnétique"); put("a_classer_au_bureau", true)
+        })
+        val p = GeoJsonFeatures.feature(e, Enu(1.0, 1.0, 0.0), ltp, "p", 1, "d", "s")["properties"]!!.jsonObject
+        assertEquals("LS_PERSO_1", p["code"]!!.jsonPrimitive.content)
+        assertEquals("Boucle magnétique", p["label"]!!.jsonPrimitive.content)
+        assertEquals("SON", p["famille"]!!.jsonPrimitive.content)
+        assertEquals("true", p["a_classer_au_bureau"]!!.jsonPrimitive.content)
+    }
+
     @Test fun liveWriterAppendsRevisionsAndSurvivesTruncation() {
         val d = tmp(); val file = File(d, GeoJsonSeqWriter.FILE)
         GeoJsonSeqWriter(file, ltp, "dev-1", "sess-1").use { w ->

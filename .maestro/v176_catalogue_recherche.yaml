@@ -1,0 +1,19 @@
+# v176e menu bloc — Session > Relevé : recherche sans accents (« encastre » trouve Downlight), favoris.
+appId: app.lumisite.android
+name: "v176e catalogue recherche"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_releve_recherche" }
+- inputText: "encastre"
+- hideKeyboard
+- assertVisible: { id: "session_releve_resultats", text: "\\d+ résultat\\(s\\)" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Catalogue › Éclairage › Encastré › Downlight encastré au plafond" }
+- takeScreenshot: v176_catalogue_recherche
+- tapOn: { id: "session_releve_recherche" }
+- eraseText: 20
+- hideKeyboard
+- tapOn: { id: "session_releve_favori_basculer" }
+- assertVisible: { id: "session_releve_favori_LS_ECLAIRAGE_DOWNLIGHT" }

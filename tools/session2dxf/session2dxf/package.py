@@ -31,7 +31,7 @@ class Package:
 
     @property
     def canonical_names(self) -> set[str]:
-        return {e["block_name"] for e in self.catalog.get("entries", [])}
+        return {n for e in self.catalog.get("entries", []) if (n := _dwg_name(e))}
 
 
 def sha256(path: Path) -> str:
@@ -57,12 +57,27 @@ def _find_root(path: Path) -> Path:
     raise FileNotFoundError(f"manifest.json introuvable dans {path}")
 
 
+def _dwg_name(e: dict) -> str | None:
+    """DWG block of an entry: `block_name` (catalogue 1.x) or `bloc_dwg` (catalogue 2, codes LS_*)."""
+    return e.get("block_name") or e.get("bloc_dwg")
+
+
 def alias_map(catalog: dict, apply_pending: bool) -> dict[str, str]:
     m = dict(ALIASES_VALIDATED)
     for e in catalog.get("entries", []):
+        target = _dwg_name(e)
+        if not target and e.get("code") == "LS_AUTRE_A_CLASSER":
+            target = TO_CLASSIFY
+        if not target:
+            continue
         for a in e.get("aliases", []):
-            m[a] = e["block_name"]
+            m[a] = target
+        # Catalogue 2: the app records the LS_* code, the office maps it to the DWG block (bloc_dwg).
+        if e.get("code"):
+            m[e["code"]] = target
     if apply_pending:
+        # Targets too (LS_* code → old DWG spelling), otherwise they point to a block the renaming removed.
+        m = {k: ALIASES_PENDING.get(v, v) for k, v in m.items()}
         m.update(ALIASES_PENDING)
     return m
 
@@ -98,6 +113,8 @@ def load_package(path: str | Path, apply_pending: bool = False, default_catalog:
     root = _find_root(Path(path))
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     cat_path = root / "catalog" / "equipment_catalog.json"
+    if not cat_path.exists():
+        cat_path = root / "catalog" / "lumisite_catalog_2.json"
     if not cat_path.exists() and default_catalog:
         cat_path = default_catalog
     catalog = json.loads(cat_path.read_text(encoding="utf-8")) if cat_path.exists() else {"entries": []}

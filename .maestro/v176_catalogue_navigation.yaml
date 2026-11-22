@@ -1,0 +1,23 @@
+# v176e menu bloc — Session > Relevé : grille des familles (Éclairage en premier), types de la famille avec symbole,
+# fil d'Ariane ; un downlight choisi en 2 appuis (Éclairage, Downlight), le 3e enregistre.
+appId: app.lumisite.android
+name: "v176e catalogue navigation"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Catalogue" }
+- assertVisible: { id: "session_releve_categorie_ECLAIRAGE" }
+- takeScreenshot: v176_catalogue_familles
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Catalogue › Éclairage" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Catalogue › Éclairage › Encastré › Downlight encastré au plafond" }
+- takeScreenshot: v176_catalogue_navigation
+- tapOn: { id: "session_releve_retour" }
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_AUTRE" } }
+    times: 6
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- assertVisible: { id: "session_releve_categorie_AUTRE" }

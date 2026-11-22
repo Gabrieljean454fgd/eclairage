@@ -1,6 +1,9 @@
 package app.lumisite.android.ui
 
 import android.Manifest
+import app.lumisite.android.data.CatalogStore
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.testTag
 import android.content.Context
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -113,6 +118,9 @@ class DrawState {
     var opacity by mutableStateOf(1f)
     var recent by mutableStateOf<String?>(null)
     var family by mutableStateOf<String?>(null)
+    /** Record whose photo is proposed right after a placement (« Photo après pose »). */
+    var photoFor by mutableStateOf<String?>(null)
+    var autoPhoto = true
     var selected by mutableStateOf<String?>(null)
     var pendingSwitch by mutableStateOf<Tool?>(null)
     /** Finger position while drawing (elastic preview), null when no finger is down. */
@@ -144,8 +152,8 @@ class DrawState {
 
     fun onTap(c: SessionController, p: Enu) {
         when (tool) {
-            Tool.PLACE -> family?.let { f -> c.survey(f, null, ReferencePoint("Relevé", p, c.ltp.toLatLon(p), "MAP_TAP", uncertaintyM = null)) }
-                ?: c.notify("Choisissez d'abord une famille.")
+            Tool.PLACE -> family?.let { f -> if (c.survey(f, null, ReferencePoint("Relevé", p, c.ltp.toLatLon(p), "MAP_TAP", uncertaintyM = null)) && autoPhoto) photoFor = c.lastSurveyId }
+                ?: c.notify("Choisissez d'abord un type.")
             Tool.SHAPE -> {
                 pts.add(p)
                 if (pts.size == 2) {
@@ -224,7 +232,13 @@ fun DrawPanel(c: SessionController, d: DrawState, center: Enu?, selectedSurvey: 
     }
     when (d.tool) {
         Tool.MOVE -> Text("Se déplacer : faites glisser la carte, les taps ne posent rien.", style = MaterialTheme.typography.bodySmall)
-        Tool.PLACE -> { Text("Poser : touchez une famille, puis la carte.", style = MaterialTheme.typography.bodySmall); FamilyQuickGrid(c, d.family) { d.family = it } }
+        Tool.PLACE -> {
+            val ctx = LocalContext.current
+            d.autoPhoto = AutoPhoto.enabled(ctx)
+            val pid = d.photoFor
+            if (pid != null) androidx.compose.runtime.key(pid) { PhotoPrompt(c, pid) { d.photoFor = null } }
+            else { Text("Poser : choisissez un type, puis touchez la carte.", style = MaterialTheme.typography.bodySmall); FamilyQuickGrid(c, d.family) { d.family = it } }
+        }
         Tool.SHAPE -> {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(d.shapeKind == "rectangle", { d.shapeKind = "rectangle"; d.pts.clear() }, { Text("Rectangle") }, modifier = Modifier.testTag("session_annoter_rectangle"))
@@ -332,32 +346,125 @@ private fun StyleSheet(d: DrawState) {
     }
 }
 
-/** Catalogue grid with pinned favourites and the 6 last used families first. */
+/**
+ * v176e menu bloc: one picker for Session > Relevé and Annoter > Poser. Family grid (Éclairage first) with plan symbols,
+ * then the family's types grouped by sub-family (symbol + label), breadcrumb, accent-insensitive search (code, label,
+ * synonyms), favourites and the 12 recent types on top, « Ajouter un type… » (local LS_PERSO_n). Two taps choose a type.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FamilyQuickGrid(c: SessionController, selected: String?, onPick: (String) -> Unit) {
     val ctx = LocalContext.current
+    var rev by remember { mutableStateOf(0) }
+    var justAdded by remember { mutableStateOf<String?>(null) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val cat = remember(rev) { c.catalog }
     val prefs = remember { ctx.getSharedPreferences("lumisite_quick", Context.MODE_PRIVATE) }
-    var pins by remember { mutableStateOf(prefs.getStringSet("pins", emptySet())!!.toSet()) }
+    // Favorites saved before catalog 2 hold old block names: stored once as their LS_* code so the star can remove them.
+    var pins by remember {
+        val saved = prefs.getStringSet("pins", emptySet())!!.toSet()
+        val canonical = saved.map { cat.find(it)?.code ?: it }.toSet()
+        if (canonical != saved) prefs.edit().putStringSet("pins", canonical).apply()
+        mutableStateOf(canonical)
+    }
+    val sel = selected?.let { cat.find(it) }
+    var fam by rememberSaveable { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var addError by remember { mutableStateOf<String?>(null) }
     val events = c.state.collectAsState().value.events
-    val recent = events.filterIsInstance<SurveyEvent>().filter { it.supersedes == null }.map { it.kind }.reversed().distinct().take(6)
-    fun label(k: String) = c.catalog.entries.firstOrNull { it.blockName == k }?.label ?: k
-    @Composable fun row(title: String, keys: List<String>) {
-        if (keys.isEmpty()) return
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium)
-            keys.forEach { k -> FilterChip(selected == k, { onPick(k) }, { Text(label(k)) }, modifier = Modifier.testTag("session_annoter_famille_" + title.take(4).lowercase().replace("é", "e") + "_" + k)) }
+    // Former DWG block names of old sessions are shown with their LS_* type (alias read, the event is not rewritten).
+    val recent = events.filterIsInstance<SurveyEvent>().filter { it.supersedes == null }.mapNotNull { cat.find(it.kind)?.code }.reversed().distinct().take(12)
+    fun color(e: app.lumisite.core.catalog.CatalogEntry) = android.graphics.Color.parseColor(cat.family(e.famille)?.color ?: "#616161")
+    fun symbolOf(e: app.lumisite.core.catalog.CatalogEntry) = e.symbole ?: cat.family(e.famille)?.symbol
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Composable fun typeRow(e: app.lumisite.core.catalog.CatalogEntry, tag: String) {
+        val on = sel?.code == e.code
+        val reveal = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+        if (justAdded == e.code && tag.startsWith("session_releve_type_")) LaunchedEffect(e.code) { reveal.bringIntoView(); justAdded = null }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .bringIntoViewRequester(reveal)
+                .background(if (on) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                .clickable { onPick(e.code) }.padding(horizontal = 4.dp).testTag(tag),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlanSymbol(symbolOf(e), color(e), 32, selected = on)
+            Column(Modifier.padding(start = 8.dp)) {
+                Text(e.label, style = MaterialTheme.typography.bodyMedium)
+                Text(if (e.isBlock) e.code else "${e.code} · à classer au bureau", style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
-    row("Épinglés :", pins.filter { p -> c.catalog.entries.any { it.blockName == p } }.sorted())
-    row("Récents :", recent)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        c.catalog.entries.forEach { f -> FilterChip(selected == f.blockName, { onPick(f.blockName) }, { Text(f.label) }, modifier = Modifier.testTag("session_annoter_famille_" + f.blockName)) }
+    @Composable fun chips(title: String, prefix: String, keys: List<String>) {
+        val es = keys.mapNotNull { cat.find(it) }
+        if (es.isEmpty()) return
+        Text(title, style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            es.forEach { e -> FilterChip(sel?.code == e.code, { onPick(e.code) }, { Text(e.label, maxLines = 1) },
+                leadingIcon = { PlanSymbol(symbolOf(e), color(e), 24) }, modifier = Modifier.testTag(prefix + e.code)) }
+        }
     }
-    if (selected != null) TextButton({
-        pins = if (selected in pins) pins - selected else pins + selected
-        prefs.edit().putStringSet("pins", pins).apply()
-    }, modifier = Modifier.testTag("session_annoter_famille_desepingler")) { Text(if (selected in pins) "Désépingler ${label(selected)}" else "Épingler ${label(selected)}") }
+    OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Rechercher (code, libellé, synonyme)") },
+        modifier = Modifier.fillMaxWidth().testTag("session_releve_recherche"))
+    val crumb = when {
+        sel != null && (fam == null || fam == sel.famille) -> "Catalogue › " + cat.breadcrumb(sel)
+        fam != null -> "Catalogue › " + (cat.family(fam!!)?.label ?: fam)
+        else -> "Catalogue"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (fam != null && query.isBlank()) TextButton({ fam = null; adding = false }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_releve_retour")) { Text("‹ Familles") }
+        Text(crumb, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f).testTag("session_releve_fil_ariane"))
+        if (sel != null) androidx.compose.material3.IconToggleButton(sel.code in pins, {
+            pins = if (sel.code in pins) pins - sel.code else pins + sel.code
+            prefs.edit().putStringSet("pins", pins).apply()
+        }, modifier = Modifier.size(48.dp).testTag("session_releve_favori_basculer")) {
+            Icon(Icons.Default.Star, contentDescription = if (sel.code in pins) "Retirer « ${sel.label} » des favoris" else "Ajouter « ${sel.label} » aux favoris",
+                tint = if (sel.code in pins) androidx.compose.ui.graphics.Color(0xFFE6B800) else MaterialTheme.colorScheme.outline)
+        }
+    }
+    if (query.isNotBlank()) {
+        val hits = cat.search(query)
+        Text(if (hits.isEmpty()) "Aucun type pour « $query »" else "${hits.size} résultat(s)", style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag("session_releve_resultats"))
+        hits.take(20).forEach { typeRow(it, "session_releve_type_" + it.code) }
+    } else {
+        chips("Favoris", "session_releve_favori_", pins.filter { cat.find(it) != null }.sorted())
+        chips("Récents", "session_releve_recent_", recent)
+        val f = fam
+        if (f == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            cat.familles.forEach { x ->
+                Column(
+                    Modifier.width(84.dp).heightIn(min = 64.dp).background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { fam = x.code; adding = false }.padding(4.dp).testTag("session_releve_categorie_" + x.code),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    PlanSymbol(x.symbol, android.graphics.Color.parseColor(x.color), 32)
+                    Text(x.label, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        } else {
+            cat.sousFamilles(f).forEach { sf ->
+                Text(sf, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
+                cat.types(f, sf).forEach { typeRow(it, "session_releve_type_" + it.code) }
+            }
+            if (!adding) OutlinedButton({ adding = true; newName = ""; addError = null }, modifier = Modifier.heightIn(min = 48.dp).testTag("session_releve_ajouter_type")) { Text("Ajouter un type…") }
+            else Column {
+                Text("Nouveau type dans ${cat.family(f)?.label ?: f} (local, à classer au bureau)", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(newName, { newName = it; addError = null }, singleLine = true, label = { Text("Nom du type") }, isError = addError != null,
+                    modifier = Modifier.fillMaxWidth().testTag("session_releve_nouveau_type_nom"))
+                addError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button({
+                        runCatching { CatalogStore.addCustom(ctx, f, newName) }
+                            .onSuccess { e -> focus.clearFocus(); adding = false; rev++; justAdded = e.code; onPick(e.code); c.notify("Type ajouté : ${e.label} (${e.code})") }
+                            .onFailure { addError = it.message }
+                    }, enabled = newName.isNotBlank(), modifier = Modifier.testTag("session_releve_nouveau_type_valider")) { Text("Ajouter") }
+                    TextButton({ adding = false }, modifier = Modifier.testTag("session_releve_nouveau_type_annuler")) { Text("Annuler") }
+                }
+            }
+        }
+    }
 }
 
 /** Last details entered per family, reused for the next object of the same family (process memory). */

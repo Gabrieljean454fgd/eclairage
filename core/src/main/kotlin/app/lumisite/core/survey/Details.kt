@@ -9,7 +9,8 @@ object Details {
     val FIELDS = listOf("sous_type", "technologie", "culot", "puissance_W", "temp_couleur_K", "ref_etiquette", "etat", "status")
     val STATUS = listOf("existant", "projeté", "à déposer", "en défaut")
     val ANNOTATIONS = listOf("Passage de câble", "Câble à nu", "En default", "Capteur", "Cablette de terre", "Niveau", "Texte")
-    val SUBTYPES = mapOf("spot" to listOf("PAR20", "MR16 dichroïque", "GU10 LED", "LED basique", "autre"))
+    private val SPOT = listOf("PAR20", "MR16 dichroïque", "GU10 LED", "LED basique", "autre")
+    val SUBTYPES = mapOf("LS_ECLAIRAGE_DOWNLIGHT" to SPOT, "LS_ECLAIRAGE_SPOT_SURFACE" to SPOT, "spot" to SPOT)
     const val MAX_POWER_W = 5_000.0
     val CCT_RANGE = 1_000.0..10_000.0
 

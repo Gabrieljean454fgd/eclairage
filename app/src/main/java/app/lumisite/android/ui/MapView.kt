@@ -58,7 +58,8 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 
-data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null)
+/** v176e E4: [symbol] = family shape (LUMINAIRE, SECOURS, TRIANGLE, CAMERA, CARRE, HEXAGONE, LOSANGE, CROIX), null = plain dot; [selected] adds an outline, the shape and colour stay. */
+data class MapPoint(val pos: LatLon, val title: String, val color: Int, val id: String? = null, val symbol: String? = null, val selected: Boolean = false)
 /** Arrow (position + direction) drawn at a fixed screen size; headingDeg null = dot. Grey when stale. */
 data class MapArrow(val pos: LatLon, val headingDeg: Double?, val color: Int, val title: String)
 
@@ -333,7 +334,7 @@ fun OsmMap(
         all += group("origin", content.origin) { listOfNotNull(content.origin?.let { Marker(mv).apply { position = gp(it); title = "Origine du site"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, Color.BLACK, 16) } }) }
         all += group("points", content.points) { content.points.map { p ->
             Marker(mv).apply {
-                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = dot(mv, p.color, 20)
+                position = gp(p.pos); title = p.title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); icon = if (p.symbol != null) symbolIcon(mv, p.symbol, p.color, p.selected) else dot(mv, p.color, 20)
                 val id = p.id
                 setOnMarkerClickListener { m, _ -> val cb = pointCb.value; if (id != null && cb != null) cb(id) else m.showInfoWindow(); true }
             }
@@ -486,6 +487,18 @@ private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int 
         val path = android.graphics.Path().apply { moveTo(c, px * 0.06f); lineTo(px * 0.84f, px * 0.92f); lineTo(c, px * 0.68f); lineTo(px * 0.16f, px * 0.92f); close() }
         cv.drawPath(path, fill); cv.drawPath(path, edge)
     }
+    return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
+}
+
+/**
+ * v176e E4: plan symbols (PlanSymbols, same glyph as the picker), ≥ 7 mm on screen (44 dp). Selection = white halo + blue
+ * outline around the same shape; the orange flag stays reserved for calibration marks.
+ */
+internal fun symbolIcon(mv: MapView, symbol: String, color: Int, selected: Boolean, sizeDp: Int = 44): android.graphics.drawable.Drawable {
+    val d = mv.resources.displayMetrics.density
+    val px = (sizeDp * d).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+    drawPlanSymbol(android.graphics.Canvas(bmp), symbol, color, px / 2f, px / 2f, px * 0.36f, d, selected)
     return android.graphics.drawable.BitmapDrawable(mv.resources, bmp)
 }
 

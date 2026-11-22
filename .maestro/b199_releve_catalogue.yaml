@@ -1,0 +1,107 @@
+# Retour build 199 / menu bloc — Session > Relevé : Éclairage › Downlight › Enregistrer (3 appuis), l'appareil photo
+# s'ouvre aussitôt ; recherche « encastré » ; « Ajouter un type… » dans Son crée LS_PERSO_1, visible dans sa famille ;
+# Session > Annoter > Poser : même sélecteur (récents), pose sur la carte, l'appareil photo s'ouvre aussi.
+appId: app.lumisite.android
+name: "b199 releve catalogue"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- tapOn: { id: "session_releve" }
+- tapOn: { id: "session_point_a_la_croix" }
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- repeat:
+    while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+- tapOn: { id: "session_releve_enregistrer_le_releve" }
+- back
+- extendedWaitUntil:
+    visible: { id: "session_photo_proposee" }
+    timeout: 15000
+- tapOn: { id: "session_photo_passer" }
+# Recherche (Maestro ne tape pas les accents : « encastré » est couvert par CatalogTest).
+- repeat:
+    while: { notVisible: { id: "session_releve_recherche" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- tapOn: { id: "session_releve_recherche" }
+- inputText: "encastre"
+- hideKeyboard
+- assertVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
+- tapOn: { id: "session_releve_recherche" }
+- eraseText: 20
+- hideKeyboard
+# Ajout d'un type local dans la famille Son.
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_SON" } }
+    times: 6
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+- tapOn: { id: "session_releve_categorie_SON" }
+- repeat:
+    while: { notVisible: { id: "session_releve_ajouter_type" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,56%", duration: 600 }
+- tapOn: { id: "session_releve_ajouter_type" }
+- tapOn: { id: "session_releve_nouveau_type_nom" }
+- inputText: "Boucle magnetique"
+- hideKeyboard
+- tapOn: { id: "session_releve_nouveau_type_valider" }
+- assertVisible: "Type ajouté : Boucle magnetique \\(LS_PERSO_1\\)"
+- repeat:
+    while: { notVisible: { id: "session_releve_type_LS_PERSO_1" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- assertVisible: { id: "session_releve_type_LS_PERSO_1" }
+- takeScreenshot: b199_releve_type_ajoute
+- repeat:
+    while: { notVisible: { id: "session_releve_fil_ariane" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- assertVisible: { id: "session_releve_fil_ariane", text: "Catalogue › Son › Types ajoutés \\(à classer au bureau\\) › Boucle magnetique" }
+- tapOn: { id: "session_releve_retour" }
+# Le type local reste visible dans sa famille : haut du panneau (butée), deux glissements fixes amènent la 2e rangée
+# de familles au-dessus de la barre d'onglets (une rangée sous le pli compte comme « visible » pour Maestro).
+- repeat:
+    while: { notVisible: { id: "session_releve_recherche" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
+- waitForAnimationToEnd
+- swipe: { start: "50%,74%", end: "50%,62%", duration: 800 }
+- swipe: { start: "50%,74%", end: "50%,62%", duration: 800 }
+- waitForAnimationToEnd
+- tapOn: { id: "session_releve_categorie_SON" }
+- assertVisible: { id: "session_releve_type_LS_SON_ENCEINTE" }
+- repeat:
+    while: { notVisible: { id: "session_releve_type_LS_PERSO_1" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,66%", duration: 600 }
+      - waitForAnimationToEnd
+- swipe: { start: "50%,74%", end: "50%,70%", duration: 600 }
+- waitForAnimationToEnd
+- assertVisible: { id: "session_releve_type_LS_PERSO_1" }
+# Annoter > Poser : même sélecteur, le downlight est dans les récents.
+- tapOn: { id: "session_annoter" }
+- tapOn: { id: "session_annoter_place" }
+- repeat:
+    while: { notVisible: { id: "session_releve_recent_LS_ECLAIRAGE_DOWNLIGHT" } }
+    times: 6
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,60%", duration: 600 }
+- tapOn: { id: "session_releve_recent_LS_ECLAIRAGE_DOWNLIGHT" }
+- tapOn: { id: "session_carte", point: "35%,40%" }
+- back
+- extendedWaitUntil:
+    visible: { id: "session_photo_proposee" }
+    timeout: 15000
+- takeScreenshot: b199_annoter_poser_photo
+- tapOn: { id: "session_photo_passer" }

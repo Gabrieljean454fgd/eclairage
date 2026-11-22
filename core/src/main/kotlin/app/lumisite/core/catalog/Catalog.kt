@@ -6,50 +6,103 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.text.Normalizer
 
-/** One family of the closed equipment list (catalog/equipment_catalog.json, decision D5). */
+/** One type of catalog 2 (catalog/lumisite_catalog_2.json, decision DS2 of 15/11): the app keeps only code, family and label. */
 @Serializable
 data class CatalogEntry(
-    @SerialName("block_name") val blockName: String,
+    /** `LS_*` code, ASCII, ≤ 31 characters, unique; written as the record kind. */
+    val code: String,
+    /** Former DWG block names (sessions 0.x): translated to [code] at read time, nothing is rewritten. */
     val aliases: List<String> = emptyList(),
     val label: String,
+    /** Family code (ECLAIRAGE, ELEC, …). */
     val famille: String,
-    @SerialName("default_layer") val defaultLayer: String,
+    @SerialName("sous_famille") val sousFamille: String = "",
+    /** Office layer LUMI-* and DWG block of the template (read by the office tool; the app records only [code]). */
+    val calque: String? = null,
+    @SerialName("bloc_dwg") val blocDwg: String? = null,
+    /** Plan symbol id (PlanSymbols), same glyph in the picker and on the map. */
+    val symbole: String? = null,
     val orientable: Boolean = false,
-    @SerialName("scale_rules") val scaleRules: JsonObject = JsonObject(emptyMap()),
     @SerialName("details_schema") val detailsSchema: JsonObject = JsonObject(emptyMap()),
-    val icon: String? = null,
     val keywords: List<String> = emptyList(),
-    /** Proposed canonical name not yet validated: never written, informative only. */
-    @SerialName("pending_rename") val pendingRename: String? = null,
-    /** false for « autre (à classer) », which matches no DWG block. */
+    /** false for « Autre (à classer) ». */
     @SerialName("is_block") val isBlock: Boolean = true,
 )
 
 @Serializable
+data class CatalogFamily(val code: String, val label: String, val color: String, val symbol: String)
+
+@Serializable
 data class EquipmentCatalog(
     @SerialName("catalog_version") val version: String,
+    val familles: List<CatalogFamily> = emptyList(),
     val entries: List<CatalogEntry>,
 ) {
     private val index: Map<String, CatalogEntry> by lazy {
         val m = HashMap<String, CatalogEntry>()
-        for (e in entries) (listOf(e.blockName) + e.aliases).forEach { n ->
+        for (e in entries) (listOf(e.code) + e.aliases).forEach { n ->
             val k = key(n)
-            require(m.putIfAbsent(k, e) == null || m[k] === e) { "Nom ou alias en double dans le catalogue : $n" }
+            require(m.putIfAbsent(k, e) == null || m[k] === e) { "Code ou alias en double dans le catalogue : $n" }
         }
         m
     }
 
-    /** Canonical entry for a block name or one of its aliases (case and Unicode normalisation insensitive), or null. */
+    /** Entry for a code or a former DWG block name (case and Unicode normalisation insensitive), or null. */
     fun find(name: String): CatalogEntry? = index[key(name)]
 
-    /** Like [find] but refuses unknown families. */
-    fun resolve(name: String): CatalogEntry = find(name) ?: throw IllegalArgumentException("Famille inconnue du catalogue $version : « $name »")
+    /** Like [find] but refuses unknown types. */
+    fun resolve(name: String): CatalogEntry = find(name) ?: throw IllegalArgumentException("Type inconnu du catalogue $version : « $name »")
 
     /** Entry used for records that cannot be classified (legacy kinds, free text). */
     val unclassified: CatalogEntry get() = entries.first { !it.isBlock }
 
+    fun family(code: String): CatalogFamily? = familles.firstOrNull { it.code == code }
+
+    /** Delivered catalog plus the user's local types (LS_PERSO_n), each placed in its family. */
+    fun withCustom(custom: List<CatalogEntry>): EquipmentCatalog =
+        if (custom.isEmpty()) this else copy(entries = entries + custom.filter { c -> entries.none { it.code == c.code } })
+
+    /** Families in display order (« Autres » last), then sub-families and types: Famille › Sous-famille › Type. */
+    fun sousFamilles(famille: String): List<String> = entries.filter { it.famille == famille }.map { it.sousFamille }.distinct()
+    fun types(famille: String, sousFamille: String): List<CatalogEntry> = entries.filter { it.famille == famille && it.sousFamille == sousFamille }
+
+    /** « Éclairage › Encastré › Downlight encastre au plafond ». */
+    fun breadcrumb(e: CatalogEntry): String = listOfNotNull(family(e.famille)?.label ?: e.famille, e.sousFamille.ifBlank { null }, e.label).joinToString(" › ")
+
+    /** Search on code, label, synonyms, aliases and sub-family, accent and case insensitive; label prefix matches first. */
+    fun search(query: String): List<CatalogEntry> {
+        val words = fold(query).split(' ').filter { it.isNotBlank() }
+        if (words.isEmpty()) return emptyList()
+        return entries.filter { e ->
+            val hay = fold((listOf(e.code.replace('_', ' '), e.label, e.sousFamille, family(e.famille)?.label ?: "") + e.keywords + e.aliases).joinToString(" "))
+            words.all { it in hay }
+        }.sortedBy { if (fold(it.label).startsWith(words.first())) 0 else 1 }
+    }
+
     companion object {
-        const val PAYLOAD_SCHEMA = "lumisite-equipment/1"
+        const val CUSTOM_PREFIX = "LS_PERSO_"
+        const val CUSTOM_SUB = "Types ajoutés (à classer au bureau)"
+
+        /** Next free LS_PERSO_n code. */
+        fun nextCustomCode(existing: Collection<String>): String =
+            CUSTOM_PREFIX + ((existing.mapNotNull { it.removePrefix(CUSTOM_PREFIX).takeIf { _ -> it.startsWith(CUSTOM_PREFIX) }?.toIntOrNull() }.maxOrNull() ?: 0) + 1)
+
+        /**
+         * « Ajouter un type… »: a local entry LS_PERSO_n (is_block = false, à classer au bureau) in [famille].
+         * Refuses an empty name, an unknown family and a label already present in that family.
+         */
+        fun customType(catalog: EquipmentCatalog, famille: String, label: String): CatalogEntry {
+            val name = label.trim()
+            require(name.isNotEmpty()) { "Nom du type vide" }
+            require(name.length <= 60) { "Nom du type trop long (60 caractères au plus)" }
+            val fam = requireNotNull(catalog.family(famille)) { "Famille inconnue : $famille" }
+            require(catalog.entries.none { it.famille == famille && fold(it.label) == fold(name) }) { "« $name » existe déjà dans ${fam.label}" }
+            return CatalogEntry(code = nextCustomCode(catalog.entries.map { it.code }), label = name, famille = famille, sousFamille = CUSTOM_SUB,
+                symbole = fam.symbol, keywords = listOf("perso", "ajouté"), isBlock = false)
+        }
+
+        const val PAYLOAD_SCHEMA = "lumisite-equipment/2"
+        const val ASSET = "lumisite_catalog_2.json"
         private val json = Json { ignoreUnknownKeys = true }
 
         fun parse(text: String): EquipmentCatalog = json.decodeFromString(serializer(), text).also { c ->
@@ -58,6 +111,13 @@ data class EquipmentCatalog(
         }
 
         private fun key(s: String) = Normalizer.normalize(s.trim(), Normalizer.Form.NFC).lowercase()
+
+        /** Lowercase, without diacritics, punctuation as spaces: « Encastré » and « encastre » match. */
+        fun fold(s: String): String = Normalizer.normalize(s, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+            .replace(Regex("[^a-z0-9]+"), " ").trim()
+
+        /** Stable id fragment for test tags: « Amplification et prises » → amplification_et_prises. */
+        fun slug(s: String): String = fold(s).replace(' ', '_')
     }
 }
 

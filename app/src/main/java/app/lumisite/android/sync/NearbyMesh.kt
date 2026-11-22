@@ -12,10 +12,22 @@ import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.Ids
 import app.lumisite.core.sync.Capture
 import app.lumisite.core.sync.MasterMesh
+import app.lumisite.core.sync.SyncRoundCalc
 import app.lumisite.core.sync.MeshLog
 import app.lumisite.core.sync.MeshMsg
 import app.lumisite.core.sync.SlaveMesh
 import app.lumisite.core.sync.SyncRole2
+import app.lumisite.core.sync.HeardChirp
+import app.lumisite.core.sync.SensorInventory
+import app.lumisite.core.sync.SensorState
+import app.lumisite.android.capture.AudioSync
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import java.io.BufferedWriter
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -67,6 +79,11 @@ object NearbyMesh {
         val slaveCapture: Capture = Capture.IDLE,
         val slaveLastPingNs: Long = 0,
         val log: List<String> = emptyList(),
+        /** v176d: sensors detected / activated on this phone (slave). */
+        val sensors: List<SensorState> = emptyList(),
+        /** v176d: acoustic round in progress or last result on this phone. */
+        val round: String? = null,
+        val roundBusy: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -91,7 +108,8 @@ object NearbyMesh {
         runCatching { dir?.let { File(it, "synchro.ndjson").appendText(line) } }
         DiagLog.i("SYNCHRO", "$endpoint : $what")
         val label = master?.peers?.get(endpoint)?.name ?: endpoint
-        _state.value = _state.value.copy(log = (_state.value.log + "$label · $what").takeLast(30))
+        val hms = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date(AndroidClock.utcEpochMs()))
+        _state.value = _state.value.copy(log = (_state.value.log + "$hms · $label · $what").takeLast(30))
     }
 
     private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -132,8 +150,23 @@ object NearbyMesh {
             }
         } else {
             slave = SlaveMesh(DeviceInfo.deviceId(ctx), name, Ids.new("tb"))
+            startSensors(ctx)
             discover(c)
-            loop = scope.launch { while (isActive) { publish(); delay(1000) } }
+            loop = scope.launch {
+                while (isActive) {
+                    synchronized(lock) {
+                        val s = slave ?: return@launch
+                        if (s.masterSilent(now())) {
+                            journal("local", "maître perdu (aucun ping depuis ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s) : reconnexion automatique")
+                            masterEndpoint?.let { client?.disconnectFromEndpoint(it) }
+                            s.onDisconnected(); masterEndpoint = null
+                            _state.value = _state.value.copy(slaveMaster = null)
+                            client?.let { discover(it) }
+                        }
+                    }
+                    publish(); delay(1000)
+                }
+            }
         }
         publish()
     }
@@ -167,7 +200,7 @@ object NearbyMesh {
             synchronized(lock) {
                 master?.let { logs(if (ok) it.onConnected(id, now()) else it.onDisconnected(id, now())) }
                 slave?.let { s ->
-                    if (ok) { masterEndpoint = id; s.onConnected(); client?.stopDiscovery(); send(id, s.hello())
+                    if (ok) { masterEndpoint = id; s.onConnected(now()); client?.stopDiscovery(); send(id, s.hello()); send(id, MeshMsg.Sensors(_state.value.sensors))
                         _state.value = _state.value.copy(slaveMaster = _state.value.slaveMaster?.replace("(connexion…)", "(connecté)")); journal(id, "connexion : connecté") }
                     else journal(id, "connexion refusée : ${r.status.statusMessage}")
                 }
@@ -206,6 +239,7 @@ object NearbyMesh {
                             when (m) {
                                 is MeshMsg.StartCapture -> appCtx?.let { startRecording(it, m.captureId, id) }
                                 is MeshMsg.StopCapture -> stopRecording(id)
+                                is MeshMsg.SyncRound -> slaveRound(id, m)
                                 else -> {}
                             }
                             s.onMessage(m, t, ::now)?.let { send(id, it) }
@@ -244,6 +278,115 @@ object NearbyMesh {
 
     private fun send(id: String, m: MeshMsg) { client?.sendPayload(id, Payload.fromBytes(MeshMsg.encode(m))) }
 
+    // ---- v176d: acoustic round (« top de synchro ») driven by the master over Nearby ----
+
+    private fun ownId(ctx: Context) = app.lumisite.core.sync.IdFrame.idOf(DeviceInfo.deviceId(ctx))
+
+    private fun heard(r: AudioSync.Round) = r.heard.filter { it.frameOk && it.emitterHex != null }
+        .map { HeardChirp(it.emitterHex!!, it.counter ?: -1, it.eventMonotonicNs) }
+
+    /** Master is running a Nearby synchro (Session > Synchroniser then also asks every slave to emit). */
+    val masterActive: Boolean get() = master != null
+
+    /**
+     * Blocking (call off the main thread): sends SyncRound to every connected slave, then runs the master's own round
+     * ([wav] kept) and matches the slaves' answers (BeepBeep, core SyncRoundCalc). Returns the master's own round.
+     */
+    fun masterRound(ctx: Context, counter: Int, wav: File?): AudioSync.Round {
+        val roundId = Ids.new("top")
+        synchronized(lock) {
+            val m = master ?: error("pas de synchro maître")
+            val (l, sends) = m.syncRound(roundId, counter, AudioSync.WINDOW_MS, now())
+            logs(l); sends.forEach { (id, msg) -> send(id, msg) }
+            _state.value = _state.value.copy(roundBusy = true, round = "Top en cours : écoute ${AudioSync.WINDOW_MS / 1000} s, chaque téléphone émet son chirp…")
+        }
+        val r = try {
+            AudioSync.round(AudioSync.WINDOW_MS, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, AudioSync.EMIT_MAX_MS), ownId(ctx), counter,
+                wav ?: dir?.let { File(it, "top_${roundId}.wav") }, AudioSync.unprocessedSupported(ctx))
+        } catch (e: Exception) {
+            synchronized(lock) { journal("local", "top : échec audio du maître (${e.message})"); _state.value = _state.value.copy(roundBusy = false, round = "Échec audio : ${e.message}") }
+            throw e
+        }
+        synchronized(lock) {
+            master?.let { logs(it.onOwnRound(roundId, "%04X".format(ownId(ctx)), heard(r), now())) }
+            _state.value = _state.value.copy(roundBusy = false, round = "Maître : ${heard(r).size} chirp(s) identifié(s). Résultat par téléphone ci-dessous.")
+            publish()
+        }
+        return r
+    }
+
+    private fun slaveRound(masterId: String, m: MeshMsg.SyncRound) {
+        val ctx = appCtx ?: return
+        if (!SyncRoundCalc.windowOk(m.windowMs)) {
+            val err = "fenêtre d'écoute refusée (${m.windowMs} ms, attendu ${SyncRoundCalc.MIN_WINDOW_MS}–${SyncRoundCalc.MAX_WINDOW_MS} ms)"
+            synchronized(lock) { send(masterId, MeshMsg.SyncResult(m.roundId, "%04X".format(ownId(ctx)), emptyList(), slave?.timeBaseId ?: "", err)); journal("local", "top refusé : $err") }
+            return
+        }
+        journal("local", "top de synchro reçu : écoute ${m.windowMs / 1000} s et émission du chirp")
+        _state.value = _state.value.copy(roundBusy = true, round = "Top reçu : écoute et émission…")
+        scope.launch(Dispatchers.IO) {
+            val hex = "%04X".format(ownId(ctx))
+            val tb = slave?.timeBaseId ?: ""
+            val res = try {
+                val r = AudioSync.round(m.windowMs, kotlin.random.Random.nextInt(AudioSync.EMIT_MIN_MS, minOf(AudioSync.EMIT_MAX_MS, m.windowMs - 1500)), ownId(ctx), m.counter,
+                    dir?.let { File(it, "top_${m.roundId}.wav") }, AudioSync.unprocessedSupported(ctx))
+                MeshMsg.SyncResult(m.roundId, hex, heard(r), tb)
+            } catch (e: Exception) { MeshMsg.SyncResult(m.roundId, hex, emptyList(), tb, e.message ?: e.javaClass.simpleName) }
+            synchronized(lock) {
+                send(masterId, res)
+                journal("local", "top : ${res.heard.size} chirp(s) entendu(s)" + (res.error?.let { " · échec $it" } ?: "") + ", résultat envoyé au maître")
+                _state.value = _state.value.copy(roundBusy = false, round = "Dernier top : ${res.heard.size} chirp(s) entendu(s)" + (res.error?.let { " · échec : $it" } ?: ""))
+            }
+        }
+    }
+
+    // ---- v176d: slave sensors: detect, journal and activate (samples appended to capteurs.csv) ----
+
+    private var sensorListener: SensorEventListener? = null
+    private var sensorOut: BufferedWriter? = null
+
+    private fun startSensors(ctx: Context) {
+        val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val types = mapOf("ACCEL" to Sensor.TYPE_ACCELEROMETER, "GYRO" to Sensor.TYPE_GYROSCOPE, "MAGNETO" to Sensor.TYPE_MAGNETIC_FIELD, "BARO" to Sensor.TYPE_PRESSURE)
+        val present = HashMap<String, String?>()
+        val active = HashSet<String>()
+        if (ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_MICROPHONE)) {
+            present["MICRO"] = null
+            if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) active += "MICRO"
+        }
+        runCatching {
+            val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            cm.cameraIdList.firstOrNull { id -> cm.getCameraCharacteristics(id).get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+                ?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT) == true }?.let { present["DEPTH"] = "caméra $it, non enregistrée" }
+        }
+        val out = runCatching { File(dir, "capteurs.csv").bufferedWriter().also { it.write("t_mono_ns,capteur,x,y,z\n") } }.getOrNull()
+        sensorOut = out
+        val names = HashMap<Int, String>()
+        val l = object : SensorEventListener {
+            override fun onSensorChanged(e: SensorEvent) {
+                val v = e.values
+                runCatching { synchronized(this) { out?.write("${e.timestamp},${names[e.sensor.type]},${v.getOrElse(0) { 0f }},${v.getOrElse(1) { 0f }},${v.getOrElse(2) { 0f }}\n") } }
+            }
+            override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+        }
+        sensorListener = l
+        types.forEach { (k, t) ->
+            val sensor = sm.getDefaultSensor(t) ?: return@forEach
+            present[k] = sensor.name; names[t] = k
+            if (sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_GAME)) active += k
+        }
+        val list = SensorInventory.report(present, active)
+        _state.value = _state.value.copy(sensors = list)
+        journal("local", "capteurs : " + list.joinToString { it.text })
+    }
+
+    private fun stopSensors(ctx: Context?) {
+        val l = sensorListener ?: return
+        sensorListener = null
+        (ctx?.getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.unregisterListener(l)
+        runCatching { sensorOut?.close() }; sensorOut = null
+    }
+
     fun startCapture() = synchronized(lock) {
         val m = master ?: return
         val capId = Ids.new("cap")
@@ -265,6 +408,7 @@ object NearbyMesh {
             // Master: end the slaves' captures first, so they send their media instead of recording on after the link drops.
             val stops = master?.stop(now()).orEmpty()
             stops.forEach { (id, msg) -> send(id, msg) }
+            stopSensors(appCtx)
             recorder?.let { r -> recorder = null; r.stop(); journal("local", "interruption : capture locale arrêtée avec la synchro (${r.file.name} gardé sur l'appareil)") }
             loop?.cancel(); loop = null
             val c = client

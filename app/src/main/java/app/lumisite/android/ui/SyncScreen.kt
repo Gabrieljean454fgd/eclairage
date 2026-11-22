@@ -102,6 +102,7 @@ fun SyncJournal(st: NearbyMesh.UiState, tag: String) {
 /** Accueil > Synchro (paquet 2): role choice, then the 4 separate states (connexion, alignement, capture, repère). */
 @Composable
 fun SyncScreen(onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack) // system Back returns to Accueil (the sync keeps running), instead of leaving the app
     val st by NearbyMesh.state.collectAsState()
     val begin = rememberSyncStarter()
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

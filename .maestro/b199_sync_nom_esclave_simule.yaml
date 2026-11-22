@@ -22,6 +22,5 @@ name: b199 synchro nom esclave simule
 - assertVisible: { id: "synchro_esclave_1_alignement", text: "Alignement temporel : aligné à ± [0-9]+,[0-9] ms" }
 - assertNotVisible: ".*décalage.*"
 - assertNotVisible: ".*987654321.*"
-- scrollUntilVisible: { element: { id: "synchro_retour" }, direction: UP }
-- tapOn: { id: "synchro_retour" }
+- back
 - assertVisible: "Sync maître active · 1 esclave\\(s\\)"

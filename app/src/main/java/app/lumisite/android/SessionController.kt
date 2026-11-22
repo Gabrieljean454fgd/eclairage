@@ -46,7 +46,8 @@ import app.lumisite.core.model.StreamStateEvent
 import app.lumisite.android.data.DiagLog
 import app.lumisite.android.data.BootInfo
 import app.lumisite.core.export.sha256
-import app.lumisite.core.survey.EditHistory
+import app.lumisite.core.session.ControlPointPolicy
+import app.lumisite.core.session.UndoPolicy
 import app.lumisite.core.survey.Shapes
 import app.lumisite.core.model.Attachment
 import app.lumisite.core.model.ShapeStyle
@@ -406,16 +407,16 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         _state.update { st ->
             var traj = st.trajectory
-            if (cur != null && seg != null) {
+            if (cur != null) {
                 val pt = CorrectedPoint(p.t.monotonicNs, p.t.utcEpochMs, p.t.timeBaseId, cur, ltp.toLatLon(cur.copy(u = 0.0)), p.tracking, seg.eventId)
                 val last = traj.lastOrNull()?.lastOrNull()
                 val gap = last == null || p.t.monotonicNs - last.monotonicNs > 1_000_000_000L
                 traj = if (gap) traj + listOf(listOf(pt)) else traj.dropLast(1) + listOf(traj.last() + pt)
             }
-            val valid = cur != null && seg != null && p.tracking == TrackingState.TRACKING
+            val valid = cur != null && p.tracking == TrackingState.TRACKING
             st.copy(poseCount = st.poseCount + 1, imuCount = imuCount, currentSite = cur, distanceSinceFixM = distanceSinceFix(traj, seg?.fromNs),
                 lastArSite = if (valid) cur else st.lastArSite, lastArValidMs = if (valid) System.currentTimeMillis() else st.lastArValidMs,
-                lastHeadingDeg = if (valid) headingOf(p, seg!!) else st.lastHeadingDeg)
+                lastHeadingDeg = if (cur != null && p.tracking == TrackingState.TRACKING) headingOf(p, seg) else st.lastHeadingDeg)
         }
     }
 
@@ -570,12 +571,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     // ------------------------------------------------------------------ calibration / relocalization tables (D3–D5)
 
-    private fun activeControlEvents(): List<ControlPointEvent> {
-        val evs = _state.value.events
-        val cur = evs.subList(evs.indexOfLast { it is TimeBaseAdded } + 1, evs.size)
-        val removed = cur.filterIsInstance<ControlPointRemoved>().map { it.pointId }.toSet()
-        return cur.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }
-    }
+    private fun activeControlEvents(): List<ControlPointEvent> = ControlPointPolicy.active(_state.value.events)
 
     /** v176c: the 5th calibration point is an independent control, never used in the solve. */
     @Suppress("UNUSED_PARAMETER")
@@ -638,15 +634,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     /** D13: control points of the earlier AR frames (shown as « session précédente », not used by the live solve). */
-    fun previousControlRows(): List<ControlRow> {
-        val evs = _state.value.events
-        val last = evs.indexOfLast { it is TimeBaseAdded }
-        if (last < 0) return emptyList()
-        val prev = evs.subList(0, last)
-        val removed = prev.filterIsInstance<ControlPointRemoved>().map { it.pointId }.toSet()
-        return prev.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }.mapIndexed { i, e ->
-            ControlRow(i + 1, e, null, if (e.kind == "RELOCALIZATION") "session précédente (recalage)" else "session précédente")
-        }
+    fun previousControlRows(): List<ControlRow> = ControlPointPolicy.previous(_state.value.events).mapIndexed { i, e ->
+        ControlRow(i + 1, e, null, if (e.kind == "RELOCALIZATION") "session précédente (recalage)" else "session précédente")
     }
 
     /** Session > Calibrer > « Valider le point » and Session > Recaler > « Je suis ici : recaler »: one more row, transform solved again. */
@@ -847,7 +836,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val before = activeSegment()
         pendingRepere = null
         _state.update { it.copy(forcible = null) }
-        activeControlEvents().filter { !relocalizationsOnly || it.kind == "RELOCALIZATION" }.forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it.id)); ar.dropAnchor(it.id); anchorPoses.remove(it.id) }
+        ControlPointPolicy.idsToClear(_state.value.events, relocalizationsOnly).forEach { record(ControlPointRemoved(Ids.new("ev"), stamps.now(), it)); ar.dropAnchor(it); anchorPoses.remove(it) }
         resolve(null, before)
     }
 
@@ -1054,10 +1043,6 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     private fun pushUndo(id: String) { undoStack.addLast(id); redoStack.clear(); canRedo.value = false }
 
-    private fun undoPrefix(events: List<SessionEvent>, id: String) = when (events.firstOrNull { it.id == id }) {
-        is app.lumisite.core.model.ZoneEvent -> "zon"; is SurveyEvent -> "srv"; else -> "shp"
-    }
-
     fun currentShapes(): List<ShapeEvent> = Shapes.current(_state.value.events)
 
     fun addShape(kind: String, geometryType: String, points: List<Enu>, radiusM: Double? = null, label: String? = null,
@@ -1094,7 +1079,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun undo() {
         val id = undoStack.removeLastOrNull() ?: return fail("Rien à annuler.")
         val ev = _state.value.events
-        val e = EditHistory.undoRecord(ev, id, Ids.new(undoPrefix(ev, id)), stamps.now()) ?: return fail("Rien à annuler.")
+        val e = UndoPolicy.undo(ev, id, Ids.new(UndoPolicy.idPrefix(ev, id)), stamps.now()) ?: return fail("Rien à annuler.")
         record(e, "Annulé.")
         redoStack.addLast(id); canRedo.value = true
     }
@@ -1103,7 +1088,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun redo() {
         val id = redoStack.removeLastOrNull() ?: return fail("Rien à refaire.")
         val ev = _state.value.events
-        val e = EditHistory.redoRecord(ev, id, Ids.new(undoPrefix(ev, id)), stamps.now()) ?: return fail("Rien à refaire.")
+        val e = UndoPolicy.redo(ev, id, Ids.new(UndoPolicy.idPrefix(ev, id)), stamps.now()) ?: return fail("Rien à refaire.")
         record(e, "Rétabli.")
         undoStack.addLast(e.id); canRedo.value = redoStack.isNotEmpty()
     }

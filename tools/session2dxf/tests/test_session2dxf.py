@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import math
 import random
 from types import SimpleNamespace
@@ -185,3 +186,18 @@ def test_no_automatic_merge_without_sigma():
     r = merge([a, b])
     assert len(r.objects) == 2 and not r.fusions
     assert r.conflicts[0]["type"].startswith("doublon probable")
+
+
+def test_catalog2_ls_codes_map_to_dwg_blocks(tmp_path):
+    """Export v176e+: catalog/lumisite_catalog_2.json and LS_* codes in block_name; the office maps them to bloc_dwg."""
+    lon, lat = SBC
+    p = make_package(tmp_path, {("devA", "s1"): [feature("a", "LS_ECLAIRAGE_DOWNLIGHT", lon, lat),
+                                                 feature("b", "LS_AUTRE_A_CLASSER", lon + 1e-4, lat)]})
+    (p / "catalog" / "equipment_catalog.json").unlink()
+    cat2 = (Path(__file__).resolve().parents[3] / "catalog" / "lumisite_catalog_2.json").read_text(encoding="utf-8")
+    (p / "catalog" / "lumisite_catalog_2.json").write_text(cat2, encoding="utf-8")
+    dwg = next(e["bloc_dwg"] for e in json.loads(cat2)["entries"] if e["code"] == "LS_ECLAIRAGE_DOWNLIGHT")
+    pkg = load_package(p)
+    assert pkg.out_of_catalog == []
+    assert [f["properties"]["block_name"] for f in pkg.features if f["id"] == "a"] == [dwg]
+    assert len(pkg.to_classify) == 1

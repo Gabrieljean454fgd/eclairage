@@ -341,9 +341,24 @@ object ResumableExport {
     }
 
     fun writeAtomically(f: File, text: String) {
-        val tmp = File(f.parentFile, f.name + ".tmp")
+        val parent = f.parentFile ?: error("Impossible d'écrire ${f.name}")
+        parent.mkdirs()
+        val tmp = File(parent, f.name + ".tmp")
         FileOutputStream(tmp).use { it.write(text.toByteArray()); it.fd.sync() }
-        check(tmp.renameTo(f)) { "Impossible d'écrire ${f.name}" }
+        try {
+            java.nio.file.Files.move(
+                tmp.toPath(),
+                f.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(
+                tmp.toPath(),
+                f.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
     }
 }
 

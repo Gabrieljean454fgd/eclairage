@@ -130,6 +130,20 @@ object Ndjson {
  * reported as unreadable), the file is renamed `.ndjson`, and the caller writes a `stream_state` REPAIRED event.
  * Sessions written before stage 1 (one `<stream>.ndjson` file at the root) are still read: that file comes first.
  */
+
+/** Atomic finalize of a temp/part file. Never replaces an existing destination (a finished segment must not change). */
+internal fun finalizeByRename(from: File, to: File, message: String = "Cannot finalize segment $from") {
+    try {
+        java.nio.file.Files.move(from.toPath(), to.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+        java.nio.file.Files.move(from.toPath(), to.toPath())
+    } catch (e: java.nio.file.FileAlreadyExistsException) {
+        throw IllegalStateException(message, e)
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException(message, e)
+    }
+}
+
 object Segments {
     const val DIR = "seg"
     private val NAME = Regex("""^(.+)\.(\d{6})\.(part|ndjson|ndjson\.gz)$""")
@@ -157,7 +171,7 @@ object Segments {
         FileOutputStream(tmp).use { fo ->
             java.util.zip.GZIPOutputStream(fo, 64 * 1024).use { z -> file.inputStream().use { it.copyTo(z, 64 * 1024) }; z.finish(); fo.fd.sync() }
         }
-        check(tmp.renameTo(gz)) { "Cannot finalize $gz" }
+        finalizeByRename(tmp, gz, "Cannot finalize $gz")
         file.delete()
         return gz
     }
@@ -179,7 +193,7 @@ object Segments {
             val truncated = sf.file.length() > 0 && RandomAccessFile(sf.file, "r").use { it.seek(it.length() - 1); it.read() != '\n'.code }
             Ndjson.sealPartialLine(sf.file)
             val done = file(dir, sf.stream, sf.seq, part = false)
-            check(sf.file.renameTo(done)) { "Cannot finalize segment ${sf.file}" }
+            finalizeByRename(sf.file, done)
             Repaired(sf.stream, done, done.length(), truncated)
         }
     }
@@ -259,7 +273,7 @@ class SegmentedAppender(
         writer = null; out = null
         val part = Segments.file(dir, stream, seq, part = true)
         val done = Segments.file(dir, stream, seq, part = false)
-        check(part.renameTo(done)) { "Cannot finalize segment $part" }
+        finalizeByRename(part, done)
         runCatching { onSegmentClosed(done) }
     }
 
@@ -298,7 +312,7 @@ class SessionJournal(
             check(!hf.exists()) { "Session header already exists, refusing to overwrite: $hf" }
             val tmp = File(dir, Streams.HEADER + ".tmp")
             FileOutputStream(tmp).use { it.write(LumiJson.encodeToString(SessionHeader.serializer(), header).toByteArray()); it.fd.sync() }
-            check(tmp.renameTo(hf))
+            finalizeByRename(tmp, hf, "Cannot finalize session header $hf")
         }
         repaired = Segments.repair(dir)
         repaired.forEach { runCatching { onSegmentClosed(it.file) } }

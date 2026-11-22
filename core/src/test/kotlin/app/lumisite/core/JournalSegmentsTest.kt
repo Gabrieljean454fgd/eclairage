@@ -43,15 +43,21 @@ class JournalSegmentsTest {
         val part = Segments.list(d).first { it.stream == Streams.IMU && it.open }.file
         part.appendText("{\"t\":{\"utcEpochMs\":1,")
 
-        val j2 = SessionJournal(d)
+        // After a real crash the next process only sees the files on disk, without
+        // the previous process's open handles. On Windows a locked .part cannot be
+        // renamed (File.renameTo returns false); we reopen a byte-for-byte copy.
+        val crashed = Files.createTempDirectory("seg-crash").toFile()
+        d.copyRecursively(crashed)
+
+        val j2 = SessionJournal(crashed)
         val rep = j2.repaired.single { it.stream == Streams.IMU }
         assertTrue(rep.truncatedTail)
         assertTrue(rep.file.name.endsWith(".ndjson"))
         j2.imu(imu(5_000)); j2.close()
-        val data = SessionReader.read(d)
+        val data = SessionReader.read(crashed)
         assertEquals(1_001, data.imu.size, "every fsynced line + the new one survive")
         assertEquals(listOf(1_001), data.skippedLines[Streams.IMU], "the truncated line is kept and reported, not invented")
-        assertTrue(Segments.list(d).none { it.open })
+        assertTrue(Segments.list(crashed).none { it.open })
     }
 
     @Test fun finishedSegmentsNeverChangeAfterClosing() {

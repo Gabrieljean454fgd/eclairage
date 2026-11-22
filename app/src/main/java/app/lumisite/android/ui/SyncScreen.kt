@@ -95,8 +95,11 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val connected = st.peers.count { it.link == Link.CONNECTED }
+    var micRefused by remember { mutableStateOf(false) }
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { micRefused = !it }
     Button(enabled = !st.roundBusy && connected > 0, onClick = {
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@Button
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
+        micRefused = false
         scope.launch(Dispatchers.IO) {
             val prefs = ctx.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
             val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
@@ -106,6 +109,8 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
     }, modifier = Modifier.fillMaxWidth().testTag("synchro_top")) { Text("Lancer un top de synchro (tous les téléphones émettent)") }
     Text(if (connected == 0) "Aucun esclave connecté : le top attend au moins un téléphone en « Captation-synchro (esclave) »." else (st.round ?: "Chaque téléphone écoute ${app.lumisite.android.capture.AudioSync.WINDOW_MS / 1000} s et émet son chirp ; le décalage s'affiche par téléphone."),
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_top_etat"))
+    if (micRefused) Text("Micro refusé : le top de synchro ne peut pas écouter. Autorisez le micro (Paramètres > Applications > LumiSite > Autorisations).",
+        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_micro_refuse"))
     SceneActive(st)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button({ NearbyMesh.startCapture() }, enabled = !st.capturing, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Démarrer les captures") }

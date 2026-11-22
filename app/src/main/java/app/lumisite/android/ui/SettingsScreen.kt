@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -83,6 +84,13 @@ fun SettingsScreen(repo: Repository, onBack: () -> Unit, onReimported: () -> Uni
             androidx.compose.material3.Switch(autoPhoto, { autoPhoto = it; AutoPhoto.set(ctx, it) }, modifier = Modifier.testTag("reglages_photo_automatique"))
             Text(" Photo après pose (Session > Relevé et Annoter > Poser)")
         }
+        HorizontalDivider()
+        Text("Sync", style = MaterialTheme.typography.titleMedium)
+        var phoneName by remember { mutableStateOf(app.lumisite.android.sync.NearbyMesh.userName(ctx)) }
+        androidx.compose.material3.OutlinedTextField(phoneName, { phoneName = it.take(app.lumisite.core.sync.SyncDisplay.MAX_NAME); app.lumisite.android.sync.NearbyMesh.setUserName(ctx, phoneName) },
+            label = { Text("Nom de ce téléphone") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("reglages_nom_telephone"))
+        Text("Nom vu par les autres téléphones : ${app.lumisite.android.sync.NearbyMesh.deviceName(ctx)} (vide : nom système, sinon fabricant + modèle).",
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("reglages_nom_telephone_apercu"))
         HorizontalDivider()
         Text("Stockage", style = MaterialTheme.typography.titleMedium)
         Text("Copie visible (survit à la désinstallation) : ${PublicStore.displayPath(listOf("<site>", "<session>"))}/", modifier = Modifier.testTag("reglages_stockage_chemin"))

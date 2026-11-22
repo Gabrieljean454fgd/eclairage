@@ -103,4 +103,32 @@ class SyncMeshTest {
         val slow = List(3) { ClockAlign.sample(MeshMsg.Pong(1, 0, 400 * ms, 400 * ms), 800 * ms)!! }
         assertEquals(Clock.ALIGNING, ClockAlign.state(slow))
     }
+
+    /** v176g 1a: the master first knows the Nearby endpoint name (onConnecting), then the slave's own name (Hello). */
+    @Test
+    fun slaveNameComesFromConnectingThenHello() {
+        val m = MasterMesh("maitre")
+        m.onConnecting("e1", "Xiaomi 13T Pro (6GES)", 0)
+        assertEquals("Xiaomi 13T Pro (6GES)", m.peers.getValue("e1").name)
+        m.onConnected("e1", 0)
+        m.onMessage("e1", SlaveMesh("dev", "Chantier B (6GES)", "tb").hello(), 1)
+        assertEquals("Chantier B (6GES)", m.peers.getValue("e1").name)
+        assertEquals("Connecté : Chantier B (6GES) · alignement en cours", app.lumisite.core.sync.SyncDisplay.masterBanner(m.peers.values.toList()).text)
+    }
+
+    /** v176g 1c: the screen journal shows the uncertainty; the raw monotonic offset only travels in MeshLog.raw. */
+    @Test
+    fun alignedLogHidesTheRawOffset() {
+        val m = MasterMesh("maitre")
+        m.onConnecting("e1", "E", 0); m.onConnected("e1", 0)
+        val off = 1_001_033_936L * ms
+        val logs = (1..3).flatMap { k ->
+            val t = k * MasterMesh.PING_PERIOD_NS
+            m.onMessage("e1", MeshMsg.Pong(k.toLong(), t, t + 10 * ms + off, t + 11 * ms + off), t + 21 * ms).first
+        }
+        val aligned = logs.single { it.what.startsWith("alignement : aligné") }
+        assertTrue("± 10,0 ms" in aligned.what, aligned.what)
+        assertTrue("1001033936" !in aligned.what)
+        assertEquals("décalage brut 1001033936.0 ms", aligned.raw)
+    }
 }

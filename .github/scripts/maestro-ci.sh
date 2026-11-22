@@ -20,6 +20,8 @@ for f in .maestro/*.yaml; do
     # Appli arrêtée et vidée avant chaque parcours : un parcours qui s'est fini dans Session laisse sinon, sur émulateur,
     # un écran noir de plus de 90 s au lancement suivant (non reproduit à la main, ni signalé sur le Pixel 7).
     adb shell am force-stop app.lumisite.android; adb shell pm clear app.lumisite.android >/dev/null; adb shell input keyevent KEYCODE_HOME; sleep 2
+    # Esclave simulé (APK debug) pour ce seul parcours : les autres doivent rester à « 0 appareil ».
+    case "$name" in *esclave_simule*) adb shell "settings put global lumisite_simuler_esclave 'Xiaomi 13T Pro'";; *) adb shell settings delete global lumisite_simuler_esclave >/dev/null 2>&1;; esac
     if maestro test "$f" --format junit --output "maestro-out/${name}-${attempt}.xml" --debug-output "maestro-out/${name}-${attempt}" > "maestro-out/${name}-${attempt}.log" 2>&1; then
       ok=1; break
     fi

@@ -759,6 +759,39 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
     var secours by remember { mutableStateOf(false) }
     var cale by remember { mutableStateOf<Int?>(null) }
+    // v176g 1e: one synchro process — this tab reads the same NearbyMesh state as Accueil > Sync (banner, role, slaves, journal).
+    val mesh by app.lumisite.android.sync.NearbyMesh.state.collectAsState()
+    val startRole = rememberSyncStarter()
+    val masterOn = mesh.running && mesh.role == app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE
+    val nConnected = mesh.peers.count { it.link == app.lumisite.core.sync.Link.CONNECTED }
+    if (mesh.running) {
+        SyncBanner(mesh)
+        Text("Rôle : " + if (masterOn) "Saisie (maître)" else "Captation-synchro (esclave)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("session_synchro_role"))
+        mesh.peers.forEach { p -> Text("${p.name} · ${p.link.label} · " + if (p.clock == app.lumisite.core.sync.Clock.ALIGNED) app.lumisite.core.sync.SyncDisplay.alignmentText(p.offsetNs, p.uncertaintyNs) else p.clock.label, style = MaterialTheme.typography.bodySmall) }
+    } else {
+        Text("Synchro maître non lancée (même fonction que Accueil > Sync).", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton({ startRole(app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE) }, modifier = Modifier.testTag("session_synchro_demarrer_maitre")) { Text("Démarrer la synchro maître") }
+    }
+    if (masterOn) Button(enabled = !busy && !mesh.roundBusy && nConnected > 0, onClick = {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
+        busy = true; result = "Top en cours…"
+        scope.launch {
+            result = withContext(Dispatchers.IO) {
+                try {
+                    val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
+                    val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
+                    prefs.edit().putInt("counter", counter).apply()
+                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
+                    val r = app.lumisite.android.sync.NearbyMesh.masterRound(activity, counter, wav)
+                    cale = c.syncRound(label, r, counter)
+                    "Top terminé : résultat par téléphone dans le journal."
+                } catch (e: Exception) { "Échec audio : ${e.message}" }
+            }
+            busy = false
+        }
+    }, modifier = Modifier.fillMaxWidth().testTag("session_synchro_top")) { Text("Lancer un top de synchro ($nConnected esclave(s))") }
+    if (masterOn) TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (!masterOn || secours) {
     Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
     Text("L'enregistrement audio (WAV) est toujours gardé dans le dossier de la session.", style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_de_synchro_genere_facultati"))
@@ -786,9 +819,10 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             if ((cale ?: 0) < 2) secours = true
         }
     }, modifier = Modifier.testTag("session_synchro_synchroniser")) { Text("Synchroniser") }
+    }
     // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
     cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
-    TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (!masterOn) TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
     if (secours) {
         OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme_2"))
         OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }, modifier = Modifier.testTag("session_synchro_top_manuel_appuyer_au_signal")) { Text("TOP manuel (appuyer au signal)") }
@@ -797,6 +831,7 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     val st by c.state.collectAsState()
     Text("Événements de synchro : " + st.events.filterIsInstance<SyncEvent>().joinToString { "${it.syncCode}/${it.method}" }.ifEmpty { "aucun" }, style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    SyncJournal(mesh, "session_synchro_journal")
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

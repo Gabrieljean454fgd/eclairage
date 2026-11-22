@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,6 +106,12 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
             OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Sync", maxLines = 1) }
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+        val mesh by app.lumisite.android.sync.NearbyMesh.state.collectAsState()
+        if (mesh.running && mesh.role == app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE) {
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.AssistChip(onClick = onSync, label = { Text(app.lumisite.core.sync.SyncDisplay.homeChip(mesh.peers.count { it.link == app.lumisite.core.sync.Link.CONNECTED })) },
+                modifier = Modifier.testTag("accueil_synchro_active"))
+        }
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sites) { s ->

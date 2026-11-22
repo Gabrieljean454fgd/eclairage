@@ -11,20 +11,21 @@ name: "Releve apres calibrage"
       - swipe: { start: "50%,80%", end: "50%,68%", duration: 600 }
 - assertVisible: "(Position estimée|Position du téléphone) \\(repère site\\).*"
 - repeat:
-    while: { notVisible: { id: "session_releve_categorie_SON" } }
+    while: { notVisible: { id: "session_releve_categorie_ECLAIRAGE" } }
     times: 10
     commands:
       - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
 # Le haut du panneau défile sous la carte : deux glissements de plus pour amener la puce dans la partie visible du panneau.
+# build 244 : Éclairage est la 1re famille du sélecteur ; le type n'a pas besoin d'être Sonorisation.
 - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
 - swipe: { start: "50%,68%", end: "50%,80%", duration: 600 }
-- tapOn: { id: "session_releve_categorie_SON" }
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
 - repeat:
-    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+    while: { notVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" } }
     times: 8
     commands:
       - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
-- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

@@ -1,7 +1,7 @@
 # v176d (D2, D5) — Accueil > Sync > Saisie (maître) sur l'émulateur, 0 esclave : « Scène active » le dit clairement,
 # le top de synchro attend un esclave, et le journal horodaté est visible.
 appId: app.lumisite.android
-name: "v176d maître : scène active sans esclave"
+name: "v176d maître — scène active sans esclave"
 ---
 - launchApp:
     clearState: true

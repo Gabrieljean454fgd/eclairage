@@ -7,13 +7,14 @@ name: Session releve photo automatique a l implantation
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
 - tapOn: { id: "session_point_a_la_croix" }
-- tapOn: { id: "session_releve_categorie_SON" }
+# build 244 : Éclairage est la 1re famille du sélecteur (visible sans défiler) ; le type n'a pas besoin d'être Sonorisation.
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
 - repeat:
-    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+    while: { notVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" } }
     times: 8
     commands:
       - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
-- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
 # Le panneau du bas défile jusqu'au bouton (la longueur de la grille des familles varie).
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }

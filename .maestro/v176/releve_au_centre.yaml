@@ -5,6 +5,13 @@ appId: app.lumisite.android
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
 - tapOn: { id: "session_point_a_la_croix" }
+# build 244 : SON est la 7e famille du sélecteur, plus bas que le pli — on défile jusqu'à sa puce
+# (le scénario garde « Amplificateur » : v176_detail_compteurs vérifie « Sonorisation › Amplificateur »).
+- repeat:
+    while: { notVisible: { id: "session_releve_categorie_SON" } }
+    times: 8
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
 - tapOn: { id: "session_releve_categorie_SON" }
 - repeat:
     while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }

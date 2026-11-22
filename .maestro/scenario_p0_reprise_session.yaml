@@ -48,21 +48,36 @@ name: "Session reprise donnees affichees"
 # Deux relevés (pose AR simulée, transformée par le calibrage).
 # « Relevé » ouvre le panneau une fois ; il reste ouvert après l'enregistrement (un 2e appui le fermerait).
 - tapOn: { id: "session_releve" }
+# build 244 : Éclairage est la 1re famille du sélecteur, type LS_ECLAIRAGE_DOWNLIGHT (le scénario n'a pas besoin de Sonorisation).
+# Au 2e passage le sélecteur est resté dans la famille ouverte : « ‹ Familles » ramène à la liste des familles.
 - repeat:
     times: 2
     commands:
+      # On remonte d'abord le panneau en haut (le champ recherche est le 1er élément du sélecteur),
+      # sinon « ‹ Familles » et les puces de familles restent hors écran après le défilement précédent.
       - repeat:
-          while: { notVisible: { id: "session_releve_categorie_SON" } }
-          times: 8
+          while: { notVisible: { id: "session_releve_recherche" } }
+          times: 10
           commands:
             - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-      - tapOn: { id: "session_releve_categorie_SON" }
-- repeat:
-    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
-    times: 8
-    commands:
-      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
-- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+      # 2e passage : le sélecteur est resté dans la famille ouverte → « ‹ Familles » ramène à la liste.
+      - runFlow:
+          when:
+            visible: { id: "session_releve_retour_familles" }
+          commands:
+            - tapOn: { id: "session_releve_retour_familles" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_categorie_ECLAIRAGE" } }
+          times: 6
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+      - tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
+      - repeat:
+          while: { notVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" } }
+          times: 8
+          commands:
+            - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+      - tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
       - repeat:
           while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
           times: 8

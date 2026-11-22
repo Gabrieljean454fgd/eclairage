@@ -17,6 +17,8 @@ name: "Calibrer deux points"
 # CI du 09/11 (7aba58c, essai 1) : sur l'émulateur lent, 14 à 30 s séparent « Point à la croix » de la pose prise à
 # « Valider » ; le téléphone simulé a parcouru ~8 m entre-temps et l'appli refuse, à juste titre, la correspondance
 # (« téléphone déplacé de 1,9 m, points carte séparés de 8,9 m »). On reprend alors la position actuelle (3 essais au plus).
+# anomalie constatée, hors périmètre, pour Devin / v176g : la ligne 2 du calibrage est parfois absente
+# sur l'appareil (2e point refusé sans message) — le flux reste strict.
 - repeat:
     while: { notVisible: { id: "session_calibrer_ligne_2" } }
     times: 3

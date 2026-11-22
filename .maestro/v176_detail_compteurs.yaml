@@ -9,6 +9,8 @@ name: "v176a Detail compteurs et famille actuelle"
 - assertVisible: "Photo vue \\(0\\)"
 - assertVisible: "Note vocale \\(0\\)"
 - tapOn: { id: "session_pieces_photo_vue" }
+# anomalie constatée, hors périmètre, pour Devin / v176g : sur l'appareil photo système du Pixel,
+# le compteur « Photo vue (1) » est resté bloqué (retour du cliché non abouti) — le flux reste strict.
 - extendedWaitUntil:
     visible: { id: ".*:id/shutter_button" }
     timeout: 20000

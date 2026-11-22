@@ -8,18 +8,14 @@ name: "Mise a jour avant creer session"
 - tapOn: { id: "session_releve" }
 # Sans calibrage : position manuelle, point touché sur la carte (relative à la carte, en bande en portrait).
 - tapOn: { id: "session_carte", point: "50%,55%" }
+# build 244 : Éclairage est la 1re famille du sélecteur (visible sans défiler) ; le type n'a pas besoin d'être Sonorisation.
+- tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
 - repeat:
-    while: { notVisible: { id: "session_releve_categorie_SON" } }
-    times: 8
-    commands:
-      - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-- tapOn: { id: "session_releve_categorie_SON" }
-- repeat:
-    while: { notVisible: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" } }
+    while: { notVisible: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" } }
     times: 8
     commands:
       - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
-- tapOn: { id: "session_releve_type_LS_SON_AMPLIFICATEUR" }
+- tapOn: { id: "session_releve_type_LS_ECLAIRAGE_DOWNLIGHT" }
 - repeat:
     while: { notVisible: { id: "session_releve_enregistrer_le_releve" } }
     times: 8

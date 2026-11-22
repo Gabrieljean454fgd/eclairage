@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below: sessions, sites and settings are backed up; caches and exports are not. -->
+<full-backup-content>
+    <include domain="file" path="sessions/" />
+    <include domain="file" path="sites/" />
+    <include domain="sharedpref" path="." />
+    <exclude domain="file" path="osmdroid/" />
+    <exclude domain="file" path="exports/" />
+</full-backup-content>

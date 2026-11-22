@@ -69,9 +69,24 @@ class ArTracker(
         }
     }
 
-    fun resume() { try { session?.resume() } catch (e: Exception) { lastError = "resume: ${e.message}" } }
-    fun pause() { session?.pause() }
-    fun close() { session?.close(); session = null }
+    /** Set to false before tearing down: the GL thread then stops calling into the ARCore session. */
+    @Volatile var rendering = true
+
+    fun resume() {
+        if (!rendering) return
+        try { session?.resume() } catch (e: Exception) { lastError = "resume: ${e.message}" }
+    }
+
+    fun pause() { try { session?.pause() } catch (e: Exception) { lastError = "pause: ${e.message}" } }
+
+    /** Call only once the GLSurfaceView is paused (no concurrent onDrawFrame). Never throws. */
+    fun close() {
+        rendering = false
+        val s = session ?: return
+        session = null
+        try { s.pause() } catch (_: Exception) {}
+        try { s.close() } catch (e: Exception) { lastError = "close: ${e.message}" }
+    }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1f)
@@ -90,6 +105,7 @@ class ArTracker(
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        if (!rendering) return
         val s = session ?: return
         if (viewportChanged) { s.setDisplayGeometry(displayRotation(), viewportW, viewportH); viewportChanged = false }
         s.setCameraTextureName(bg.textureId)

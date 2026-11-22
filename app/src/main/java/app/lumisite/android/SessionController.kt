@@ -85,7 +85,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private var imuCount = 0L
 
     val sensors = SensorRecorder(ctx, { stamps }) { s ->
-        journal.imu(s); imuCount++
+        if (closed) return@SensorRecorder
+        synchronized(journalLock) { if (closed) return@SensorRecorder; journal.imu(s) }; imuCount++
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
@@ -127,16 +128,31 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (hasLocation) gps.start() else onGpsStatus(GpsStatusSample(stamps.now(), "gps", "NO_PERMISSION"))
     }
 
+    @Volatile var closed = false; private set
+    /** Serializes capture-thread writes (sensors, GPS, GL) with closing the journal. */
+    private val journalLock = Any()
+
     fun pauseCapture() {
-        sensors.stop(); gps.stop(); ar.pause()
+        if (closed) return
+        runCatching { sensors.stop() }; runCatching { gps.stop() }; ar.pause()
         logTracking(TrackingState.STOPPED, "APP_PAUSED")
         journal.flushAll()
     }
 
-    fun close() {
-        pauseCapture()
-        journal.event(SessionStopped(Ids.new("ev"), stamps.now(), "user"))
-        journal.close(); ar.close()
+    /**
+     * End of session. The caller must have paused the GLSurfaceView first ([ArTracker.rendering] is cleared here
+     * too), so ARCore is closed while no frame is being drawn. Idempotent and never throws.
+     */
+    fun close(reason: String = "user") {
+        if (closed) return
+        ar.rendering = false
+        runCatching { pauseCapture() }
+        ar.close()
+        synchronized(journalLock) {
+            closed = true
+            runCatching { journal.event(SessionStopped(Ids.new("ev"), stamps.now(), reason)) }
+            runCatching { journal.close() }
+        }
     }
 
     fun setArStatus(text: String) = _state.update { it.copy(arStatus = text) }
@@ -146,12 +162,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun markArUnavailable(reason: String) = logTracking(TrackingState.UNAVAILABLE, reason)
 
     private fun onArFrame(pose: PoseSample?, state: TrackingState, reason: String?) {
+        if (closed) return
         logTracking(state, reason)
         if (pose != null) {
             // 10 Hz pose recording is enough for walking trajectories; every frame is still used by ARCore.
             if (pose.t.monotonicNs - lastPoseMono >= 100_000_000L) {
                 lastPoseMono = pose.t.monotonicNs
-                journal.pose(pose)
+                synchronized(journalLock) { if (!closed) journal.pose(pose) }
                 synchronized(poses) { poses += pose }
                 appendLive(pose)
             }
@@ -166,7 +183,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             journal.event(ev)
             if (state != TrackingState.TRACKING) {
                 // explicit raw marker in the pose stream too (no pose values are valid while not tracking)
-                _state.value.lastPose?.let { journal.pose(it.copy(t = stamps.now(), tracking = state, failureReason = reason)) }
+                _state.value.lastPose?.let { p0 -> synchronized(journalLock) { if (!closed) journal.pose(p0.copy(t = stamps.now(), tracking = state, failureReason = reason)) } }
             }
             _state.update { it.copy(tracking = state, trackingReason = reason, events = it.events + ev) }
         } else if (reason != _state.value.trackingReason) {
@@ -174,8 +191,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
     }
 
-    private fun onGps(f: GpsFix) { journal.gps(f); _state.update { it.copy(lastGps = f) } }
-    private fun onGpsStatus(s: GpsStatusSample) { journal.gpsStatus(s); _state.update { it.copy(gpsStatus = it.gpsStatus + (s.provider to s.status)) } }
+    private fun onGps(f: GpsFix) { synchronized(journalLock) { if (closed) return; journal.gps(f) }; _state.update { it.copy(lastGps = f) } }
+    private fun onGpsStatus(s: GpsStatusSample) { synchronized(journalLock) { if (closed) return; journal.gpsStatus(s) }; _state.update { it.copy(gpsStatus = it.gpsStatus + (s.provider to s.status)) } }
 
     // ------------------------------------------------------------------ derived display
 
@@ -223,6 +240,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     }
 
     private fun record(e: SessionEvent, msg: String? = null) {
+        if (closed) return
         journal.event(e)
         _state.update { it.copy(events = it.events + e, message = msg) }
         if (e is CalibrationEvent || e is RelocalizationEvent) recompute()

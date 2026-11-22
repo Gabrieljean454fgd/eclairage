@@ -406,7 +406,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                             glView = this
                         }
                     }, modifier = Modifier.fillMaxSize())
-                    ArReticle(c)
+                    ArReticle(c); ArLabels(c)
                 }
                 ArControls(c, measureReset = measureReset, onMeasureArmed = { measureArmed = it })
             }

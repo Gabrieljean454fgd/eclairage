@@ -27,9 +27,12 @@ import app.lumisite.core.catalog.EquipmentCatalog
 import app.lumisite.core.catalog.LsCatalog
 import app.lumisite.core.catalog.LsItem
 import app.lumisite.core.compute.SurveyPositions
+import app.lumisite.core.compute.ArSiteOverlays
+import app.lumisite.core.compute.ArSymbols
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonPrimitive
 import app.lumisite.android.data.DeviceInfo
 import app.lumisite.android.data.Ids
 import app.lumisite.android.data.Repository
@@ -171,6 +174,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     val ar = ArTracker(ctx, { stamps }, ::onArFrame).also {
         it.onAnchors = { m -> onAnchors(m) }; it.sensorTiltDeg = { sensors.cameraTiltDeg }; it.ceilingHeightM = site.ceilingHeightM
         it.rawPolygonsOn.value = app.lumisite.android.capture.ArDiagnose.rawPolygons(ctx)
+        it.catalog = CatalogStore.getLs(ctx)
     }
     val gnss = GnssClassifier()
     val solverSettings = SolverSettings()
@@ -550,23 +554,34 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * and per luminaire at its map-projected position (Aim.toSession); ARCore then tracks them normally. Repères are
      * map points (u = 0): their flag is planted at the detected floor level.
      */
+    private fun visitEvents(): List<ArSiteOverlays.VisitEvents> {
+        val current = _state.value.events
+        val listed = repo.sessions(site.id).map { h ->
+            val evs = if (h.id == sessionId) current
+            else runCatching { SessionReader.read(repo.sessionDir(h.id), includeImu = false).events }.getOrDefault(emptyList())
+            ArSiteOverlays.VisitEvents(h.id, evs)
+        }
+        return if (listed.any { it.visitId == sessionId }) listed
+        else listed + ArSiteOverlays.VisitEvents(sessionId, current)
+    }
+
     private fun restoreAnchors(seg: TrajectoryCorrector.Segment) {
         val tr = seg.transform
         val floorY = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M) ?: 0.0
         val now = stamps.now()
         fun anchorPose(at: app.lumisite.core.compute.V3) = PoseSample(now, listOf(at.x, at.y, at.z), listOf(0.0, 0.0, 0.0, 1.0), TrackingState.TRACKING)
-        activeControlEvents().forEach { e ->
-            val at = app.lumisite.core.compute.Aim.toSession(e.observation.reference.site, tr).copy(y = floorY)
-            ar.requestAnchor(e.id, anchorPose(at), app.lumisite.android.capture.ArTracker.AnchorKind.FLAG)
+        val cat = _lsCatalog.value
+        ar.catalog = cat
+        val visits = visitEvents()
+        val loaded = ArSiteOverlays.anchors(visits, tr, floorY, cat)
+        ar.siteContourRings = ArSiteOverlays.siteContours(site, tr, floorY, ltp, visits)
+        loaded.forEach { a ->
+            val kind = if (a.kind == ArSiteOverlays.Kind.FLAG) ArTracker.AnchorKind.FLAG else ArTracker.AnchorKind.LUMINAIRE
+            ar.requestAnchor(a.id, anchorPose(a.session), kind)
+            if (a.kind == ArSiteOverlays.Kind.LUMINAIRE) ar.setLuminaireMeta(a.id, a.symbolId, a.shortLabel)
         }
-        var luminaires = 0
-        SurveyPositions.resolveAll(_state.value.events).forEach { r ->
-            val s = r.site ?: return@forEach
-            ar.requestAnchor(r.event.id, anchorPose(app.lumisite.core.compute.Aim.toSession(s, tr)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
-            luminaires++
-        }
-        DiagLog.i("ANCRES", "Calibrage rétabli : ancres recréées via la transformation carte→AR " +
-            "(${activeControlEvents().size} repère(s) au niveau du sol y=%.2f, $luminaires luminaire(s))".format(floorY))
+        DiagLog.i("ANCRES", "Calibrage rétabli : ancres recréées depuis toutes les visites du site " +
+            "(${loaded.count { it.kind == ArSiteOverlays.Kind.FLAG }} repère(s) au sol y=%.2f, ${loaded.count { it.kind == ArSiteOverlays.Kind.LUMINAIRE }} luminaire(s), ${visits.size} visite(s))".format(floorY))
     }
 
     // ------------------------------------------------------------------ calibration / relocalization tables (D3–D5)
@@ -993,8 +1008,15 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         pushUndo(e.id)
         lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
-        if (manual == null && hit != null && pose != null)
+        if (manual == null && hit != null && pose != null) {
             ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
+            val item = lsItem(familyId)
+            val code = item?.code ?: e.payload?.get("ls_code")?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
+            if (code != null) ar.setLuminaireMeta(e.id, ArSymbols.symbolId(_lsCatalog.value, code), ArSymbols.shortLabel(_lsCatalog.value, code))
+        }
+        activeSegment()?.let { seg ->
+            runCatching { ar.siteContourRings = ArSiteOverlays.siteContours(site, seg.transform, ar.floorY ?: 0.0, ltp, visitEvents()) }
+        }
         if (manual == null && pose != null) {
             val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
             val c = Vec2(at[0], -at[2])

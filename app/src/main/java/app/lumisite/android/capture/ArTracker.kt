@@ -22,6 +22,10 @@ import com.google.ar.core.Pose
 import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
 import app.lumisite.core.compute.ArGeometry
+import app.lumisite.core.compute.ArMeasure
+import app.lumisite.core.compute.ArSiteOverlays
+import app.lumisite.core.compute.ArSymbols
+import app.lumisite.core.catalog.LsCatalog
 import app.lumisite.core.compute.PlaneFilter
 import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
@@ -84,16 +88,29 @@ class ArTracker(
     /** D6: ARCore anchors (control points, object groups), created / detached on the GL thread, poses reported at most once per second. */
     /** v176c: what is drawn at an anchor: calibration flag, luminaire symbol, nothing (object groups). */
     enum class AnchorKind { FLAG, LUMINAIRE, GROUP }
+    data class Mark(val id: String, val kind: AnchorKind, val at: V3, val live: Boolean)
     private val anchorAdds = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, PoseSample, AnchorKind>>()
     private val anchorDrops = java.util.concurrent.ConcurrentLinkedQueue<String>()
     private val anchors = HashMap<String, com.google.ar.core.Anchor>()
     private val anchorKinds = HashMap<String, AnchorKind>()
     /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond). build 199 (point 6): the aimed
      *  surface (SOL / MUR / PLAFOND) is derived from the camera tilt, no selector — the flow only feeds the display line. */
+    /** Contours du site / bâtiment / zones du relevé, recalés par la calibration. Affichés par défaut. */
     val contoursOn = MutableStateFlow(true)
-    /** build 199 (point 2d) : les arêtes de la pièce sont toujours calculées ; ce réglage (Réglages > Diagnostic,
-     *  [ArDiagnose.rawPolygons]) ajoute par-dessus les polygones ARCore bruts en blanc, pour diagnostiquer la détection. */
+    /** Arêtes des plans ARCore (option, désactivée par défaut — retour 22/11). */
+    val arCoreEdgesOn = MutableStateFlow(false)
+    /** build 199 (point 2d) : polygones ARCore bruts en blanc, Réglages > Diagnostic. */
     val rawPolygonsOn = MutableStateFlow(false)
+    @Volatile var catalog: LsCatalog? = null
+    @Volatile var siteContourRings: List<List<V3>> = emptyList()
+    private val luminaireMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, String?>>()
+    fun setLuminaireMeta(id: String, symbolId: String?, shortLabel: String?) { luminaireMeta[id] = symbolId to shortLabel }
+    val measureA = MutableStateFlow<V3?>(null)
+    val measureB = MutableStateFlow<V3?>(null)
+    fun setMeasure(a: V3, b: V3) { measureA.value = a; measureB.value = b }
+    fun clearMeasure() { measureA.value = null; measureB.value = null }
+    data class ScreenLabel(val xPx: Float, val yPx: Float, val text: String)
+    val screenLabels = MutableStateFlow<List<ScreenLabel>>(emptyList())
     val planeCounts = MutableStateFlow(Triple(0, 0, 0))
     val aimSurface = MutableStateFlow<String?>("MUR")
     /** build 199 (point 5): plane counters published at most every 500 ms so the line under the camera stays stable. */
@@ -111,6 +128,7 @@ class ArTracker(
         while (true) {
             val (id, p, kind) = anchorAdds.poll() ?: break
             runCatching {
+                anchors.remove(id)?.let { old -> runCatching { old.detach() } }
                 anchors[id] = s.createAnchor(Pose(p.p.map { it.toFloat() }.toFloatArray(), p.q.map { it.toFloat() }.toFloatArray()))
                 anchorKinds[id] = kind
             }.onFailure { setError("ancre $id : ${it.message}") }
@@ -233,18 +251,28 @@ class ArTracker(
             planes = s.getAllTrackables(Plane::class.java).filter { it.subsumedBy == null }
         }
         val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
-        // 2f: floor level for the virtual ceiling and the « hauteur sous plafond » measure (lowest upward-facing plane).
-        floorY = planes.filter { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }.minOfOrNull { it.centerPose.ty().toDouble() }
-        val counts = Triple(planes.count { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }, planes.count { it.type == Plane.Type.VERTICAL },
+        val p = cam.pose
+        val cameraY = p.ty().toDouble()
+        val descs = planes.map { pl ->
+            val c = pl.centerPose
+            val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
+            val area = runCatching {
+                val poly = pl.polygon
+                if (poly == null) 0.0 else { poly.rewind(); ArGeometry.polygonAreaM2((0 until poly.limit()).map { poly.get(it).toDouble() }) }
+            }.getOrDefault(0.0)
+            PlaneFilter.Desc(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), src, area, pl)
+        }
+        // Sol = plan le plus bas dans la bande 1,2–1,6 m sous l'appareil ; une table plus haute n'est pas le sol.
+        floorY = PlaneFilter.floorLevel(descs, cameraY)
+        val nFloor = descs.count { PlaneFilter.roleOf(it, floorY, cameraY) == PlaneFilter.Role.FLOOR }
+        val counts = Triple(nFloor, planes.count { it.type == Plane.Type.VERTICAL },
             planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
-        // build 199 (point 5): the counters under the camera are sampled at 2 Hz; every-frame updates made the texts flicker.
         val countsNowMs = SystemClock.elapsedRealtime()
         if (countsNowMs - lastCountsMs >= 500L) {
             lastCountsMs = countsNowMs
             if (planeCounts.value != counts) planeCounts.value = counts
-            if (planeCount.value != counts.first) planeCount.value = counts.first
+            if (planeCount.value != nFloor) planeCount.value = nFloor
         }
-        val p = cam.pose
         val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
         // build 199 (point 6): aimed support from the camera elevation — ARCore pose quaternion (Tilt.fromArQuaternion,
         // same convention as SupportFromTilt.elevationFromForward), sensor rotation matrix as fallback. Hysteresis inside classify.
@@ -255,15 +283,7 @@ class ArTracker(
         val only = SupportFromTilt.planeSource(support)
         // build 199 (point 2e): PlaneFilter drops detection dust (< 0,25 m²) and furniture (horizontal planes
         // 0,3–2,0 m above the lowest one = the floor) so a table no longer beats the floor in SOL aim.
-        val ap = PlaneFilter.forAim(planes.map { pl ->
-            val c = pl.centerPose
-            val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
-            val area = runCatching {
-                val poly = pl.polygon
-                if (poly == null) 0.0 else { poly.rewind(); ArGeometry.polygonAreaM2((0 until poly.limit()).map { poly.get(it).toDouble() }) }
-            }.getOrDefault(0.0)
-            PlaneFilter.Desc(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), src, area, pl)
-        }).map { d ->
+        val ap = PlaneFilter.forAim(descs, cameraY).map { d ->
             val pl = d.payload; val n = pl.centerPose.yAxis
             Aim.Plane(d.point, V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), d.source) { p ->
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
@@ -327,13 +347,24 @@ class ArTracker(
         runCatching { updateAnchors(s, nowMs) }
         // 2c: anchors (calibration flags, luminaires) stay drawn — grey, at their last known pose — while the tracking is
         // PAUSED/degraded; only STOPPED removes them. Plane outlines are only drawn while TRACKING (they would freeze too).
-        if (state != TrackingState.STOPPED) runCatching {
+        if (state == TrackingState.STOPPED) {
+            if (screenLabels.value.isNotEmpty()) screenLabels.value = emptyList()
+        } else runCatching {
             val live = state == TrackingState.TRACKING
-            lineRenderer.draw(cam, if (contoursOn.value && live) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
+            val za = cam.pose.zAxis
+            val forward = V3(-za[0].toDouble(), -za[1].toDouble(), -za[2].toDouble())
+            val labels = lineRenderer.draw(
+                cam, viewportW, viewportH,
+                if (arCoreEdgesOn.value && live) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
                 anchors.filter { (id, a) -> a.trackingState != com.google.ar.core.TrackingState.STOPPED && anchorKinds[id] != AnchorKind.GROUP }
-                    .map { (id, a) -> Triple(anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
+                    .map { (id, a) -> Mark(id, anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
                         live && a.trackingState == com.google.ar.core.TrackingState.TRACKING) },
-                rawPolygonsOn.value)
+                rawPolygonsOn.value,
+                if (contoursOn.value) siteContourRings else emptyList(),
+                measureA.value, measureB.value,
+                catalog, luminaireMeta, forward,
+            )
+            if (screenLabels.value != labels) screenLabels.value = labels
         }
         onFrame(pose, state, reason)
     }
@@ -454,16 +485,24 @@ private class LineRenderer {
         else -> Triple(0.2f, 0.9f, 0.35f)
     }
 
-    /** [marks]: kind, session-frame position, live (true) or greyed (frozen pose while tracking is paused/degraded, 2c). */
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Triple<ArTracker.AnchorKind, V3, Boolean>>, rawPolygons: Boolean) {
-        if (program == 0 || (planes.isEmpty() && marks.isEmpty())) return
+    fun draw(
+        cam: com.google.ar.core.Camera, widthPx: Int, heightPx: Int,
+        planes: List<Plane>, marks: List<ArTracker.Mark>, rawPolygons: Boolean,
+        siteRings: List<List<V3>>, measureA: V3?, measureB: V3?,
+        catalog: LsCatalog?, luminaireMeta: Map<String, Pair<String?, String?>>, forward: V3,
+    ): List<ArTracker.ScreenLabel> {
+        val labels = ArrayList<ArTracker.ScreenLabel>()
+        if (program == 0) return labels
+        val hasMeasure = measureA != null && measureB != null
+        if (planes.isEmpty() && marks.isEmpty() && siteRings.isEmpty() && !hasMeasure) return labels
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
+        val viewProj = DoubleArray(16) { vp[it].toDouble() }
+        fun project(p: V3) = ArGeometry.project(viewProj, p, widthPx, heightPx)
         GLES20.glUseProgram(program)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
         GLES20.glLineWidth(3f)
         GLES20.glEnableVertexAttribArray(aPos)
-        // build 199 (point 2d): world polygons + plane equations, once per frame.
         val wps = planes.mapNotNull { pl ->
             val poly = pl.polygon ?: return@mapNotNull null
             poly.rewind()
@@ -474,28 +513,50 @@ private class LineRenderer {
             Triple(ArGeometry.PlaneEq(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble())),
                 ArGeometry.polygonToWorld(DoubleArray(16) { model[it].toDouble() }, xz), pl.type)
         }
-        // Room edges = intersections of every pair of detected planes, bounded by both polygons.
         for (i in wps.indices) for (j in i + 1 until wps.size) {
             val (eqA, polyA, ta) = wps[i]; val (eqB, polyB, tb) = wps[j]
             val seg = ArGeometry.edgeSegment(eqA, polyA, eqB, polyB) ?: continue
             val (r, g, b) = color(if (rank(ta) >= rank(tb)) ta else tb)
             segments(listOf(seg), r, g, b)
         }
-        // Diagnostic only (Réglages > Diagnostic): raw ARCore polygon outlines and wall extremity edges, in white.
         if (rawPolygons) for ((_, world, t) in wps) {
             lines(GLES20.GL_LINE_LOOP, world, 1f, 1f, 1f)
             if (t == Plane.Type.VERTICAL) segments(ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
-        for ((kind, at, markLive) in marks) {
-            // Grey when the pose is frozen (tracking paused/degraded, 2c); the mark is still drawn at its last known pose.
-            val grey = !markLive
-            when (kind) {
-                ArTracker.AnchorKind.FLAG -> segments(ArGeometry.flag(at), if (grey) 0.55f else 1f, if (grey) 0.55f else 0.6f, if (grey) 0.55f else 0f)
-                ArTracker.AnchorKind.LUMINAIRE -> segments(ArGeometry.luminaire(at), if (grey) 0.55f else 1f, if (grey) 0.55f else 0.85f, if (grey) 0.55f else 0f)
+        // Contours du site / bâtiment / zones, recalés (cyan).
+        for (ring in siteRings) {
+            if (ring.size >= 2) lines(GLES20.GL_LINE_STRIP, ring, 0.2f, 0.95f, 0.95f)
+        }
+        val (right, up) = ArSymbols.billboardAxes(forward)
+        for (mark in marks) {
+            val grey = !mark.live
+            val dim = if (grey) 0.55f else 1f
+            when (mark.kind) {
+                ArTracker.AnchorKind.FLAG -> segments(ArGeometry.flag(mark.at), dim, if (grey) 0.55f else 0.6f, if (grey) 0.55f else 0f)
+                ArTracker.AnchorKind.LUMINAIRE -> {
+                    val meta = luminaireMeta[mark.id]
+                    val segs = if (catalog != null && meta != null) {
+                        val prims = app.lumisite.core.catalog.LsSymbols.glyph(meta.first)
+                        ArSymbols.segments(prims, mark.at, right, up)
+                    } else ArGeometry.luminaire(mark.at)
+                    segments(segs, dim, if (grey) 0.55f else 0.85f, if (grey) 0.55f else 0f)
+                    val text = meta?.second?.takeIf { it.isNotBlank() }
+                    if (text != null) project(mark.at + V3(0.0, 0.18, 0.0))?.let { (x, y) ->
+                        labels += ArTracker.ScreenLabel(x.toFloat(), y.toFloat(), text)
+                    }
+                }
                 ArTracker.AnchorKind.GROUP -> {}
             }
         }
+        if (measureA != null && measureB != null) {
+            GLES20.glLineWidth(5f)
+            segments(ArMeasure.line(measureA, measureB), 1f, 0.92f, 0.2f)
+            GLES20.glLineWidth(3f)
+            val (at, text) = ArMeasure.label(measureA, measureB)
+            project(at)?.let { (x, y) -> labels += ArTracker.ScreenLabel(x.toFloat(), y.toFloat(), text) }
+        }
         GLES20.glDisableVertexAttribArray(aPos)
+        return labels
     }
 }
 

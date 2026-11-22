@@ -62,6 +62,22 @@ fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) 
     Text("+", Modifier.align(Alignment.Center), fontSize = 36.sp, color = color, style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)))
 }
 
+/** Libellés projetés (noms courts des luminaires, longueur A–B) par-dessus la vue caméra. */
+@Composable
+fun androidx.compose.foundation.layout.BoxScope.ArLabels(c: SessionController) {
+    val labels by c.ar.screenLabels.collectAsState()
+    labels.forEach { lab ->
+        Text(
+            lab.text,
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset { androidx.compose.ui.unit.IntOffset(lab.xPx.toInt() - 20, lab.yPx.toInt() - 10) }
+                .background(Color(0x99000000)).padding(horizontal = 3.dp, vertical = 1.dp),
+            color = Color.White, fontSize = 12.sp,
+            style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 6f)),
+        )
+    }
+}
+
 /** Below the camera view: aim hint, plane counters (2 Hz), aimed support (from the tilt, automatic), torch and two-aim
  *  measurement (P2, not journaled). Always fully shown, whatever the open tab (build 199, point 5: no jumping menus). */
 @Composable
@@ -70,12 +86,13 @@ fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boo
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
     val contours by c.ar.contoursOn.collectAsState()
+    val arCoreEdges by c.ar.arCoreEdgesOn.collectAsState()
     val surface by c.ar.aimSurface.collectAsState()
     val torch by c.ar.torchOn.collectAsState()
     var a by remember { mutableStateOf<V3?>(null) }
     var measure by remember { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(measureReset) {
-        if (measureReset > 0) { a = null; measure = null; onMeasureArmed(false) }
+        if (measureReset > 0) { a = null; measure = null; c.ar.clearMeasure(); onMeasureArmed(false) }
     }
     val (color, hint) = aimState(st.tracking, aim)
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -90,7 +107,9 @@ fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boo
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // « Contours » switch of the stripped AR lines (plane outlines, vertical wall edges).
             androidx.compose.material3.FilterChip(selected = contours, onClick = { c.ar.contoursOn.value = !contours },
-                label = { Text(if (contours) "Contours : affichés" else "Contours : masqués") }, modifier = Modifier.testTag("session_ar_contours"))
+                label = { Text(if (contours) "Contours du site" else "Contours masqués") }, modifier = Modifier.testTag("session_ar_contours"))
+            androidx.compose.material3.FilterChip(selected = arCoreEdges, onClick = { c.ar.arCoreEdgesOn.value = !arCoreEdges },
+                label = { Text(if (arCoreEdges) "Arêtes ARCore" else "Arêtes ARCore : off") }, modifier = Modifier.testTag("session_ar_aretes_arcore"))
             // Session > Torche (lamp icon) and Session > Mesure (ruler icon), 48 dp touch targets.
             OutlinedButton({ c.ar.setTorch(!torch) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (torch) "Torche : oui" else "Torche : non" }.testTag("session_ar_torche_oui")) {
                 Text(if (torch) "🔦●" else "🔦", fontSize = 16.sp)
@@ -98,8 +117,13 @@ fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boo
             OutlinedButton({
                 val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" && it.source != "AR_FLOOR_ESTIMATE" && it.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED }?.point
                 if (p == null) { measure = "Mesure : visez une cible"; onMeasureArmed(true) }
-                else if (a == null) { a = p; measure = "Point A posé, visez B"; onMeasureArmed(true) }
-                else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null; onMeasureArmed(false) }
+                else if (a == null) { c.ar.clearMeasure(); a = p; measure = "Point A posé, visez B"; onMeasureArmed(true) }
+                else {
+                    c.ar.setMeasure(a!!, p)
+                    measure = app.lumisite.core.compute.ArMeasure.label(a!!, p).second
+                    a = null
+                    onMeasureArmed(false)
+                }
             }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (a == null) "Mesure A" else "Mesure B" }.testTag("session_ar_mesure_a")) { Text(if (a == null) "📏 A" else "📏 B", fontSize = 16.sp) }
         }
         measure?.let { Text(it, style = MaterialTheme.typography.labelSmall) }

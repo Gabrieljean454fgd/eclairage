@@ -2,6 +2,7 @@ package app.lumisite.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -141,6 +142,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     var query by remember { mutableStateOf("") }
     var lastSearched by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Geocoding.Place>>(emptyList()) }
+    val siteCtx = androidx.compose.ui.platform.LocalContext.current
+    var recentAddresses by remember { mutableStateOf(app.lumisite.android.data.AddressStore.load(siteCtx)) }
+    val here = remember { app.lumisite.android.data.AddressStore.lastPosition(siteCtx) }
     var latText by remember { mutableStateOf("") }
     var lonText by remember { mutableStateOf("") }
     var origin by remember { mutableStateOf<LatLon?>(null) }
@@ -190,7 +194,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         if (busy || q.length < 3 || q == lastSearched) return
         lastSearched = q; busy = true; status = null
         scope.launch {
-            try { results = withContext(Dispatchers.IO) { OsmClient.search(q) }; if (results.isEmpty()) status = "Aucun résultat." }
+            try { results = withContext(Dispatchers.IO) { OsmClient.search(q, here) }; if (results.isEmpty()) status = "Aucun résultat." }
             catch (e: Exception) { status = "Recherche impossible (réseau ?) : ${e.message}. Utilisez des coordonnées ou la carte." }
             finally { busy = false }
         }
@@ -306,11 +310,30 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
                 query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { lastSearched = ""; doSearch() }),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
+                    if (query.isNotBlank()) recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, query, null, null)
+                    lastSearched = ""; doSearch()
+                }),
             )
+            // v176g § 4: recent addresses on this phone, from the first letter and without network (nearest first, then most recent).
+            if (results.isEmpty()) app.lumisite.core.osm.AddressHistory.suggest(recentAddresses, query, here?.first, here?.second)
+                .filter { app.lumisite.core.osm.AddressHistory.normalize(it.text) != app.lumisite.core.osm.AddressHistory.normalize(query) || it.lat != null }
+                .forEachIndexed { i, a ->
+                    Text("↺ " + a.text, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                        focusManager.clearFocus()
+                        query = a.text; lastSearched = a.text // known address: no network search needed
+                        recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, a.text, a.lat, a.lon)
+                        val la = a.lat; val lo = a.lon
+                        if (la != null && lo != null) {
+                            setOrigin(LatLon(la, lo), "RECENT"); zoom = 18.0; missingOrigin = false
+                            if (name.isBlank()) name = a.text.substringBefore(",")
+                        } else { lastSearched = ""; doSearch() }
+                    }.padding(horizontal = 6.dp, vertical = 12.dp).testTag("nouveau_site_adresse_recente_$i"), style = MaterialTheme.typography.bodyMedium)
+                }
             results.forEach { r ->
                 Text("${r.name} (${r.source})", Modifier.fillMaxWidth().clickable {
                     setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0; missingOrigin = false
+                    recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, r.name, r.lat, r.lon)
                     if (name.isBlank()) name = r.name.substringBefore(","); results = emptyList()
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }

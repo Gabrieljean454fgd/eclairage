@@ -42,17 +42,20 @@ object OsmClient {
     private var lastNominatimMs = 0L
 
     /** IGN first, Nominatim if IGN fails or finds nothing (outside France). Nominatim: at most 1 request per second. */
-    fun search(query: String): List<Geocoding.Place> {
+    /** [near]: current position, biases the results towards it (IGN lat/lon, Nominatim viewbox without `bounded`). */
+    fun search(query: String, near: Pair<Double, Double>? = null): List<Geocoding.Place> {
         val q = URLEncoder.encode(query, "UTF-8")
+        val ign = app.lumisite.core.osm.AddressHistory.ignProximity(near?.first, near?.second)
+        val nom = app.lumisite.core.osm.AddressHistory.nominatimViewbox(near?.first, near?.second)
         return Geocoding.search(
-            ign = { get("$ignGeocodeUrl?limit=8&q=$q") },
+            ign = { get("$ignGeocodeUrl?limit=8&q=$q$ign") },
             nominatim = {
                 synchronized(this) {
                     val wait = 1_000 - (System.currentTimeMillis() - lastNominatimMs)
                     if (wait > 0) Thread.sleep(wait)
                     lastNominatimMs = System.currentTimeMillis()
                 }
-                get("$nominatimUrl?format=jsonv2&limit=8&q=$q")
+                get("$nominatimUrl?format=jsonv2&limit=8&q=$q$nom")
             },
         )
     }

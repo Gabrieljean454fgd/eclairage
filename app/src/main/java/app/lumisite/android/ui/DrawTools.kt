@@ -360,7 +360,13 @@ fun FamilyQuickGrid(c: SessionController, selected: String?, onPick: (String) ->
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val cat = remember(rev) { c.catalog }
     val prefs = remember { ctx.getSharedPreferences("lumisite_quick", Context.MODE_PRIVATE) }
-    var pins by remember { mutableStateOf(prefs.getStringSet("pins", emptySet())!!.toSet()) }
+    // Favorites saved before catalog 2 hold old block names: stored once as their LS_* code so the star can remove them.
+    var pins by remember {
+        val saved = prefs.getStringSet("pins", emptySet())!!.toSet()
+        val canonical = saved.map { cat.find(it)?.code ?: it }.toSet()
+        if (canonical != saved) prefs.edit().putStringSet("pins", canonical).apply()
+        mutableStateOf(canonical)
+    }
     val sel = selected?.let { cat.find(it) }
     var fam by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }

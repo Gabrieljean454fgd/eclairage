@@ -20,6 +20,7 @@ import app.lumisite.core.model.Site
 import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncEvent
 import app.lumisite.core.survey.Shapes
+import app.lumisite.core.sync.AudioOffset
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -50,10 +51,16 @@ object GeoJsonFeatures {
 
     private fun r(v: Double, d: Int) = round(v * Math.pow(10.0, d.toDouble())) / Math.pow(10.0, d.toDouble())
 
-    /** One equipment Feature (RFC 7946: lon/lat, no crs member; geometry null if the absolute position is unknown). */
+    /**
+     * One equipment Feature (RFC 7946: lon/lat, no crs member; geometry null if the absolute position is unknown).
+     * [sync] = retained « top de synchro » result for this session's device (SyncRoundCalc → AudioOffset): its
+     * offsetNs is exported unchanged (esclave − maître du round) only when the round succeeded and produced one —
+     * never an invented value; the caller orients the sign for the exported device.
+     */
     fun feature(
         s: SurveyEvent, site: Enu?, ltp: LocalTangentPlane, featureId: String, rev: Int,
         deviceId: String, sessionId: String, operator: String? = null,
+        sync: AudioOffset? = null,
     ): JsonObject {
         val op = when { s.deleted == true -> "delete"; s.supersedes != null -> "update"; else -> "create" }
         val payload = s.payload
@@ -81,7 +88,13 @@ object GeoJsonFeatures {
                 put("time", buildJsonObject {
                     put("captured_utc", Instant.ofEpochMilli(s.t.utcEpochMs).toString())
                     put("device_monotonic_ns", s.t.monotonicNs)
-                    put("clock_offset_ms", JsonNull); put("clock_sigma_ms", JsonNull); put("sync_ref", JsonNull)
+                    // Top de synchro : seul un round réussi avec un décalage calculé est exporté (offsetNs non
+                    // nul, pas d'erreur) ; sinon les trois champs restent null, jamais de 0 inventé. ns → ms
+                    // arrondi au millième de ms le plus proche (r()), même règle pour l'offset et le sigma.
+                    val top = sync?.takeIf { it.error == null && it.offsetNs != null }
+                    put("clock_offset_ms", top?.offsetNs?.let { JsonPrimitive(r(it / 1e6, 3)) } ?: JsonNull)
+                    put("clock_sigma_ms", top?.uncertaintyNs?.let { JsonPrimitive(r(it / 1e6, 3)) } ?: JsonNull)
+                    put("sync_ref", top?.let { JsonPrimitive(it.roundId) } ?: JsonNull)
                 })
                 put("device_id", deviceId); put("session_id", sessionId); put("operator", operator)
                 put("event_id", s.id)
@@ -114,8 +127,8 @@ object GeoJsonFeatures {
         return o + o.first()
     }
 
-    /** All lines of a session in journal order: an edit keeps the same id with rev+1. */
-    fun lines(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String): List<JsonObject> {
+    /** All lines of a session in journal order: an edit keeps the same id with rev+1. [sync] = retained top result, forwarded to every Feature. */
+    fun lines(events: List<SessionEvent>, ltp: LocalTangentPlane, deviceId: String, sessionId: String, sync: AudioOffset? = null): List<JsonObject> {
         val timeline = TrajectoryCorrector.timeline(events)
         val zones = Zones.current(events)
         val root = HashMap<String, String>(); val rev = HashMap<String, Int>()
@@ -126,7 +139,7 @@ object GeoJsonFeatures {
             val n = (rev[id] ?: 0) + 1; rev[id] = n
             when (e) {
                 is SurveyEvent -> SurveyPositions.resolve(e, timeline).site.let { site ->
-                    val f = feature(e, site, ltp, id, n, deviceId, sessionId)
+                    val f = feature(e, site, ltp, id, n, deviceId, sessionId, sync = sync)
                     site?.let { Zones.zoneOf(it, zones) }?.let { z -> withProperty(f, "zone_id", z.id) } ?: f
                 }
                 is ShapeEvent -> shape(e, ltp, id, n, deviceId, sessionId, e.parentZoneId?.let { root[it] ?: it })
@@ -198,11 +211,11 @@ class GeoJsonSeqWriter(val file: File, private val ltp: LocalTangentPlane, priva
         out.flush(); out.fd.sync()
     }
 
-    @Synchronized fun append(s: SurveyEvent, site: Enu?) {
+    @Synchronized fun append(s: SurveyEvent, site: Enu?, sync: AudioOffset? = null) {
         val id = s.supersedes?.let { root[it] ?: it } ?: s.id
         root[s.id] = id
         val n = (rev[id] ?: 0) + 1; rev[id] = n
-        out.write((GeoJsonFeatures.feature(s, site, ltp, id, n, deviceId, sessionId).toString() + "\n").toByteArray(Charsets.UTF_8))
+        out.write((GeoJsonFeatures.feature(s, site, ltp, id, n, deviceId, sessionId, sync = sync).toString() + "\n").toByteArray(Charsets.UTF_8))
         out.flush(); out.fd.sync()
     }
 

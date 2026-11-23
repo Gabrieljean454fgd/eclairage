@@ -102,6 +102,15 @@ class ArTracker(
     /** v176g § 2c: anchor recreated from the plan (resumed session, calibration restored); ignored if [id] already has one. */
     private val anchorEnsure = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, V3, AnchorKind>>()
     fun ensureAnchor(id: String, at: V3, kind: AnchorKind) { anchorEnsure += Triple(id, at, kind) }
+    /** v176i: catalog symbol id and family colour drawn at a luminaire anchor (instead of the generic circle). */
+    private val anchorStyle = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, Int>>()
+    fun styleAnchor(id: String, symbol: String?, argb: Int) { anchorStyle[id] = symbol to argb }
+    /** v176i: plan layer built from the site data (other visits, outline), height 0, lifted to the detected floor at draw time. */
+    val planScene = MutableStateFlow<app.lumisite.core.compute.ArSiteOverlay.Scene?>(null)
+    val planOn = MutableStateFlow(true)
+    /** v176i: A–B measure drawn in the image (A → B, or A → the current aimed point while B is being aimed). */
+    @Volatile var measureA: V3? = null
+    @Volatile var measureB: V3? = null
 
     private fun updateAnchors(s: Session, nowMs: Long) {
         while (true) {
@@ -317,12 +326,17 @@ class ArTracker(
         // v176g § 2c: anchors drawn while tracking is degraded too (last known pose, grey); only STOPPED anchors disappear.
         if (state != TrackingState.STOPPED && state != TrackingState.UNAVAILABLE) runCatching {
             val tracking = state == TrackingState.TRACKING
+            val fy = floorY.value
+            val plan = if (planOn.value && fy != null) planScene.value?.groups?.map { g -> g.argb to g.segs.map { (a, b) -> V3(a.x, a.y + fy, a.z) to V3(b.x, b.y + fy, b.z) } }.orEmpty() else emptyList()
+            val ma = measureA
+            val mb = measureB ?: (aim.value as? AimResult.Hit)?.point?.takeIf { ma != null && tracking }
             lineRenderer.draw(cam,
                 if (contoursOn.value && tracking && rawPolygons.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
                 if (contoursOn.value && tracking) roomEdges else emptyList(),
                 anchors.filter { (id, a) -> a.trackingState != com.google.ar.core.TrackingState.STOPPED && anchorKinds[id] != AnchorKind.GROUP }
-                    .map { (id, a) -> Triple(anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
-                        tracking && a.trackingState == com.google.ar.core.TrackingState.TRACKING) })
+                    .map { (id, a) -> Mark(anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
+                        tracking && a.trackingState == com.google.ar.core.TrackingState.TRACKING, anchorStyle[id]) },
+                plan, if (ma != null && mb != null) ma to mb else null)
         }
         onFrame(pose, state, reason)
     }
@@ -402,6 +416,8 @@ private class BackgroundRenderer {
  * wall edges, orange calibration flags and luminaire symbols at local anchors. Behaviour read in ARCore's hello_ar_java
  * PlaneRenderer (Apache-2.0, see NOTICE), reimplemented with app.lumisite.core.compute.ArGeometry.
  */
+private data class Mark(val kind: ArTracker.AnchorKind, val at: V3, val live: Boolean, val style: Pair<String?, Int>?)
+
 private class LineRenderer {
     private var program = 0; private var aPos = 0; private var uMvp = 0; private var uColor = 0
     private val proj = FloatArray(16); private val view = FloatArray(16); private val vp = FloatArray(16)
@@ -429,8 +445,11 @@ private class LineRenderer {
 
     private fun segments(s: List<Pair<V3, V3>>, r: Float, g: Float, b: Float) = lines(GLES20.GL_LINES, s.flatMap { listOf(it.first, it.second) }, r, g, b)
 
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, edges: List<app.lumisite.core.compute.ArPlanes.Edge>, marks: List<Triple<ArTracker.AnchorKind, V3, Boolean>>) {
-        if (program == 0 || (planes.isEmpty() && edges.isEmpty() && marks.isEmpty())) return
+    private fun argb(segs: List<Pair<V3, V3>>, c: Int) = segments(segs, ((c shr 16) and 0xFF) / 255f, ((c shr 8) and 0xFF) / 255f, (c and 0xFF) / 255f)
+
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, edges: List<app.lumisite.core.compute.ArPlanes.Edge>, marks: List<Mark>,
+             plan: List<Pair<Int, List<Pair<V3, V3>>>> = emptyList(), measure: Pair<V3, V3>? = null) {
+        if (program == 0 || (planes.isEmpty() && edges.isEmpty() && marks.isEmpty() && plan.isEmpty() && measure == null)) return
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
         GLES20.glUseProgram(program)
@@ -453,10 +472,21 @@ private class LineRenderer {
             app.lumisite.core.compute.ArPlanes.EdgeKind.ANGLE -> segments(listOf(e.a to e.b), 0.3f, 0.6f, 1f)
             app.lumisite.core.compute.ArPlanes.EdgeKind.CORNICHE -> segments(listOf(e.a to e.b), 0.7f, 0.4f, 1f)
         }
-        for ((kind, at, live) in marks) when (kind) {
+        // v176i: plan layer (site outline cyan, other visits' luminaires with their catalog symbol, old repères light orange) on the floor.
+        for ((c, segs) in plan) argb(segs, c)
+        for ((kind, at, live, style) in marks) when (kind) {
             ArTracker.AnchorKind.FLAG -> if (live) segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f) else segments(app.lumisite.core.compute.ArGeometry.flag(at), 0.6f, 0.6f, 0.6f)
-            ArTracker.AnchorKind.LUMINAIRE -> if (live) segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f) else segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 0.6f, 0.6f, 0.6f)
+            ArTracker.AnchorKind.LUMINAIRE -> {
+                val segs = if (style != null) app.lumisite.core.compute.ArSiteOverlay.glyph(app.lumisite.core.catalog.PlanSymbols.prims(style.first), at, 0.15)
+                    else app.lumisite.core.compute.ArGeometry.luminaire(at)
+                if (live) argb(segs, style?.second ?: 0xFFFFD900.toInt()) else segments(segs, 0.6f, 0.6f, 0.6f)
+            }
             ArTracker.AnchorKind.GROUP -> {}
+        }
+        // v176i: A–B measure, yellow, with a small cross at each end.
+        measure?.let { (a, b) ->
+            fun cross(p: V3) = listOf(V3(p.x - 0.05, p.y, p.z) to V3(p.x + 0.05, p.y, p.z), V3(p.x, p.y, p.z - 0.05) to V3(p.x, p.y, p.z + 0.05), V3(p.x, p.y - 0.05, p.z) to V3(p.x, p.y + 0.05, p.z))
+            segments(listOf(a to b) + cross(a) + cross(b), 1f, 0.92f, 0.23f)
         }
         GLES20.glDisableVertexAttribArray(aPos)
     }

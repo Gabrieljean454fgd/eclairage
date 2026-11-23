@@ -21,6 +21,20 @@ class SyncFolderTest {
         File(this, SyncFolder.GPS).writeText(SyncFolder.GPS_HEADER + "5,6,gps,43.6,1.44,4.0,,\n")
     }
 
+    @Test fun runSpanningTwoVisitsStaysInBothSiteExportsAndClosingKeepsHistory() {
+        val root = tmp()
+        val dir = File(root, "20261123-130000")
+        var m = SyncFolderMeta(role = "esclave", device = "X", deviceId = "d", startedUtcMs = 1)
+            .linkedTo("site-a", "A", "ses-a", 10).linkedTo("site-a", "A", "ses-a", 11).linkedTo("site-b", "B", "ses-b", 20)
+        assertEquals(listOf("ses-a", "ses-b"), m.sites.map { it.sessionId })
+        m = m.linkedTo(null, null, null, 30)
+        assertNull(m.siteId); assertEquals(2, m.sites.size)
+        SyncFolder.write(dir, m)
+        assertEquals(listOf(dir.name), SyncFolder.forSite(root, "site-a").map { it.name })
+        assertEquals(listOf(dir.name), SyncFolder.forSite(root, "site-b").map { it.name })
+        assertTrue(SyncFolder.forSite(root, "site-c").isEmpty())
+    }
+
     @Test fun metaRoundTripAndSiteFilter() {
         val root = tmp()
         run(root, "20261123-100000", Fixtures.site.id); run(root, "20261123-110000", "autre"); run(root, "20261123-120000", null)

@@ -27,9 +27,25 @@ data class SyncFolderMeta(
     @SerialName("site_id") val siteId: String? = null,
     @SerialName("site_name") val siteName: String? = null,
     @SerialName("session_id") val sessionId: String? = null,
+    /** Every site / visit the run was tied to, in order (a run can span several visits; the journal dates each change). */
+    val sites: List<SyncSiteLink> = emptyList(),
 ) {
+    /** Current link replaced by [siteId] / [sessionId] (null = no visit open), the previous ones kept in [sites]. */
+    fun linkedTo(siteId: String?, siteName: String?, sessionId: String?, utcMs: Long): SyncFolderMeta =
+        copy(siteId = siteId, siteName = siteName, sessionId = sessionId,
+            sites = if (siteId == null || sites.lastOrNull()?.let { it.siteId == siteId && it.sessionId == sessionId } == true) sites
+                else sites + SyncSiteLink(siteId, siteName, sessionId, utcMs))
+
     companion object { const val SCHEMA = "lumisite-synchro/1" }
 }
+
+@Serializable
+data class SyncSiteLink(
+    @SerialName("site_id") val siteId: String,
+    @SerialName("site_name") val siteName: String? = null,
+    @SerialName("session_id") val sessionId: String? = null,
+    @SerialName("from_utc_ms") val fromUtcMs: Long,
+)
 
 object SyncFolder {
     const val META = "synchro.json"
@@ -53,7 +69,7 @@ object SyncFolder {
     fun runs(root: File): List<File> = root.listFiles { f -> f.isDirectory }.orEmpty().sortedByDescending { it.name }
 
     /** Run folders tied to [siteId] (master's own runs and slave runs that received this site from the master). */
-    fun forSite(root: File, siteId: String): List<File> = runs(root).filter { read(it)?.siteId == siteId }
+    fun forSite(root: File, siteId: String): List<File> = runs(root).filter { r -> read(r)?.let { m -> m.siteId == siteId || m.sites.any { it.siteId == siteId } } == true }
 
     /** « synchro.ndjson 12 Ko · capteurs.csv 3,4 Mo · gps.csv 2 Ko · 1 média » for the screen. */
     fun summary(dir: File): String {

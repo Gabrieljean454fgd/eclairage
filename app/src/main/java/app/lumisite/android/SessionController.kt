@@ -309,6 +309,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun closeInBackground(reason: String = "user") {
         if (closed || closing) return
         closing = true
+        runCatching { app.lumisite.android.sync.NearbyMesh.clearSite(sessionId) }
         ar.rendering = false
         val t0 = AndroidClock.monotonicNs()
         closingThreads[sessionId] = Thread({

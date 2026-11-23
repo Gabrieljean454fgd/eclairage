@@ -169,8 +169,7 @@ object NearbyMesh {
         meta = app.lumisite.core.sync.SyncFolderMeta(role = if (role == SyncRole2.SAISIE_MAITRE) "maitre" else "esclave", device = name,
             deviceId = DeviceInfo.deviceId(ctx), startedUtcMs = AndroidClock.utcEpochMs(),
             masterName = if (role == SyncRole2.SAISIE_MAITRE) name else null,
-            siteId = siteCtx?.siteId.takeIf { role == SyncRole2.SAISIE_MAITRE }, siteName = siteCtx?.siteName.takeIf { role == SyncRole2.SAISIE_MAITRE },
-            sessionId = siteCtx?.sessionId.takeIf { role == SyncRole2.SAISIE_MAITRE })
+        ).let { m -> siteCtx?.takeIf { role == SyncRole2.SAISIE_MAITRE }?.let { m.linkedTo(it.siteId, it.siteName, it.sessionId, m.startedUtcMs) } ?: m }
         saveMeta()
         journal("local", "nom de ce téléphone : $name")
         journal("local", if (_state.value.foreground) "service de premier plan actif (notification « Synchro LumiSite active »)" else "service de premier plan refusé : la synchro peut être coupée écran éteint")
@@ -462,14 +461,25 @@ object NearbyMesh {
     fun setSite(siteId: String, siteName: String, sessionId: String) = synchronized(lock) {
         siteCtx = MeshMsg.SiteContext("", siteId, siteName, sessionId)
         val m = master ?: return
-        meta = meta?.copy(siteId = siteId, siteName = siteName, sessionId = sessionId); saveMeta()
+        meta = meta?.linkedTo(siteId, siteName, sessionId, AndroidClock.utcEpochMs()); saveMeta()
         _state.update { it.copy(tiedTo = tiedText(meta)) }
         journal("local", "synchro liée au site « $siteName », visite $sessionId")
         m.peers.values.filter { it.link == app.lumisite.core.sync.Link.CONNECTED }.forEach { send(it.endpointId, siteMessage()) }
     }
 
+    /** Master side: the visit is finished; later recordings are no longer tied to it (the run keeps the earlier link in `sites`). */
+    fun clearSite(sessionId: String) = synchronized(lock) {
+        if (siteCtx?.sessionId != sessionId) return
+        siteCtx = null
+        val m = master ?: return
+        meta = meta?.linkedTo(null, null, null, AndroidClock.utcEpochMs()); saveMeta()
+        _state.update { it.copy(tiedTo = tiedText(meta)) }
+        journal("local", "visite $sessionId terminée : synchro plus liée à un site")
+        m.peers.values.filter { it.link == app.lumisite.core.sync.Link.CONNECTED }.forEach { send(it.endpointId, siteMessage()) }
+    }
+
     private fun onSiteContext(m: MeshMsg.SiteContext) {
-        meta = meta?.copy(masterName = m.masterName, siteId = m.siteId, siteName = m.siteName, sessionId = m.sessionId); saveMeta()
+        meta = meta?.copy(masterName = m.masterName)?.linkedTo(m.siteId, m.siteName, m.sessionId, AndroidClock.utcEpochMs()); saveMeta()
         _state.update { it.copy(tiedTo = tiedText(meta)) }
         journal("local", "maître ${m.masterName}" + (m.siteName?.let { " · site « $it »" } ?: " · aucun site ouvert") + (m.sessionId?.let { " · visite $it" } ?: ""))
     }

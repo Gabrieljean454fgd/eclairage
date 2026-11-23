@@ -12,6 +12,7 @@ LumiSite_<project_id>/
   sessions/<device_id>/<session_id>.frames.json   origine du site (WGS84), calibrations, recalages, synchros
   photos/<device_id>/<session_id>/<photo_id>.jpg  (fichiers séparés, jamais en base64)
   raw/<device_id>/<session_id>.zip                export lumisite.session inchangé (relisible par SessionImporter)
+  synchro/<date>/                                 (v176h) dossiers de synchro rattachés au site : synchro.json, synchro.ndjson, capteurs.csv, gps.csv, WAV — voir SYNCHRO_NEARBY.md
   refs/osm_source.json                            réponses OSM brutes datées (si le site en a)
 ```
 

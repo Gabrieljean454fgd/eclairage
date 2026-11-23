@@ -193,8 +193,49 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         }
         var n = 0
         activeControlEvents().forEach { e -> e.observation.reference.site?.let { ar.ensureAnchor(e.id, toSession(it), app.lumisite.android.capture.ArTracker.AnchorKind.FLAG); n++ } }
-        SurveyPositions.resolveAll(_state.value.events).forEach { r -> r.site?.let { ar.ensureAnchor(r.event.id, toSession(it), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE); n++ } }
+        SurveyPositions.resolveAll(_state.value.events).forEach { r -> r.site?.let { styleLuminaire(r.event.id, r.event.kind); ar.ensureAnchor(r.event.id, toSession(it), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE); n++ } }
         DiagLog.i("ANCRES", "Calibrage rétabli : $n ancre(s) recréée(s) depuis le plan (repères et luminaires)")
+    }
+
+    // ---- v176i: AR overlay from the site data (other visits, outline) ----
+
+    private fun styleLuminaire(id: String, kind: String) {
+        val e = catalog.find(kind); val f = e?.let { catalog.family(it.famille) }
+        ar.styleAnchor(id, e?.symbole ?: f?.symbol ?: "AUTRE", f?.let { runCatching { android.graphics.Color.parseColor(it.color) }.getOrNull() } ?: 0xFFFFD900.toInt())
+    }
+
+    /** Items of the other visits of this site (luminaires and active repères), read once off the main thread. */
+    @Volatile private var otherVisitItems: List<app.lumisite.core.compute.ArSiteOverlay.Item>? = null
+
+    private fun loadOtherVisits(): List<app.lumisite.core.compute.ArSiteOverlay.Item> = repo.sessions(site.id).filter { it.id != sessionId }.flatMap { h ->
+        val evs = runCatching { SessionReader.read(repo.sessionDir(h.id), includeImu = false).events }.getOrDefault(emptyList())
+        val removed = evs.filterIsInstance<ControlPointRemoved>().map { it.pointId }.toSet()
+        val reperes = evs.filterIsInstance<ControlPointEvent>().filter { it.id !in removed }.map {
+            app.lumisite.core.compute.ArSiteOverlay.Item(it.observation.reference.site, app.lumisite.core.compute.ArSiteOverlay.Kind.REPERE, null,
+                app.lumisite.core.compute.ArSiteOverlay.OLD_REPERE_ARGB, current = false, label = it.observation.reference.label)
+        }
+        val lums = SurveyPositions.resolveAll(evs).mapNotNull { r -> r.site?.let { p ->
+            val e = catalog.find(r.event.kind); val f = e?.let { catalog.family(it.famille) }
+            app.lumisite.core.compute.ArSiteOverlay.Item(p, app.lumisite.core.compute.ArSiteOverlay.Kind.LUMINAIRE, e?.symbole ?: f?.symbol ?: "AUTRE",
+                f?.let { runCatching { android.graphics.Color.parseColor(it.color) }.getOrNull() } ?: 0xFFFFD900.toInt(), current = false, label = e?.label ?: r.event.kind)
+        } }
+        reperes + lums
+    }
+
+    /** Rebuilt after each calibration / recalage: the plan layer follows the current map → AR transform. */
+    fun refreshPlanOverlay() {
+        val tr = activeSegment()?.transform ?: run { ar.planScene.value = null; return }
+        Thread {
+            runCatching {
+                val others = otherVisitItems ?: loadOtherVisits().also { otherVisitItems = it }
+                val outlines = app.lumisite.core.compute.ArSiteOverlay.outlines(site.rects, site.osm?.features.orEmpty(), site.selectedBuildingOsmRefs.toSet(), ltp)
+                val scene = app.lumisite.core.compute.ArSiteOverlay.build(others, outlines, tr)
+                val cur = activeControlEvents().size + SurveyPositions.resolveAll(_state.value.events).count { it.site != null }
+                ar.planScene.value = scene.copy(luminaires = scene.luminaires + SurveyPositions.resolveAll(_state.value.events).count { it.site != null },
+                    reperes = scene.reperes + activeControlEvents().size)
+                DiagLog.i("AR", "Plan superposé : ${scene.otherVisits} élément(s) d'autres visites, $cur de cette visite, contours ${scene.outlineSegs} trait(s)")
+            }.onFailure { DiagLog.e("AR", "Plan superposé impossible : ${it.message}") }
+        }.apply { name = "lumisite-ar-plan"; isDaemon = true }.start()
     }
     val gnss = GnssClassifier()
     val solverSettings = SolverSettings()
@@ -763,6 +804,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             trigger?.observation?.pose?.let { markCalibration(it, "Calibrage, point ${evs.count { e -> e.kind == "CALIBRATION" }}") }
         }
         runCatching { recreateAnchors(tr) }
+        refreshPlanOverlay()
         DiagLog.i("POSITION", "Transformation recalculée : $summary rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(tr.rotationRad)) + "° t=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, tr.tx, tr.ty) + ")")
     }
 
@@ -835,7 +877,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (source == app.lumisite.core.compute.ArPlanes.CEILING_ESTIMATED)
             DiagLog.i("POSITION", "AR_CEILING_ESTIMATED : relevé ${e.id} au plafond virtuel (sol + " + "%.2f".format(java.util.Locale.ROOT, ar.ceilingHeightM ?: 0.0) + " m), qualité estimée")
         if (manual == null && hit != null && pose != null)
-            ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
+            ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE).also { styleLuminaire(e.id, e.kind) }
         if (manual == null && pose != null) {
             val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p
             val c = Vec2(at[0], -at[2])

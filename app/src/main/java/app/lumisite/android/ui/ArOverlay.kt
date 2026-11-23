@@ -111,10 +111,19 @@ fun ArControls(c: SessionController) {
             OutlinedButton({
                 val p = (aim as? AimResult.Hit)?.takeIf { it.source != "ESTIMATED" && it.source != "AR_FLOOR_ESTIMATE" }?.point
                 if (p == null) measure = "Mesure : visez une cible"
-                else if (a == null) { a = p; measure = "Point A posé, visez B" }
-                else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); a = null }
+                else if (a == null) { a = p; c.ar.measureA = p; c.ar.measureB = null; measure = "Point A posé, visez B" }
+                else { measure = "A–B : %.2f m".format(a!!.distanceTo(p)); c.ar.measureB = p; a = null }
             }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = if (a == null) "Mesure A" else "Mesure B" }.testTag("session_ar_mesure_a")) { Text(if (a == null) "📏 A" else "📏 B", fontSize = 16.sp) }
         }
-        measure?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+        measure?.let { Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_mesure_resultat")) }
+        // v176i: plan layer from the site data (other visits' luminaires and repères, site outline) on the detected floor.
+        val planOn by c.ar.planOn.collectAsState()
+        val scene by c.ar.planScene.collectAsState()
+        val planText = remember(planOn, scene, floorY, st.events.size) { app.lumisite.core.compute.ArSiteOverlay.status(scene, c.isCalibrated(), floorY != null, planOn) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.material3.FilterChip(selected = planOn, onClick = { c.ar.planOn.value = !planOn },
+                label = { Text(if (planOn) "Plan : affiché" else "Plan : masqué") }, modifier = Modifier.testTag("session_ar_plan"))
+            Text(planText, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f).testTag("session_ar_plan_etat"))
+        }
     }
 }

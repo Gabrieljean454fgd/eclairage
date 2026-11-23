@@ -33,6 +33,9 @@ class SyncFolderTest {
         assertEquals(listOf(dir.name), SyncFolder.forSite(root, "site-a").map { it.name })
         assertEquals(listOf(dir.name), SyncFolder.forSite(root, "site-b").map { it.name })
         assertTrue(SyncFolder.forSite(root, "site-c").isEmpty())
+        assertEquals("LumiSite_site-b", SyncFolder.buildPackage(listOf(dir), tmp(), 40, "t").name)
+        // A finished visit reopened during the same run gets a new dated link.
+        assertEquals(listOf(10L, 20L, 50L), m.linkedTo("site-b", "B", "ses-b", 50).sites.map { it.fromUtcMs })
     }
 
     @Test fun metaRoundTripAndSiteFilter() {

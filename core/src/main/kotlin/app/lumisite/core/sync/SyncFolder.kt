@@ -33,7 +33,7 @@ data class SyncFolderMeta(
     /** Current link replaced by [siteId] / [sessionId] (null = no visit open), the previous ones kept in [sites]. */
     fun linkedTo(siteId: String?, siteName: String?, sessionId: String?, utcMs: Long): SyncFolderMeta =
         copy(siteId = siteId, siteName = siteName, sessionId = sessionId,
-            sites = if (siteId == null || sites.lastOrNull()?.let { it.siteId == siteId && it.sessionId == sessionId } == true) sites
+            sites = if (siteId == null || (this.siteId == siteId && this.sessionId == sessionId)) sites
                 else sites + SyncSiteLink(siteId, siteName, sessionId, utcMs))
 
     companion object { const val SCHEMA = "lumisite-synchro/1" }
@@ -93,11 +93,12 @@ object SyncFolder {
      */
     fun buildPackage(runs: List<File>, parent: File, nowUtcMs: Long, generator: String): File {
         val meta = runs.firstNotNullOfOrNull { read(it) }
-        val id = meta?.siteId ?: "synchro"
+        val last = meta?.sites?.lastOrNull()
+        val id = meta?.siteId ?: last?.siteId ?: "synchro"
         val root = File(parent, "LumiSite_$id").apply { deleteRecursively(); mkdirs() }
         copyInto(runs, root)
         ExportPackage.writeManifest(root, ExportPackageManifest(
-            projectId = id, projectName = meta?.siteName ?: "Synchro ${meta?.device ?: ""}".trim(), catalogVersion = null,
+            projectId = id, projectName = meta?.siteName ?: last?.siteName ?: "Synchro ${meta?.device ?: ""}".trim(), catalogVersion = null,
             exportedUtc = Instant.ofEpochMilli(nowUtcMs).toString(), generator = generator,
             devices = runs.mapNotNull { read(it)?.deviceId }.distinct(), sessions = emptyList(), files = emptyList(),
         ))

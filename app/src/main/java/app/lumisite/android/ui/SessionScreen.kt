@@ -473,8 +473,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         }
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
-                map(Modifier.weight(0.55f).fillMaxHeight())
-                Column(Modifier.weight(0.45f).fillMaxHeight()) {
+                map(Modifier.weight(if (fullMap) 0.8f else 0.55f).fillMaxHeight())
+                Column(Modifier.weight(if (fullMap) 0.2f else 0.45f).fillMaxHeight()) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
                     HorizontalDivider(); if (fullMap) Spacer(Modifier.weight(1f)) else panel(Modifier.weight(1f).padding(horizontal = 8.dp))
                     resumeBanner()
@@ -488,10 +488,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 statusBlock(Modifier)
                 // v176g § 3: Annoter / Export keep ≥ 50 % of the screen for the map with the panel open (camera band of 96 dp).
                 val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else if (mode == Mode.DRAW || mode == Mode.EXPORT) 0.25f else 0.55f
-                if (fullMap) map(Modifier.fillMaxWidth().weight(1f)) else {
-                    map(Modifier.fillMaxWidth().weight(1f - panelW))
-                    panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
-                }
+                // One call site for the map whatever fullMap, so toggling it keeps the map view (position and zoom).
+                map(Modifier.fillMaxWidth().weight(if (fullMap) 1f else 1f - panelW))
+                if (!fullMap) panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
                 resumeBanner()
                 messageBar()
                 actionBar()

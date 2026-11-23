@@ -143,7 +143,7 @@ object NearbyMesh {
         val roundId = a.lastOrNull()?.second?.roundId ?: return
         val offs = a.filter { it.second.roundId == roundId }.map { (p, o) -> TopOffset(p.name, o.offsetNs!!, o.uncertaintyNs) }
         runCatching { onTop?.invoke(roundId, offs) }
-        a.filter { it.second.roundId == roundId }.forEach { (p, o) -> send(p.endpointId, MeshMsg.ClockInfo("top", o.offsetNs, o.uncertaintyNs, roundId)) }
+        a.filter { it.second.roundId == roundId }.forEach { (p, o) -> send(p.endpointId, MeshMsg.ClockInfo("top", o.offsetNs?.let { -it }, o.uncertaintyNs, roundId)) }
     }
 
     private fun publish() {

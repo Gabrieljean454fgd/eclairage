@@ -1,0 +1,24 @@
+# v176g § 3 : en Annoter et Export, caméra repliée en bande (96 dp) et carte ≥ 50 % de l'écran avec le panneau ouvert ;
+# « Carte plein écran » dans tous les onglets, la barre d'actions reste visible.
+appId: app.lumisite.android
+name: "b199 carte Annoter plein écran"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- assertVisible: { id: "session_carte_plein_ecran", text: "Carte plein écran" }
+- tapOn: { id: "session_annoter" }
+- assertVisible: { id: "session_camera_repliee" }
+- assertVisible: { id: "session_carte", text: "Carte ([5-9][0-9]|100) % de l'écran" }
+- takeScreenshot: maestro-out/captures/b199_carte_annoter
+- tapOn: { id: "session_carte_plein_ecran" }
+- assertVisible: { id: "session_carte_plein_ecran", text: "Quitter plein écran" }
+- assertVisible: { id: "session_barre_actions" }
+- assertVisible: { id: "session_carte", text: "Carte ([6-9][0-9]|100) % de l'écran" }
+- takeScreenshot: maestro-out/captures/b199_carte_plein_ecran
+- tapOn: { id: "session_carte_plein_ecran" }
+- assertVisible: { id: "session_carte_plein_ecran", text: "Carte plein écran" }
+- tapOn: { id: "session_export" }
+- assertVisible: { id: "session_camera_repliee" }
+- assertVisible: { id: "session_carte", text: "Carte ([5-9][0-9]|100) % de l'écran" }
+- tapOn: { id: "session_releve" }
+- assertVisible: { id: "session_ar_camera" }
+- assertVisible: { id: "session_carte_plein_ecran" }

@@ -45,7 +45,7 @@ name: "Calibrage recaler quand meme"
 - extendedWaitUntil:
     visible: ".*Correspondance contradictoire.*"
     timeout: 10000
-- assertNotVisible: { id: "session_calibrer_ligne_3" }
+- assertNotVisible: { id: "session_calibrer_supprimer_3" }  # point refusé : pas de 3e point enregistré (la ligne 3 reste « à poser »)
 - repeat:
     while: { notVisible: { id: "session_calibrer_recaler_quand_meme" } }
     times: 6

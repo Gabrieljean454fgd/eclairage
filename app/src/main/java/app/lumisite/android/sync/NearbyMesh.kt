@@ -125,6 +125,19 @@ object NearbyMesh {
 
     private fun logs(l: List<MeshLog>) = l.forEach { journal(it.endpointId, it.what, it.raw) }
 
+    /** v176g: offset of one slave for a top (raw values, master clock − slave clock). */
+    data class TopOffset(val name: String, val offsetNs: Long, val uncertaintyNs: Long?)
+
+    /** Called (Nearby thread) each time a top yields slave offsets; the open session records it (export clock_offset_ms). */
+    @Volatile var onTop: ((roundId: String, offsets: List<TopOffset>) -> Unit)? = null
+
+    private fun notifyTop(m: MasterMesh) {
+        val a = m.peers.values.mapNotNull { p -> p.audio?.takeIf { it.offsetNs != null }?.let { p to it } }
+        val roundId = a.lastOrNull()?.second?.roundId ?: return
+        val offs = a.filter { it.second.roundId == roundId }.map { (p, o) -> TopOffset(p.name, o.offsetNs!!, o.uncertaintyNs) }
+        runCatching { onTop?.invoke(roundId, offs) }
+    }
+
     private fun publish() {
         val m = master
         _state.update { it.copy(master = m?.summary(), peers = m?.peers?.values?.sortedBy { it.name } ?: emptyList(),
@@ -248,6 +261,7 @@ object NearbyMesh {
                         master?.let { mm ->
                             val (l, reply) = mm.onMessage(id, m, t)
                             logs(l); reply?.let { send(id, it) }
+                            if (m is MeshMsg.SyncResult) notifyTop(mm)
                             if (m is MeshMsg.Media) pendingMedia[m.payloadId] = m
                         }
                         slave?.let { s ->
@@ -368,7 +382,7 @@ object NearbyMesh {
             throw e
         }
         synchronized(lock) {
-            master?.let { logs(it.onOwnRound(roundId, "%04X".format(ownId(ctx)), heard(r), now())) }
+            master?.let { logs(it.onOwnRound(roundId, "%04X".format(ownId(ctx)), heard(r), now())); notifyTop(it) }
             _state.update { it.copy(roundBusy = false, round = "Maître : ${heard(r).size} chirp(s) identifié(s). Résultat par téléphone ci-dessous.") }
             publish()
         }

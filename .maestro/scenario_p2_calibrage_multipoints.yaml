@@ -71,5 +71,8 @@ name: "Session calibrage multipoints"
       - swipe: { start: "50%,74%", end: "50%,80%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_1" }
 - tapOn: { id: "session_calibrer_supprimer_1" }
+# Il reste un seul point : ligne 1 supprimable, la ligne 2 redevient « à poser » (plus de bouton Supprimer sur la ligne 2).
 - assertVisible: { id: "session_calibrer_ligne_1" }
-- assertNotVisible: { id: "session_calibrer_ligne_2" }
+- assertVisible: { id: "session_calibrer_supprimer_1" }
+- assertNotVisible: { id: "session_calibrer_supprimer_2" }
+- assertVisible: { id: "session_calibrer_poser_2" }

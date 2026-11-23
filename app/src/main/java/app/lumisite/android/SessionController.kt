@@ -156,7 +156,46 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (imuCount % 50 == 0L) _state.update { it.copy(imuCount = imuCount) }
     }
     private val gps = GpsRecorder(ctx, { stamps }, ::onGps, ::onGpsStatus)
-    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also { it.onAnchors = { m -> onAnchors(m) } }
+    private val sitePrefs = ctx.getSharedPreferences("lumisite_sites", Context.MODE_PRIVATE)
+    val ar = ArTracker(ctx, { stamps }, ::onArFrame).also {
+        it.onAnchors = { m -> onAnchors(m) }
+        it.ceilingHeightM = sitePrefs.getFloat("plafond_" + site.id, 0f).takeIf { h -> h > 0f }?.toDouble()
+    }
+
+    /** v176g § 2f: ceiling height of the site (once per site), used by the virtual ceiling (AR_CEILING_ESTIMATED). */
+    fun ceilingHeight(): Double? = ar.ceilingHeightM
+
+    fun setCeilingHeight(h: Double, how: String) {
+        ar.ceilingHeightM = h
+        sitePrefs.edit().putFloat("plafond_" + site.id, h.toFloat()).apply()
+        DiagLog.i("POSITION", "Hauteur sous plafond du site : " + "%.2f".format(java.util.Locale.ROOT, h) + " m ($how)")
+        _state.update { it.copy(message = "Hauteur sous plafond : " + "%.2f".format(java.util.Locale.FRANCE, h) + " m ($how).") }
+    }
+
+    /** Height measured by aiming at the wall/ceiling corner (or a detected ceiling) above the known floor; null otherwise. */
+    fun measureCeilingHeight(): Double? {
+        val hit = ar.aim.value as? app.lumisite.core.compute.AimResult.Hit
+        val fy = ar.floorY.value
+        val h = if (hit != null && fy != null && (hit.source == "AR_WALL" || hit.source == "AR_CEILING")) app.lumisite.core.compute.ArPlanes.ceilingHeight(hit.point.y, fy) else null
+        _state.update { it.copy(message = h?.let { v -> "Mesure : " + "%.2f".format(java.util.Locale.FRANCE, v) + " m (à valider)." } ?: "Mesure impossible : visez l'angle mur/plafond (sol détecté requis).") }
+        return h
+    }
+
+    /** v176g § 2c: resumed session with the calibration restored → one anchor per active control point and per luminaire, from the plan. */
+    private fun recreateAnchors(tr: Similarity2D) {
+        if (_state.value.events.none { it is TimeBaseAdded }) return
+        val y = ar.floorY.value ?: (latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M) ?: return)
+        fun toSession(e: Enu): app.lumisite.core.compute.V3 {
+            val dx = (e.e - tr.tx) / tr.scale; val dy = (e.n - tr.ty) / tr.scale
+            val c = kotlin.math.cos(-tr.rotationRad); val s = kotlin.math.sin(-tr.rotationRad)
+            val lx = c * dx - s * dy; val ly = s * dx + c * dy
+            return app.lumisite.core.compute.V3(lx, y, -ly)
+        }
+        var n = 0
+        activeControlEvents().forEach { e -> e.observation.reference.site?.let { ar.ensureAnchor(e.id, toSession(it), app.lumisite.android.capture.ArTracker.AnchorKind.FLAG); n++ } }
+        SurveyPositions.resolveAll(_state.value.events).forEach { r -> r.site?.let { ar.ensureAnchor(r.event.id, toSession(it), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE); n++ } }
+        DiagLog.i("ANCRES", "Calibrage rétabli : $n ancre(s) recréée(s) depuis le plan (repères et luminaires)")
+    }
     val gnss = GnssClassifier()
     val solverSettings = SolverSettings()
     private var lastGnssFix: GpsFix? = null
@@ -168,6 +207,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     val mirrorDir get() = mirror.displayDir
 
     init {
+        app.lumisite.android.sync.NearbyMesh.onTop = { r, o -> recordTop(r, o) }
         val tbRef = TimeBase(Ids.new("tb"), DeviceInfo.deviceId(ctx), TimeBase.ANDROID_ELAPSED_REALTIME, AndroidClock.utcEpochMs(), AndroidClock.monotonicNs(),
             notes = "SystemClock.elapsedRealtimeNanos(); UTC from System.currentTimeMillis() captured at the same instant",
             bootId = BootInfo.bootId(), bootCount = BootInfo.bootCount(ctx))
@@ -289,6 +329,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      */
     fun close(reason: String = "user") {
         if (closed) return
+        app.lumisite.android.sync.NearbyMesh.onTop = null
         ar.rendering = false
         tick.removeCallbacks(gnssTick)
         closing = true
@@ -457,7 +498,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         journal.event(e)
         // GeoJSONSeq written live (fsync per object) so the exchange file survives an abrupt stop.
         if (e is SurveyEvent || e is ShapeEvent || e is app.lumisite.core.model.ZoneEvent) runCatching {
-            if (e is SurveyEvent) features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site)
+            if (e is SurveyEvent) features.append(e, SurveyPositions.resolve(e, TrajectoryCorrector.timeline(_state.value.events + e)).site,
+                app.lumisite.core.export.ClockRef.of(e.t, app.lumisite.core.export.ClockRef.tops(_state.value.events)))
             if (e is ShapeEvent) features.appendShape(e)
             if (e is app.lumisite.core.model.ZoneEvent) features.appendShape(e.asShape())
         }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
@@ -718,6 +760,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
                 transform = tr, scaleFixed = true, residualM = sol.rmsM, notes = "points=${pts.map { it.id }} rejetés=${sol.rejected}"), "Calibrage : $summary")
             trigger?.observation?.pose?.let { markCalibration(it, "Calibrage, point ${evs.count { e -> e.kind == "CALIBRATION" }}") }
         }
+        runCatching { recreateAnchors(tr) }
         DiagLog.i("POSITION", "Transformation recalculée : $summary rot=" + "%.2f".format(java.util.Locale.ROOT, Math.toDegrees(tr.rotationRad)) + "° t=(" + "%.2f, %.2f".format(java.util.Locale.ROOT, tr.tx, tr.ty) + ")")
     }
 
@@ -787,6 +830,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         undoStack.addLast(e.id)
         lastSurveyId = e.id
         record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        if (source == app.lumisite.core.compute.ArPlanes.CEILING_ESTIMATED)
+            DiagLog.i("POSITION", "AR_CEILING_ESTIMATED : relevé ${e.id} au plafond virtuel (sol + " + "%.2f".format(java.util.Locale.ROOT, ar.ceilingHeightM ?: 0.0) + " m), qualité estimée")
         if (manual == null && hit != null && pose != null)
             ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
         if (manual == null && pose != null) {
@@ -944,6 +989,22 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun calibrationLabel(): String {
         val cal = _state.value.events.filterIsInstance<CalibrationEvent>().lastOrNull() ?: return "Non calibré"
         return "Calibré · résidu %.2f m%s".format(cal.residualM ?: 0.0, cal.measuredScale?.let { " · échelle %.3f".format(it) } ?: "")
+    }
+
+    /**
+     * v176g: Nearby synchro top of the master while this session runs → one SyncEvent per round (master = clock
+     * reference, offset 0; uncertainty = worst slave). Feeds time.clock_offset_ms / clock_sigma_ms / sync_ref of the export.
+     */
+    private val topsRecorded = HashMap<String, Int>()
+    private fun recordTop(roundId: String, offsets: List<app.lumisite.android.sync.NearbyMesh.TopOffset>) = tick.post {
+        if (closed || offsets.size <= (topsRecorded[roundId] ?: 0)) return@post
+        topsRecorded[roundId] = offsets.size
+        val now = stamps.now()
+        val sigma = offsets.mapNotNull { it.uncertaintyNs }.maxOrNull()
+        record(SyncEvent(Ids.new("syn"), now, "TOP-$roundId", SyncMethod.AUDIO_CHIRP, SyncRole.EMITTER, now.monotonicNs,
+            notes = "Top de synchro Nearby, maître = référence d'horloge. Esclaves : " + offsets.joinToString { o ->
+                o.name + " " + "%.1f".format(java.util.Locale.ROOT, o.offsetNs / 1e6) + " ms" + (o.uncertaintyNs?.let { " ± " + "%.1f".format(java.util.Locale.ROOT, it / 1e6) + " ms" } ?: "") },
+            label = roundId, clockOffsetNs = 0L, clockSigmaNs = sigma), "Top de synchro enregistré dans la session (${offsets.size} esclave(s) alignés).")
     }
 
     fun syncEvents() = _state.value.events.filterIsInstance<SyncEvent>()

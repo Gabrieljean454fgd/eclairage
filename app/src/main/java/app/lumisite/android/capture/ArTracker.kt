@@ -84,17 +84,38 @@ class ArTracker(
     /** v176c « Contours » switch (stripped AR lines), plane counters (sol, murs, plafond) and surface chosen at the survey (SOL / MUR / PLAFOND, null = all). */
     val contoursOn = MutableStateFlow(true)
     val planeCounts = MutableStateFlow(Triple(0, 0, 0))
-    val aimSurface = MutableStateFlow<String?>(null)
+    /** v176g § 2a: surface deduced from the camera tilt (±35°, hysteresis 5°), replaces the Sol / Mur / Plafond chips. */
+    val support = MutableStateFlow(app.lumisite.core.compute.Support.MUR)
+    /** v176g § 2f: ceiling height of the site (m) for the virtual ceiling; floor height (session frame) once a floor is known. */
+    @Volatile var ceilingHeightM: Double? = null
+    val floorY = MutableStateFlow<Double?>(null)
+    /** v176g § 2d: raw ARCore plane outlines only as a diagnostic option; room edges (plane intersections) by default. */
+    val rawPolygons = MutableStateFlow(false)
+    /** v176g § 2e: directions (rad, session x/z frame) of the site walls once calibrated; walls aligned within 10° are preferred. */
+    @Volatile var siteWallDirsRad: List<Double> = emptyList()
+    private var planeInfos: List<Pair<Plane, app.lumisite.core.compute.ArPlanes.Info>> = emptyList()
+    private var roomEdges: List<app.lumisite.core.compute.ArPlanes.Edge> = emptyList()
     private var lastAnchorReportMs = 0L
     @Volatile var onAnchors: ((Map<String, Pair<List<Double>, List<Double>>>) -> Unit)? = null
     fun requestAnchor(id: String, pose: PoseSample, kind: AnchorKind = AnchorKind.GROUP) { anchorAdds += Triple(id, pose, kind) }
     fun dropAnchor(id: String) { anchorDrops += id }
+    /** v176g § 2c: anchor recreated from the plan (resumed session, calibration restored); ignored if [id] already has one. */
+    private val anchorEnsure = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, V3, AnchorKind>>()
+    fun ensureAnchor(id: String, at: V3, kind: AnchorKind) { anchorEnsure += Triple(id, at, kind) }
 
     private fun updateAnchors(s: Session, nowMs: Long) {
         while (true) {
             val (id, p, kind) = anchorAdds.poll() ?: break
             runCatching {
                 anchors[id] = s.createAnchor(Pose(p.p.map { it.toFloat() }.toFloatArray(), p.q.map { it.toFloat() }.toFloatArray()))
+                anchorKinds[id] = kind
+            }.onFailure { setError("ancre $id : ${it.message}") }
+        }
+        while (true) {
+            val (id, at, kind) = anchorEnsure.poll() ?: break
+            if (id in anchors) continue
+            runCatching {
+                anchors[id] = s.createAnchor(Pose.makeTranslation(at.x.toFloat(), at.y.toFloat(), at.z.toFloat()))
                 anchorKinds[id] = kind
             }.onFailure { setError("ancre $id : ${it.message}") }
         }
@@ -214,24 +235,46 @@ class ArTracker(
         // Plane list sampled every 10 frames (getAllTrackables is costly); tracking state re-checked every frame.
         if (frameNo++ % 10 == 0L) {
             planes = s.getAllTrackables(Plane::class.java).filter { it.subsumedBy == null }
+            planeInfos = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }.mapNotNull { pl -> runCatching { pl to info(pl) }.getOrNull() }
+            roomEdges = app.lumisite.core.compute.ArPlanes.roomEdges(planeInfos.map { it.second })
+            val fy = app.lumisite.core.compute.ArPlanes.floorY(planeInfos.map { it.second })
+            if (floorY.value != fy) floorY.value = fy
         }
         val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
         val counts = Triple(planes.count { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }, planes.count { it.type == Plane.Type.VERTICAL },
             planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
         if (planeCounts.value != counts) planeCounts.value = counts
         if (planeCount.value != counts.first) planeCount.value = counts.first
-        val only = Aim.sourceOf(aimSurface.value)
-        val ap = planes.map { pl ->
+        val p = cam.pose
+        val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
+        val sup = app.lumisite.core.compute.SupportFromTilt.classify(app.lumisite.core.position.Tilt.fromArQuaternion(q.toDoubleArray()), support.value)
+        if (support.value != sup) support.value = sup
+        // Floor aim: the floor (± 10 cm, ≥ 0.25 m²), never furniture; walls aligned on the site walls when calibrated.
+        val infos = planeInfos.filter { it.first.trackingState == com.google.ar.core.TrackingState.TRACKING }
+        val keep = HashSet<Plane>()
+        keep += app.lumisite.core.compute.ArPlanes.floorCandidates(infos.map { it.second }).mapNotNull { i -> infos.firstOrNull { it.second === i }?.first }
+        keep += app.lumisite.core.compute.ArPlanes.alignedWalls(infos.filter { it.second.kind == app.lumisite.core.compute.ArPlanes.Kind.WALL }.map { it.second }, siteWallDirsRad)
+            .mapNotNull { i -> infos.firstOrNull { it.second === i }?.first }
+        keep += infos.filter { it.second.kind == app.lumisite.core.compute.ArPlanes.Kind.CEILING }.map { it.first }
+        val ap = planes.filter { it in keep }.map { pl ->
             val c = pl.centerPose
             val n = c.yAxis
             val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
             Aim.Plane(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), src) { p ->
                 pl.isPoseInPolygon(Pose.makeTranslation(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             }
-        }.filter { only == null || it.source == only }
-        val p = cam.pose
-        val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
-        aim.value = Aim.resolve(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, lastObjectY, true, fallbacks = Aim.sourceOf(aimSurface.value).let { it == null || it == "AR_PLANE" })
+        }
+        aim.value = Aim.resolveSupport(V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble()), Aim.forward(q), ap, sup, lastObjectY, true, floorY.value, ceilingHeightM)
+    }
+
+    private fun info(pl: Plane): app.lumisite.core.compute.ArPlanes.Info {
+        val c = pl.centerPose; val n = c.yAxis
+        val m = FloatArray(16); c.toMatrix(m, 0)
+        val poly = pl.polygon; poly.rewind()
+        val xz = DoubleArray(poly.limit()) { poly.get(it).toDouble() }.toList()
+        val kind = when (pl.type) { Plane.Type.VERTICAL -> app.lumisite.core.compute.ArPlanes.Kind.WALL; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> app.lumisite.core.compute.ArPlanes.Kind.CEILING; else -> app.lumisite.core.compute.ArPlanes.Kind.FLOOR }
+        return app.lumisite.core.compute.ArPlanes.Info(System.identityHashCode(pl).toString(), kind, V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()),
+            V3(n[0].toDouble(), n[1].toDouble(), n[2].toDouble()), app.lumisite.core.compute.ArGeometry.polygonToWorld(DoubleArray(16) { m[it].toDouble() }, xz))
     }
 
     @Suppress("DEPRECATION")
@@ -271,10 +314,15 @@ class ArTracker(
         } else null
         runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
         runCatching { updateAnchors(s, nowMs) }
-        if (state == TrackingState.TRACKING) runCatching {
-            lineRenderer.draw(cam, if (contoursOn.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
-                anchors.filter { (id, a) -> a.trackingState == com.google.ar.core.TrackingState.TRACKING && anchorKinds[id] != AnchorKind.GROUP }
-                    .map { (id, a) -> anchorKinds.getValue(id) to V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()) })
+        // v176g § 2c: anchors drawn while tracking is degraded too (last known pose, grey); only STOPPED anchors disappear.
+        if (state != TrackingState.STOPPED && state != TrackingState.UNAVAILABLE) runCatching {
+            val tracking = state == TrackingState.TRACKING
+            lineRenderer.draw(cam,
+                if (contoursOn.value && tracking && rawPolygons.value) planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING } else emptyList(),
+                if (contoursOn.value && tracking) roomEdges else emptyList(),
+                anchors.filter { (id, a) -> a.trackingState != com.google.ar.core.TrackingState.STOPPED && anchorKinds[id] != AnchorKind.GROUP }
+                    .map { (id, a) -> Triple(anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
+                        tracking && a.trackingState == com.google.ar.core.TrackingState.TRACKING) })
         }
         onFrame(pose, state, reason)
     }
@@ -381,8 +429,8 @@ private class LineRenderer {
 
     private fun segments(s: List<Pair<V3, V3>>, r: Float, g: Float, b: Float) = lines(GLES20.GL_LINES, s.flatMap { listOf(it.first, it.second) }, r, g, b)
 
-    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, marks: List<Pair<ArTracker.AnchorKind, V3>>) {
-        if (program == 0 || (planes.isEmpty() && marks.isEmpty())) return
+    fun draw(cam: com.google.ar.core.Camera, planes: List<Plane>, edges: List<app.lumisite.core.compute.ArPlanes.Edge>, marks: List<Triple<ArTracker.AnchorKind, V3, Boolean>>) {
+        if (program == 0 || (planes.isEmpty() && edges.isEmpty() && marks.isEmpty())) return
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
         GLES20.glUseProgram(program)
@@ -399,9 +447,15 @@ private class LineRenderer {
             lines(GLES20.GL_LINE_LOOP, world, 1f, 1f, 1f)
             if (pl.type == Plane.Type.VERTICAL) segments(app.lumisite.core.compute.ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
-        for ((kind, at) in marks) when (kind) {
-            ArTracker.AnchorKind.FLAG -> segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f)
-            ArTracker.AnchorKind.LUMINAIRE -> segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f)
+        // Room edges: skirting green, vertical corners blue, cornice violet.
+        for (e in edges) when (e.kind) {
+            app.lumisite.core.compute.ArPlanes.EdgeKind.PLINTHE -> segments(listOf(e.a to e.b), 0.2f, 0.85f, 0.3f)
+            app.lumisite.core.compute.ArPlanes.EdgeKind.ANGLE -> segments(listOf(e.a to e.b), 0.3f, 0.6f, 1f)
+            app.lumisite.core.compute.ArPlanes.EdgeKind.CORNICHE -> segments(listOf(e.a to e.b), 0.7f, 0.4f, 1f)
+        }
+        for ((kind, at, live) in marks) when (kind) {
+            ArTracker.AnchorKind.FLAG -> if (live) segments(app.lumisite.core.compute.ArGeometry.flag(at), 1f, 0.6f, 0f) else segments(app.lumisite.core.compute.ArGeometry.flag(at), 0.6f, 0.6f, 0.6f)
+            ArTracker.AnchorKind.LUMINAIRE -> if (live) segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 1f, 0.85f, 0f) else segments(app.lumisite.core.compute.ArGeometry.luminaire(at), 0.6f, 0.6f, 0.6f)
             ArTracker.AnchorKind.GROUP -> {}
         }
         GLES20.glDisableVertexAttribArray(aPos)

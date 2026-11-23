@@ -304,6 +304,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
             OutlinedTextField(
                 name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
+                // Done closes the keyboard and drops the focus, so nothing typed afterwards (coordinates) can land in the name.
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }),
                 isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
             )
             HorizontalDivider()
@@ -338,9 +341,13 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
-                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
+                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, isError = missingOrigin, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }), modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
+                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }), modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
                 focusManager.clearFocus() // otherwise the focused field is brought back into view whenever the form grows (OSM results)
@@ -427,7 +434,8 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
         }
     }
-    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); panel(Modifier.fillMaxWidth().weight(0.62f)) }
+    // Portrait map kept low (30 %), so the form always scrolls up to « Utiliser ces coordonnées » / « Créer le site ».
+    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.30f)); panel(Modifier.fillMaxWidth().weight(0.70f)) }
     else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); panel(Modifier.weight(0.4f)) }
     }
 }

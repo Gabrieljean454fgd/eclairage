@@ -524,7 +524,7 @@ fun AttachmentButtons(c: SessionController, surveyId: String, attachments: List<
     val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         pending?.let { p ->
             val f = File(p.substringBeforeLast('|')); val role = p.substringAfterLast('|')
-            if (ok && f.exists() && f.length() > 0) {
+            if (f.exists() && f.length() > 0) { // some camera apps (HyperOS) return CANCELED although the photo was written
                 val dest = c.attachmentFile("ph", "jpg")
                 if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) c.attach(surveyId, dest, "image/jpeg", role)?.let(onReselect)
                 else c.notify("Photo non enregistrée.")
@@ -584,7 +584,7 @@ fun PhotoPrompt(c: SessionController, surveyId: String, onClose: () -> Unit) {
     val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         pending?.let { p ->
             val f = File(p.substringBeforeLast('|')); val replace = p.substringAfterLast('|').ifEmpty { null }
-            if (ok && f.exists() && f.length() > 0) {
+            if (f.exists() && f.length() > 0) { // some camera apps (HyperOS) return CANCELED although the photo was written
                 val st = c.stampNow()
                 val dest = c.attachmentFile("ph", "jpg")
                 if (f.renameTo(dest) || runCatching { f.copyTo(dest); f.delete() }.isSuccess) {

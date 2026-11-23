@@ -61,12 +61,13 @@ fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) 
 
 /** Below the camera view: aim hint, plane count, torch and two-aim measurement (P2, not journaled). */
 @Composable
-fun ArControls(c: SessionController, compact: Boolean = false) {
+fun ArControls(c: SessionController) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
     val contours by c.ar.contoursOn.collectAsState()
-    val surface by c.ar.aimSurface.collectAsState()
+    val support by c.ar.support.collectAsState()
+    val floorY by c.ar.floorY.collectAsState()
     val torch by c.ar.torchOn.collectAsState()
     var a by remember { mutableStateOf<V3?>(null) }
     var measure by remember { mutableStateOf<String?>(null) }
@@ -74,17 +75,32 @@ fun ArControls(c: SessionController, compact: Boolean = false) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         val calLabel = remember(st.events.size) { c.calibrationLabel() }
         Text("$hint · $calLabel", style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.testTag("session_ar_visee"))
-        val surfaces = listOf(null to "Tous", "SOL" to "Sol", "MUR" to "Mur", "PLAFOND" to "Plafond")
-        Text("Plans : sol ${counts.first} · murs ${counts.second} · plafond ${counts.third} · visée : ${surfaces.first { it.first == surface }.second.lowercase()}",
+        // v176g § 2b: plane counters sampled at 2 Hz, fixed-width text; § 2a: surface deduced from the tilt (no chips).
+        var shown by remember { mutableStateOf(counts) }
+        androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { shown = c.ar.planeCounts.value; kotlinx.coroutines.delay(500) } }
+        Text("Plans : sol %2d · murs %2d · plafond %2d".format(shown.first, shown.second, shown.third), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
             style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_plans"))
-        // v176c: surface aimed at for the survey (Sol / Mur / Plafond, Tous = nearest plane).
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            surfaces.forEach { (k, l) ->
-                androidx.compose.material3.FilterChip(selected = surface == k, onClick = { c.ar.aimSurface.value = k }, label = { Text(l) },
-                    modifier = Modifier.testTag("session_ar_surface_" + (k?.lowercase() ?: "tous")))
-            }
+        Text(app.lumisite.core.compute.SupportFromTilt.autoLine(support), style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_support_auto"))
+        // v176g § 2f: ceiling height of the site (virtual ceiling when no ceiling plane is detected, AR_CEILING_ESTIMATED).
+        var editH by remember { mutableStateOf(false) }
+        var hText by remember { mutableStateOf("") }
+        val h = c.ceilingHeight()
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Hauteur sous plafond : " + (h?.let { "%.2f m".format(java.util.Locale.FRANCE, it) } ?: "non saisie"), style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f).testTag("session_ar_hauteur_plafond"))
+            androidx.compose.material3.TextButton({ editH = !editH; hText = h?.let { "%.2f".format(java.util.Locale.FRANCE, it) } ?: "" },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("session_ar_hauteur_modifier")) { Text(if (editH) "Fermer" else "Modifier") }
         }
-        if (!compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (editH) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.material3.OutlinedTextField(hText, { hText = it }, singleLine = true, label = { Text("m") }, modifier = Modifier.width(96.dp).testTag("session_ar_hauteur_saisie"),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            OutlinedButton({ hText.replace(',', '.').toDoubleOrNull()?.takeIf { it in 1.8..8.0 }?.let { c.setCeilingHeight(it, "saisie"); editH = false } },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("session_ar_hauteur_valider")) { Text("Valider") }
+            OutlinedButton({ c.measureCeilingHeight()?.let { hText = "%.2f".format(java.util.Locale.FRANCE, it) } },
+                enabled = floorY != null, modifier = Modifier.heightIn(min = 48.dp).testTag("session_ar_hauteur_mesurer")) { Text("Mesurer (angle mur/plafond)") }
+        }
+        // v176g § 2b: the command row is always present (the camera block keeps its height whatever the tab).
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // « Contours » switch of the stripped AR lines (plane outlines, vertical wall edges).
             androidx.compose.material3.FilterChip(selected = contours, onClick = { c.ar.contoursOn.value = !contours },
                 label = { Text(if (contours) "Contours : affichés" else "Contours : masqués") }, modifier = Modifier.testTag("session_ar_contours"))

@@ -30,6 +30,7 @@ Les sessions au format 0.1, sans fichier vivant, sont reconstituées à partir d
 - `geometry` : `Point` [lon, lat] WGS84 (RFC 7946, sans membre `crs`) ; `null` si la position absolue est inconnue, ou si l'objet est supprimé.
 - `properties.local` : `{frame_id: "site", x, y, z}` en mètres (X est, Y nord, Z haut, origine du site). **Lambert 93 n'est pas écrit par l'appli** (D8).
 - Propriétés obligatoires : `rev, op, kind, block_name, catalog_version, layer ("RES - Elec"), status, local, accuracy {sigma_xy_m, sigma_z_m, method}, time {captured_utc, device_monotonic_ns, clock_offset_ms, clock_sigma_ms, sync_ref}, device_id, session_id, operator`.
+- `time.clock_offset_ms / clock_sigma_ms / sync_ref` (v176g) : issus du **top de synchro** Nearby (AudioOffset du maître), enregistré dans la session comme événement `sync` (`syncCode` = `TOP-<round>`, `clockOffsetNs`, `clockSigmaNs`). Le maître est la référence d'horloge : décalage 0, incertitude = la plus grande des esclaves alignés. On prend le dernier top de la même base de temps avant l'objet, sinon le premier après. **Sans top, les trois valeurs restent `null`** (jamais un 0 inventé). Les décalages bruts par esclave restent dans `synchro.ndjson` et dans les notes de l'événement.
 - Facultatives : `aim, height_m, height_ref, details, label, note, voice_notes[], photos[], registration, duplicate_of, supersedes` ; `event_id` = identifiant de l'événement du journal.
 
 Schéma : [`lumisite-feature.schema.json`](lumisite-feature.schema.json) (JSON Schema draft-07).

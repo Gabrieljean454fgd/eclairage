@@ -208,6 +208,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     init {
         app.lumisite.android.sync.NearbyMesh.onTop = { r, o -> recordTop(r, o) }
+        app.lumisite.android.sync.NearbyMesh.setSite(site.id, site.name, sessionId)
         val tbRef = TimeBase(Ids.new("tb"), DeviceInfo.deviceId(ctx), TimeBase.ANDROID_ELAPSED_REALTIME, AndroidClock.utcEpochMs(), AndroidClock.monotonicNs(),
             notes = "SystemClock.elapsedRealtimeNanos(); UTC from System.currentTimeMillis() captured at the same instant",
             bootId = BootInfo.bootId(), bootCount = BootInfo.bootCount(ctx))
@@ -308,6 +309,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     fun closeInBackground(reason: String = "user") {
         if (closed || closing) return
         closing = true
+        runCatching { app.lumisite.android.sync.NearbyMesh.clearSite(sessionId) }
         ar.rendering = false
         val t0 = AndroidClock.monotonicNs()
         closingThreads[sessionId] = Thread({

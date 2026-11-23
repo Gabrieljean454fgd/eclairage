@@ -123,6 +123,7 @@ fun SyncScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_service_refuse"))
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
+        SyncSaved(st)
         OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("Retour") }
         SyncJournal(st, "synchro_journal")
     }
@@ -225,4 +226,30 @@ private fun Prerequisites() {
         TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
             modifier = Modifier.testTag("synchro_reglages_batterie")) { Text("Ouvrir les réglages de batterie") }
     }
+}
+
+/** v176h: what this phone keeps of the synchro (files/synchro/<début>/), still shown after « Arrêter », and its ZIP export. */
+@Composable
+fun SyncSaved(st: NearbyMesh.UiState) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val now = rememberMonoNow()
+    val run = remember(now, st.runDir, st.running) { NearbyMesh.lastRun(ctx) }
+    var result by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    Text("Sauvegarde sur ce téléphone", style = MaterialTheme.typography.titleSmall)
+    if (run == null) { Text("Aucune synchro enregistrée sur ce téléphone.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_sauvegarde")); return }
+    val summary = remember(now, run) { app.lumisite.core.sync.SyncFolder.summary(run) }
+    val tied = remember(st.tiedTo, run) { st.tiedTo ?: NearbyMesh.lastRunTied(ctx) }
+    Text("synchro/${run.name}" + (if (st.running) " (en cours)" else "") + " : " + summary.ifEmpty { "vide" } + (tied?.let { " · $it" } ?: " · aucun site reçu du maître"),
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_sauvegarde"))
+    st.gps?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_gps")) }
+    OutlinedButton(enabled = !busy, onClick = {
+        busy = true; result = null
+        scope.launch(Dispatchers.IO) {
+            result = runCatching { NearbyMesh.exportRun(ctx) }.getOrElse { "Export impossible : ${it.message}" }
+            busy = false
+        }
+    }, modifier = Modifier.testTag("synchro_exporter")) { Text(if (busy) "Export en cours…" else "Exporter la synchro (ZIP)") }
+    result?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("synchro_export_resultat")) }
 }

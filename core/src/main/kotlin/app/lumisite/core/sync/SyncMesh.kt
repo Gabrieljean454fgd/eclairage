@@ -39,6 +39,10 @@ sealed interface MeshMsg {
     @Serializable @SerialName("sync_result") data class SyncResult(val roundId: String, val emitterHex: String, val heard: List<HeardChirp>, val timeBaseId: String, val error: String? = null) : MeshMsg
     /** v176d: sensors detected and activated by the slave. */
     @Serializable @SerialName("sensors") data class Sensors(val list: List<SensorState>) : MeshMsg
+    /** v176h: master → slave: master's name and the site / visit being surveyed (stored in the slave's synchro.json). */
+    @Serializable @SerialName("site") data class SiteContext(val masterName: String, val siteId: String? = null, val siteName: String? = null, val sessionId: String? = null) : MeshMsg
+    /** v176h: master → slave: clock offset measured by the master ([source] « top » = AudioOffset, « ping » = round trips), master − slave. */
+    @Serializable @SerialName("clock") data class ClockInfo(val source: String, val offsetNs: Long?, val uncertaintyNs: Long?, val roundId: String? = null) : MeshMsg
     @Serializable @SerialName("media") data class Media(val payloadId: Long, val name: String, val tStartNs: Long, val tEndNs: Long, val bytes: Long, val sha256: String, val timeBaseId: String) : MeshMsg
 
     companion object {

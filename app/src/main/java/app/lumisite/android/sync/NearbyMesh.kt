@@ -5,6 +5,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.Manifest
 import android.os.Build
 import app.lumisite.android.data.AndroidClock
 import app.lumisite.android.data.DeviceInfo
@@ -92,6 +93,12 @@ object NearbyMesh {
         val foreground: Boolean = false,
         /** v176g 1g: debug-only simulated slave injected in the master. */
         val simulated: String? = null,
+        /** v176h: run folder of this phone (files/synchro/<début>), kept after the synchro stops. */
+        val runDir: String? = null,
+        /** v176h: site / visit / master tied to the run (from the master's SiteContext). */
+        val tiedTo: String? = null,
+        /** v176h: GPS state of this phone (slave), with the last fix accuracy. */
+        val gps: String? = null,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -121,7 +128,10 @@ object NearbyMesh {
         _state.update { it.copy(log = (it.log + "$hms · $label · $what").takeLast(30)) }
     }
 
-    private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    /** JSON string literal (backslash, quote and every control character escaped: one journal record per line). */
+    private fun q(s: String) = "\"" + buildString { s.forEach { ch -> when {
+        ch == '\\' -> append("\\\\"); ch == '"' -> append("\\\""); ch == '\n' -> append("\\n"); ch == '\r' -> append("\\r"); ch == '\t' -> append("\\t")
+        ch < ' ' || ch == '\u2028' || ch == '\u2029' -> append("\\u%04x".format(ch.code)); else -> append(ch) } } } + "\""
 
     private fun logs(l: List<MeshLog>) = l.forEach { journal(it.endpointId, it.what, it.raw) }
 
@@ -136,6 +146,7 @@ object NearbyMesh {
         val roundId = a.lastOrNull()?.second?.roundId ?: return
         val offs = a.filter { it.second.roundId == roundId }.map { (p, o) -> TopOffset(p.name, o.offsetNs!!, o.uncertaintyNs) }
         runCatching { onTop?.invoke(roundId, offs) }
+        a.filter { it.second.roundId == roundId }.forEach { (p, o) -> send(p.endpointId, MeshMsg.ClockInfo("top", o.offsetNs?.let { -it }, o.uncertaintyNs, roundId)) }
     }
 
     private fun publish() {
@@ -154,6 +165,12 @@ object NearbyMesh {
         _state.value = UiState(role = role, running = true, radio = "Démarrage…", selfName = name)
         val fg = SyncService.start(ctx.applicationContext)
         _state.update { it.copy(foreground = fg) }
+        _state.update { it.copy(runDir = dir?.name) }
+        meta = app.lumisite.core.sync.SyncFolderMeta(role = if (role == SyncRole2.SAISIE_MAITRE) "maitre" else "esclave", device = name,
+            deviceId = DeviceInfo.deviceId(ctx), startedUtcMs = AndroidClock.utcEpochMs(),
+            masterName = if (role == SyncRole2.SAISIE_MAITRE) name else null,
+        ).let { m -> siteCtx?.takeIf { role == SyncRole2.SAISIE_MAITRE }?.let { m.linkedTo(it.siteId, it.siteName, it.sessionId, m.startedUtcMs) } ?: m }
+        saveMeta()
         journal("local", "nom de ce téléphone : $name")
         journal("local", if (_state.value.foreground) "service de premier plan actif (notification « Synchro LumiSite active »)" else "service de premier plan refusé : la synchro peut être coupée écran éteint")
         journal("local", "rôle : " + if (role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)")
@@ -171,6 +188,8 @@ object NearbyMesh {
                         m.pings(t).forEach { (id, p) -> send(id, p) }
                         if (_state.value.simulated != null) answerSimulated(t)
                         logs(m.tick(t))
+                        if (++clockTicks % CLOCK_EVERY_TICKS == 0) m.peers.values.filter { it.link == app.lumisite.core.sync.Link.CONNECTED && it.offsetNs != null }
+                            .forEach { p -> send(p.endpointId, MeshMsg.ClockInfo("ping", -p.offsetNs!!, p.uncertaintyNs)) }
                         publish()
                     }
                     delay(MasterMesh.PING_PERIOD_NS / 1_000_000)
@@ -178,7 +197,9 @@ object NearbyMesh {
             }
         } else {
             slave = SlaveMesh(DeviceInfo.deviceId(ctx), name, Ids.new("tb"))
+            meta = meta?.copy(timeBaseId = slave?.timeBaseId); saveMeta()
             startSensors(ctx)
+            startGps(ctx)
             discover(c)
             loop = scope.launch {
                 while (isActive) {
@@ -192,6 +213,7 @@ object NearbyMesh {
                             client?.let { discover(it) }
                         }
                     }
+                    flushFiles()
                     publish(); delay(1000)
                 }
             }
@@ -262,6 +284,7 @@ object NearbyMesh {
                             val (l, reply) = mm.onMessage(id, m, t)
                             logs(l); reply?.let { send(id, it) }
                             if (m is MeshMsg.SyncResult) notifyTop(mm)
+                            if (m is MeshMsg.Hello) send(id, siteMessage())
                             if (m is MeshMsg.Media) pendingMedia[m.payloadId] = m
                         }
                         slave?.let { s ->
@@ -269,6 +292,10 @@ object NearbyMesh {
                                 is MeshMsg.StartCapture -> appCtx?.let { startRecording(it, m.captureId, id) }
                                 is MeshMsg.StopCapture -> stopRecording(id)
                                 is MeshMsg.SyncRound -> slaveRound(id, m)
+                                is MeshMsg.SiteContext -> onSiteContext(m)
+                                is MeshMsg.ClockInfo -> journal("local", "horloge (${m.source}) : maître − esclave " +
+                                    (m.offsetNs?.let { SyncDisplay.alignmentText(it, m.uncertaintyNs ?: 0) } ?: "non mesuré") + (m.roundId?.let { " · top $it" } ?: ""),
+                                    "{\"source\":${q(m.source)},\"decalage_ns\":${m.offsetNs},\"incertitude_ns\":${m.uncertaintyNs},\"top\":${m.roundId?.let { q(it) }}}")
                                 else -> {}
                             }
                             s.onMessage(m, t, ::now)?.let { send(id, it) }
@@ -414,6 +441,108 @@ object NearbyMesh {
         }
     }
 
+    // ---- v176h: run descriptor (synchro.json), site / visit link, GPS, flush, export ----
+
+    private const val CLOCK_EVERY_TICKS = 15
+    private var clockTicks = 0
+    private var meta: app.lumisite.core.sync.SyncFolderMeta? = null
+    @Volatile private var siteCtx: MeshMsg.SiteContext? = null
+
+    private fun saveMeta() { val d = dir ?: return; val m = meta ?: return; runCatching { app.lumisite.core.sync.SyncFolder.write(d, m) } }
+
+    private fun tiedText(m: app.lumisite.core.sync.SyncFolderMeta?) = m?.let {
+        listOfNotNull(it.siteName?.let { n -> "site « $n »" }, it.sessionId?.let { s -> "visite $s" }, it.masterName?.takeIf { _ -> it.role == "esclave" }?.let { n -> "maître $n" })
+            .joinToString(" · ").ifEmpty { null }
+    }
+
+    private fun siteMessage() = MeshMsg.SiteContext(_state.value.selfName, siteCtx?.siteId, siteCtx?.siteName, siteCtx?.sessionId)
+
+    /** Master side: the open session tells which site / visit the synchro belongs to; sent to every slave. */
+    fun setSite(siteId: String, siteName: String, sessionId: String) = synchronized(lock) {
+        siteCtx = MeshMsg.SiteContext("", siteId, siteName, sessionId)
+        val m = master ?: return
+        meta = meta?.linkedTo(siteId, siteName, sessionId, AndroidClock.utcEpochMs()); saveMeta()
+        _state.update { it.copy(tiedTo = tiedText(meta)) }
+        journal("local", "synchro liée au site « $siteName », visite $sessionId")
+        m.peers.values.filter { it.link == app.lumisite.core.sync.Link.CONNECTED }.forEach { send(it.endpointId, siteMessage()) }
+    }
+
+    /** Master side: the visit is finished; later recordings are no longer tied to it (the run keeps the earlier link in `sites`). */
+    fun clearSite(sessionId: String) = synchronized(lock) {
+        if (siteCtx?.sessionId != sessionId) return
+        siteCtx = null
+        val m = master ?: return
+        meta = meta?.linkedTo(null, null, null, AndroidClock.utcEpochMs()); saveMeta()
+        _state.update { it.copy(tiedTo = tiedText(meta)) }
+        journal("local", "visite $sessionId terminée : synchro plus liée à un site")
+        m.peers.values.filter { it.link == app.lumisite.core.sync.Link.CONNECTED }.forEach { send(it.endpointId, siteMessage()) }
+    }
+
+    private fun onSiteContext(m: MeshMsg.SiteContext) {
+        meta = meta?.copy(masterName = m.masterName)?.linkedTo(m.siteId, m.siteName, m.sessionId, AndroidClock.utcEpochMs()); saveMeta()
+        _state.update { it.copy(tiedTo = tiedText(meta)) }
+        journal("local", "maître ${m.masterName}" + (m.siteName?.let { " · site « $it »" } ?: " · aucun site ouvert") + (m.sessionId?.let { " · visite $it" } ?: ""))
+    }
+
+    private var gpsListener: android.location.LocationListener? = null
+    private var gpsOut: BufferedWriter? = null
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun startGps(ctx: Context) {
+        val granted = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            .any { androidx.core.content.ContextCompat.checkSelfPermission(ctx, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (!granted) { _state.update { it.copy(gps = "GPS : localisation refusée") }; journal("local", "GPS : localisation refusée, aucune position enregistrée"); return }
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val f = File(dir, app.lumisite.core.sync.SyncFolder.GPS)
+        val out = runCatching { f.bufferedWriter().also { it.write(app.lumisite.core.sync.SyncFolder.GPS_HEADER) } }.getOrNull()
+        gpsOut = out
+        val l = android.location.LocationListener { loc ->
+            val acc = if (loc.hasAccuracy()) loc.accuracy else null
+            runCatching { synchronized(this) { out?.write("${loc.elapsedRealtimeNanos},${loc.time},${loc.provider},${loc.latitude},${loc.longitude},${acc ?: ""},${if (loc.hasAltitude()) loc.altitude else ""}," +
+                "${if (Build.VERSION.SDK_INT >= 26 && loc.hasVerticalAccuracy()) loc.verticalAccuracyMeters else ""}\n") } }
+            _state.update { it.copy(gps = "GPS : position reçue (${loc.provider}" + (acc?.let { a -> ", ± %.0f m".format(Locale.FRANCE, a) } ?: "") + ")") }
+        }
+        gpsListener = l
+        val providers = listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER).filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        providers.forEach { p -> runCatching { lm.requestLocationUpdates(p, 1000L, 0f, l, android.os.Looper.getMainLooper()) } }
+        val txt = if (providers.isEmpty()) "GPS : localisation désactivée" else "GPS : en attente de position (" + providers.joinToString() + ")"
+        _state.update { it.copy(gps = txt) }
+        journal("local", txt)
+    }
+
+    private fun stopGps() {
+        gpsListener?.let { l -> runCatching { (appCtx?.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager)?.removeUpdates(l) } }
+        gpsListener = null
+        runCatching { gpsOut?.close() }; gpsOut = null
+    }
+
+    /** Every second on the slave: samples reach the file system (survive a kill, a screen-off cut or Back). */
+    private fun flushFiles() { runCatching { sensorOut?.flush() }; runCatching { gpsOut?.flush() } }
+
+    /** Run folder to show / export: the current one, otherwise the latest kept on this phone. */
+    fun lastRun(ctx: Context): File? = dir?.takeIf { _state.value.running } ?: app.lumisite.core.sync.SyncFolder.runs(File(ctx.filesDir, "synchro")).firstOrNull()
+
+    fun lastRunTied(ctx: Context): String? = lastRun(ctx)?.let { tiedText(app.lumisite.core.sync.SyncFolder.read(it)) }
+
+    /**
+     * Exports the run (current or latest) as a ZIP in the site export format (manifest + SHA-256, synchro/<run>/),
+     * copied to Documents/LumiSite/_synchro/. Blocking: call off the main thread.
+     */
+    fun exportRun(ctx: Context): String {
+        val run = lastRun(ctx) ?: return "Aucune synchro enregistrée sur ce téléphone."
+        synchronized(lock) { flushFiles() }
+        val work = File(ctx.filesDir, "exports/synchro_${run.name}").apply { deleteRecursively(); mkdirs() }
+        val root = app.lumisite.core.sync.SyncFolder.buildPackage(listOf(run), work, AndroidClock.utcEpochMs(), "LumiSite Android ${app.lumisite.android.BuildConfig.VERSION_NAME}")
+        val problems = app.lumisite.core.export.ExportPackage.verify(root)
+        check(problems.isEmpty()) { "Vérification du paquet : $problems" }
+        val zip = File(ctx.filesDir, "exports/LumiSite_synchro_${safeName(_state.value.selfName.ifEmpty { deviceName(ctx) })}_${run.name}.zip")
+        app.lumisite.core.export.ExportPackage.zipStored(root, zip)
+        work.deleteRecursively()
+        val pub = runCatching { app.lumisite.android.data.PublicStore(ctx).copy(zip, listOf("_synchro")) }.getOrNull()
+        journal("local", "synchro exportée : ${zip.name} (${zip.length() / 1000} Ko)")
+        return "ZIP prêt : ${zip.name} (${zip.length() / 1000} Ko)" + (pub?.let { " · copié dans ${it.displayPath}" } ?: " · copie dans Documents impossible, ZIP gardé dans l'appli")
+    }
+
     // ---- v176d: slave sensors: detect, journal and activate (samples appended to capteurs.csv) ----
 
     private var sensorListener: SensorEventListener? = null
@@ -483,6 +612,7 @@ object NearbyMesh {
             val stops = master?.stop(now()).orEmpty()
             stops.forEach { (id, msg) -> send(id, msg) }
             stopSensors(appCtx)
+            stopGps()
             recorder?.let { r -> recorder = null; r.stop(); journal("local", "interruption : capture locale arrêtée avec la synchro (${r.file.name} gardé sur l'appareil)") }
             loop?.cancel(); loop = null
             val c = client
@@ -490,7 +620,8 @@ object NearbyMesh {
             client?.apply { stopAdvertising(); stopDiscovery(); if (stops.isEmpty()) stopAllEndpoints() }
             client = null; master = null; slave = null; masterEndpoint = null
             appCtx?.let { SyncService.stop(it) }
-            _state.value = UiState()
+            val keep = _state.value
+            _state.value = UiState(runDir = keep.runDir, tiedTo = keep.tiedTo)
         }
     }
 

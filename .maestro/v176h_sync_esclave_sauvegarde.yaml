@@ -1,0 +1,38 @@
+# v176h — Accueil > Sync > Captation-synchro (esclave) : l'esclave enregistre localement (synchro.json, synchro.ndjson,
+# capteurs.csv, gps.csv) dans files/synchro/<début>/, l'exporte en ZIP (format de l'export du site), et la sauvegarde
+# reste affichée et exportable après « Arrêter la synchro ». Le lien au site / à la visite vient du maître (manuel à 2 téléphones).
+appId: app.lumisite.android
+name: "v176h esclave sauvegarde et export"
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- assertVisible: { id: "synchro_sauvegarde", text: "Aucune synchro enregistrée.*" }
+- tapOn: { id: "synchro_mode_esclave" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+- scrollUntilVisible:
+    element: { id: "synchro_exporter" }
+    direction: DOWN
+- assertVisible: { id: "synchro_sauvegarde", text: "synchro/.* \\(en cours\\) : synchro.ndjson .*capteurs.csv.*" }
+- assertVisible: { id: "synchro_gps", text: "GPS : .*" }
+- tapOn: { id: "synchro_exporter" }
+- extendedWaitUntil:
+    visible: { id: "synchro_export_resultat", text: "ZIP prêt : LumiSite_synchro_.*" }
+    timeout: 20000
+- takeScreenshot: maestro-out/captures/v176h_sync_esclave_sauvegarde
+- scrollUntilVisible:
+    element: { id: "synchro_arreter" }
+    direction: UP
+- tapOn: { id: "synchro_arreter" }
+- assertVisible: { id: "synchro_mode_maitre" }
+- scrollUntilVisible:
+    element: { id: "synchro_exporter" }
+    direction: DOWN
+- assertVisible: { id: "synchro_sauvegarde", text: "synchro/[0-9-]+ : synchro.ndjson .*" }

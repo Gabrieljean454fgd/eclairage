@@ -131,6 +131,7 @@ class Repository(private val ctx: Context) {
         val root = ExportPackage.build(
             site, sessions(site.id).map { ExportPackage.SessionInput(sessionDir(it.id)) }, catalog,
             File(sitesDir, "${site.id}/osm_source.json"), work, System.currentTimeMillis(), "LumiSite Android ${BuildConfig.VERSION_NAME}",
+            app.lumisite.core.sync.SyncFolder.forSite(File(ctx.filesDir, "synchro"), site.id),
         )
         val problems = ExportPackage.verify(root)
         check(problems.isEmpty()) { "Vérification du paquet : $problems" }

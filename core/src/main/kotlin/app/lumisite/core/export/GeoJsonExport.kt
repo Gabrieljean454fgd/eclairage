@@ -278,10 +278,11 @@ object ExportPackage {
 
     /**
      * Builds LumiSite_<project_id>/ in [parent]: manifest, catalog, sessions/<device>/<session>.geojsonl + .frames.json,
-     * photos/, raw/<device>/<session>.zip (unchanged lumisite.session export), refs/osm_source.json.
+     * photos/, raw/<device>/<session>.zip (unchanged lumisite.session export), refs/osm_source.json, synchro/<run>/.
      */
     fun build(
         site: Site, sessions: List<SessionInput>, catalogJson: String?, osmSource: File?, parent: File, nowUtcMs: Long, generator: String,
+        synchroRuns: List<File> = emptyList(),
     ): File {
         val root = File(parent, "LumiSite_${site.id}").apply { deleteRecursively(); mkdirs() }
         val ltp = LocalTangentPlane(site.origin)
@@ -313,6 +314,8 @@ object ExportPackage {
             out += PackageSession(sid, dev, "sessions/$dev/$sid.geojsonl", "sessions/$dev/$sid.frames.json",
                 GeoJsonSeq.latest(lines).size, data.events.any { it is SessionStopped }, truncated)
         }
+        // v176h: synchro runs tied to this site (master and slaves), unchanged, under synchro/<run>/.
+        app.lumisite.core.sync.SyncFolder.copyInto(synchroRuns, root)
         writeManifest(root, ExportPackageManifest(
             projectId = site.id, projectName = site.name, catalogVersion = catalogVersion,
             exportedUtc = Instant.ofEpochMilli(nowUtcMs).toString(), generator = generator,

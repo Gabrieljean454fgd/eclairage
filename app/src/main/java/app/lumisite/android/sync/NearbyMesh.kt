@@ -128,7 +128,10 @@ object NearbyMesh {
         _state.update { it.copy(log = (it.log + "$hms · $label · $what").takeLast(30)) }
     }
 
-    private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    /** JSON string literal (backslash, quote and every control character escaped: one journal record per line). */
+    private fun q(s: String) = "\"" + buildString { s.forEach { ch -> when {
+        ch == '\\' -> append("\\\\"); ch == '"' -> append("\\\""); ch == '\n' -> append("\\n"); ch == '\r' -> append("\\r"); ch == '\t' -> append("\\t")
+        ch < ' ' || ch == '\u2028' || ch == '\u2029' -> append("\\u%04x".format(ch.code)); else -> append(ch) } } } + "\""
 
     private fun logs(l: List<MeshLog>) = l.forEach { journal(it.endpointId, it.what, it.raw) }
 

@@ -94,7 +94,8 @@ object SyncFolder {
     fun buildPackage(runs: List<File>, parent: File, nowUtcMs: Long, generator: String): File {
         val meta = runs.firstNotNullOfOrNull { read(it) }
         val last = meta?.sites?.lastOrNull()
-        val id = meta?.siteId ?: last?.siteId ?: "synchro"
+        // The site id may come from a Nearby peer: only [A-Za-z0-9_-] reaches the file name (no « .. », no separator).
+        val id = (meta?.siteId ?: last?.siteId)?.replace(Regex("[^A-Za-z0-9_-]"), "_")?.take(64)?.takeIf { it.isNotBlank() } ?: "synchro"
         val root = File(parent, "LumiSite_$id").apply { deleteRecursively(); mkdirs() }
         copyInto(runs, root)
         ExportPackage.writeManifest(root, ExportPackageManifest(

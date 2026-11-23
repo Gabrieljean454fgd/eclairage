@@ -434,8 +434,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
         }
     }
-    // Portrait map kept low (30 %), so the form always scrolls up to « Utiliser ces coordonnées » / « Créer le site ».
-    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.30f)); panel(Modifier.fillMaxWidth().weight(0.70f)) }
+    if (portrait) Column(Modifier.fillMaxSize()) { mapView(Modifier.fillMaxWidth().weight(0.38f)); panel(Modifier.fillMaxWidth().weight(0.62f)) }
     else Row(Modifier.fillMaxSize()) { mapView(Modifier.weight(0.6f).fillMaxSize()); panel(Modifier.weight(0.4f)) }
     }
 }

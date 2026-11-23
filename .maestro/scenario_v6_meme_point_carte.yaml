@@ -58,4 +58,4 @@ name: "Calibrage meme point carte refuse"
     timeout: 10000
 - assertVisible: ".*Point carte déjà utilisé.*"
 - assertNotVisible: { id: "session_calibrer_recaler_quand_meme" }
-- assertNotVisible: { id: "session_calibrer_supprimer_2" }  # point refusé : pas de 2e point enregistré (la ligne 2 reste « à poser »)
+- assertNotVisible: { id: "session_calibrer_ligne_2" }

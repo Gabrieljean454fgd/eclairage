@@ -487,7 +487,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow() }
                 statusBlock(Modifier)
                 // v176g § 3: Annoter / Export keep ≥ 50 % of the screen for the map with the panel open (camera band of 96 dp).
-                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else if (mode == Mode.DRAW || mode == Mode.EXPORT) 0.3f else 0.55f
+                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else if (mode == Mode.DRAW || mode == Mode.EXPORT) 0.25f else 0.55f
                 if (fullMap) map(Modifier.fillMaxWidth().weight(1f)) else {
                     map(Modifier.fillMaxWidth().weight(1f - panelW))
                     panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
@@ -567,7 +567,8 @@ private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: S
         if (onNext != null && rows.isNotEmpty()) {
             val n = rows.maxOf { it.n } + 1
             val notice = c.state.collectAsState().value.forcible != null
-            Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + n), verticalAlignment = Alignment.CenterVertically) {
+            // Own tag (…_ligne_N_a_poser): …_ligne_N keeps meaning « point N recorded ».
+            Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + n + "_a_poser"), verticalAlignment = Alignment.CenterVertically) {
                 Text("$n · à poser" + if (notice) " · correspondance à vérifier (voir l'avis)" else " · touchez le point sur la carte",
                     Modifier.weight(1f).testTag(prefix + "_a_poser"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onNext, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_poser_" + n)) { Text("Poser") }

@@ -5,11 +5,11 @@ appId: app.lumisite.android
 name: "v176i AR plan du site"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
-- assertVisible: { id: "session_ar_plan", text: "Plan : affiché" }
+- assertVisible: { text: "Plan : affiché", childOf: { id: "session_ar_plan" } }
 - assertVisible: { id: "session_ar_plan_etat", text: "Plan : calibrez pour superposer les données du site" }
 - tapOn: { id: "session_ar_plan" }
-- assertVisible: { id: "session_ar_plan", text: "Plan : masqué" }
+- assertVisible: { text: "Plan : masqué", childOf: { id: "session_ar_plan" } }
 - assertVisible: { id: "session_ar_plan_etat", text: "Plan : masqué" }
 - tapOn: { id: "session_ar_plan" }
-- assertVisible: { id: "session_ar_plan", text: "Plan : affiché" }
+- assertVisible: { text: "Plan : affiché", childOf: { id: "session_ar_plan" } }
 - takeScreenshot: maestro-out/captures/v176i_ar_plan_site

@@ -73,3 +73,6 @@ name: "Session calibrage multipoints"
 - tapOn: { id: "session_calibrer_supprimer_1" }
 - assertVisible: { id: "session_calibrer_ligne_1" }
 - assertNotVisible: { id: "session_calibrer_ligne_2" }
+# v176g (anomalie du 17/11) : avec un seul point, la ligne 2 reste affichée « à poser » et posable depuis le tableau.
+- assertVisible: { id: "session_calibrer_ligne_2_a_poser" }
+- assertVisible: { id: "session_calibrer_poser_2" }

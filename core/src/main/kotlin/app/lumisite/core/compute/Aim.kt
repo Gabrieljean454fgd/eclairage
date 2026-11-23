@@ -18,7 +18,7 @@ data class V3(val x: Double, val y: Double, val z: Double) {
 }
 
 sealed interface AimResult {
-    /** [source]: "AR_PLANE" (floor) | "AR_CEILING" | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE"; "ESTIMATED" only in older sessions. */
+    /** [source]: "AR_PLANE" (floor) | "AR_CEILING" | "AR_CEILING_ESTIMATED" (virtual ceiling, v176g) | "AR_WALL" | "AR_LAST_PLANE" | "AR_FLOOR_ESTIMATE"; "ESTIMATED" only in older sessions. */
     data class Hit(val point: V3, val source: String) : AimResult
     /** Every candidate plane was seen at a grazing angle: refuse rather than return a jumping point. */
     data object Grazing : AimResult
@@ -71,6 +71,30 @@ object Aim {
             Ray.Miss -> {}
         }
         return if (grazing) AimResult.Grazing else AimResult.ToComplete
+    }
+
+    /**
+     * v176g § 2a/2e/2f: aim on the surface deduced from the tilt. SOL: floor planes only (furniture already filtered by the caller),
+     * then the usual floor fallbacks; MUR: walls only, else « position à compléter »; PLAFOND: ceiling planes, else the virtual
+     * ceiling at floor + [ceilingHeightM] (source AR_CEILING_ESTIMATED) when both are known, else « position à compléter ».
+     */
+    fun resolveSupport(origin: V3, dir: V3, arPlanes: List<Plane>, support: Support, lastObjectY: Double?, tracking: Boolean,
+                       floorY: Double?, ceilingHeightM: Double?): AimResult {
+        if (!tracking) return AimResult.NoTarget
+        val mine = arPlanes.filter { it.source == support.source }
+        return when (support) {
+            Support.SOL -> resolve(origin, dir, mine, lastObjectY, true, fallbacks = true)
+            Support.MUR -> resolve(origin, dir, mine, lastObjectY, true, fallbacks = false)
+            Support.PLAFOND -> {
+                val r = resolve(origin, dir, mine, lastObjectY, true, fallbacks = false)
+                if (r is AimResult.Hit || floorY == null || ceilingHeightM == null) r
+                else when (val v = intersect(origin, dir, ArPlanes.virtualCeiling(origin, floorY, ceilingHeightM))) {
+                    is Ray.At -> AimResult.Hit(v.p, ArPlanes.CEILING_ESTIMATED)
+                    Ray.Grazing -> AimResult.Grazing
+                    Ray.Miss -> r
+                }
+            }
+        }
     }
 
     private fun nearest(origin: V3, dir: V3, planes: List<Plane>): AimResult.Hit? =

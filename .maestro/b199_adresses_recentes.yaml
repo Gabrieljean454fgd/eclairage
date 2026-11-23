@@ -1,0 +1,33 @@
+# v176g § 4 : Nouveau site > « Adresse / lieu ». Une adresse validée (Rechercher) est gardée dans recent_addresses.json et
+# reproposée dès la première lettre, sans réseau, chaque mot tapé commençant un mot de l'adresse (« 39 rue D » → « 39 rue Dupont »).
+appId: app.lumisite.android
+name: b199 Nouveau site adresses recentes locales
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 90000
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_adresse_lieu" }
+- inputText: "39 rue Dupont Toulouse"
+- pressKey: Enter
+- hideKeyboard
+- back
+- extendedWaitUntil:
+    visible: { id: "accueil_nouveau_releve" }
+    timeout: 10000
+# Hors réseau : la suggestion vient du téléphone.
+- setAirplaneMode: enabled
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_adresse_lieu" }
+- inputText: "3"
+- assertVisible: { id: "nouveau_site_adresse_recente_0", text: ".*39 rue Dupont Toulouse" }
+- eraseText: 2
+- inputText: "39 rue D"
+- assertVisible: { id: "nouveau_site_adresse_recente_0", text: ".*39 rue Dupont Toulouse" }
+- eraseText: 10
+- inputText: "pont"
+- assertNotVisible: { id: "nouveau_site_adresse_recente_0" }
+- setAirplaneMode: disabled

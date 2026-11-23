@@ -20,13 +20,14 @@ name: "v176d maître — scène active sans esclave"
     element: { id: "synchro_scene_active" }
     direction: DOWN
 - assertVisible: "Scène active : aucun esclave.*"
-- assertVisible: "Lancer un top de synchro \\(tous les téléphones émettent\\)"
+- assertVisible: "Lancer un top de synchro \\(0 esclave\\(s\\)\\)"
 - assertVisible: "Aucun esclave connecté.*"
 - takeScreenshot: v176_sync_scene_active
 - scrollUntilVisible:
     element: { id: "synchro_journal" }
     direction: DOWN
-- assertVisible: ".*rôle : Saisie \\(maître\\)"
+# Rôle maître affiché « Mode : Saisie (maître) » à l'écran (ancien libellé « rôle : » dans le journal).
+- assertVisible: "(.*rôle|Mode) : Saisie \\(maître\\).*"
 - scrollUntilVisible:
     element: { id: "synchro_arreter" }
     direction: UP

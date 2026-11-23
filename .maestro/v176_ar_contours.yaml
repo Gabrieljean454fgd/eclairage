@@ -1,18 +1,17 @@
-# v176c : interrupteur « Contours » (traits des plans, arêtes verticales des murs), compteurs de plans sol / murs / plafond,
-# choix de la surface visée (Tous / Sol / Mur / Plafond). Sur émulateur sans ARCore : compteurs à 0 ; le tracé lui-même
-# (traits seuls, drapeaux, symbole du luminaire) se vérifie au téléphone.
+# v176c / v176g § 2a : interrupteur « Contours » (arêtes de la pièce par intersections de plans), compteurs de plans sol / murs / plafond
+# échantillonnés à 2 Hz. Plus de sélecteur de surface : le support visé se déduit de l'inclinaison (« Visée : mur (auto) »).
+# Sur émulateur sans ARCore : compteurs à 0 ; le tracé lui-même (arêtes, drapeaux, symbole du luminaire) se vérifie au téléphone.
 appId: app.lumisite.android
 name: "v176c contours AR"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
-- assertVisible: "Plans : sol 0 · murs 0 · plafond 0 · visée : tous"
+- assertVisible: "Plans : sol  0 · murs  0 · plafond  0"
+- assertVisible: { id: "session_ar_support_auto", text: "Visée : (sol|mur|plafond) \\(auto\\)" }
+- assertNotVisible: { id: "session_ar_surface_tous" }
+- assertNotVisible: { id: "session_ar_surface_plafond" }
 - assertVisible: "Contours : affichés"
 - tapOn: { id: "session_ar_contours" }
 - assertVisible: "Contours : masqués"
 - tapOn: { id: "session_ar_contours" }
 - assertVisible: "Contours : affichés"
-- tapOn: { id: "session_ar_surface_plafond" }
-- assertVisible: "Plans : sol 0 · murs 0 · plafond 0 · visée : plafond"
-- tapOn: { id: "session_ar_surface_tous" }
-- assertVisible: "Plans : sol 0 · murs 0 · plafond 0 · visée : tous"
 - takeScreenshot: maestro-out/captures/v176_ar_contours

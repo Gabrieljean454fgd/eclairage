@@ -342,6 +342,12 @@ data class SyncEvent(
     val emitCounter: Int? = null,
     /** Human-readable round code (generated, editable, not used for matching). */
     val label: String? = null,
+    /**
+     * v176g: Nearby synchro top (AudioOffset of the mesh). Offset to add to this device monotonic clock to reach the
+     * master's clock (master = reference: 0) and its uncertainty. Null when no top aligned any device (never invented).
+     */
+    val clockOffsetNs: Long? = null,
+    val clockSigmaNs: Long? = null,
 ) : SessionEvent
 
 @Serializable

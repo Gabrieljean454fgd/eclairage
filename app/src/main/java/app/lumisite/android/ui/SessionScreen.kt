@@ -254,8 +254,13 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val controlPts = (c.controlRows("CALIBRATION").map { it to "Calibrage" } + c.controlRows("RELOCALIZATION").map { it to "Recalage" }).map { (r, k) ->
         MapPoint(c.ltp.toLatLon(r.e.observation.reference.site.copy(u = 0.0)), "$k ${r.n} (${r.status})", if (k == "Calibrage") android.graphics.Color.rgb(255, 140, 0) else android.graphics.Color.rgb(128, 0, 200), "cp:" + r.e.id, symbol = "DRAPEAU")
     }
+    // v176g § 3: full-screen map (camera clipped but still composed, panel hidden, action bar kept) from every tab.
+    var fullMap by rememberSaveable { mutableStateOf(false) }
+    var mapShare by remember { mutableStateOf(0f) }
     val map: @Composable (Modifier) -> Unit = { m ->
-        Box(m.testTag("session_carte")) {
+        Box(m.testTag("session_carte")
+            .onGloballyPositioned { mapShare = it.size.height.toFloat() / maxOf(1, it.findRootCoordinates().size.height) }
+            .semantics { contentDescription = "Carte ${(mapShare * 100).toInt()} % de l'écran" }) {
             OsmMap(
                 Modifier.fillMaxSize(), c.site.origin, 19.0,
                 MapContent(
@@ -309,6 +314,9 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                         color = Color.Black, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            OutlinedButton(onClick = { fullMap = !fullMap }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).heightIn(min = 48.dp).background(Color(0xCCFFFFFF)).testTag("session_carte_plein_ecran")) {
+                Text(if (fullMap) "Quitter plein écran" else "Carte plein écran")
+            }
         }
     }
     // Compact status line at the very top (prompt v4 2.1): « AR ● » and « TRK » pills (tap: details), recording indicators, theme.
@@ -337,15 +345,18 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     val header: @Composable () -> Unit = {
         // v176c (decision 3): camera on the whole width of the screen (4:3), aim / plans / torch / measure below it. While a panel
         // is open the frame stays full width but is cropped to 2:1, so the panel and the map keep room.
-        val camAspect = if (mode == Mode.NONE) 4f / 3f else 2f
+        // v176g § 2b/§ 3: same camera height in Aucun / Calibrer / Relevé / Recaler / Synchro (no jump when a tab opens);
+        // Annoter / Export (and the full-screen map) collapse it to a 96 dp band, the GL view staying composed.
+        val camAspect = 16f / 9f
+        val collapsed = fullMap || mode == Mode.DRAW || mode == Mode.EXPORT
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!arReady && simulatedArHeader) {
                 // Debug/CI only (settings put global lumisite_simuler_entete_ar 1): same footprint as the real camera block.
-                CameraFrame(camAspect, Modifier.background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
-                ArControls(c, compact = mode != Mode.NONE)
+                CameraFrame(camAspect, collapsed, Modifier.background(Color.DarkGray).testTag("session_ar_simule")) { Text("AR simulé", color = Color.White, modifier = Modifier.align(Alignment.Center)) }
+                if (!collapsed) ArControls(c)
             }
             if (arReady) {
-                CameraFrame(camAspect, Modifier) {
+                CameraFrame(camAspect, collapsed, Modifier) {
                     AndroidView(factory = { ctx ->
                         GLSurfaceView(ctx).apply {
                             preserveEGLContextOnPause = true; setEGLContextClientVersion(2)
@@ -355,7 +366,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     }, modifier = Modifier.fillMaxSize())
                     ArReticle(c)
                 }
-                ArControls(c, compact = mode != Mode.NONE)
+                if (!collapsed) ArControls(c)
             }
             if (!arReady && !simulatedArHeader) Text("Caméra AR indisponible : ${st.arStatus}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp))
         }
@@ -456,16 +467,18 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         // Portrait with a short height (keyboard open with adjustResize): while typing, the camera block is clipped to nothing
         // (still composed, so the camera GL view is not torn down) and the map yields room to the input panel. Landscape keeps it.
         val short = maxHeight < 480.dp && maxWidth <= maxHeight
-        val topMax = if (short) 0.dp else if (maxWidth > maxHeight) maxHeight * 0.6f else maxHeight * 0.55f
+        val topMax = if (short || fullMap) 0.dp else if (maxWidth > maxHeight) maxHeight * 0.6f else maxHeight * 0.55f
         val statusBlock: @Composable (Modifier) -> Unit = { m ->
             Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
         }
+        // Full-screen map in landscape: the side column keeps just enough width for the 7 action labels (≥ 52 dp each).
+        val sideW = if (fullMap) maxOf(maxWidth * 0.2f, 364.dp).coerceAtMost(maxWidth * 0.45f) else maxWidth * 0.45f
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
-                map(Modifier.weight(0.55f).fillMaxHeight())
-                Column(Modifier.weight(0.45f).fillMaxHeight()) {
+                map(Modifier.weight(1f).fillMaxHeight())
+                Column(Modifier.width(sideW).fillMaxHeight()) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
-                    HorizontalDivider(); panel(Modifier.weight(1f).padding(horizontal = 8.dp))
+                    HorizontalDivider(); if (fullMap) Spacer(Modifier.weight(1f)) else panel(Modifier.weight(1f).padding(horizontal = 8.dp))
                     resumeBanner()
                     messageBar()
                     actionBar()
@@ -475,9 +488,11 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Column(Modifier.fillMaxSize()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow() }
                 statusBlock(Modifier)
-                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else 0.55f
-                map(Modifier.fillMaxWidth().weight(1f - panelW))
-                panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
+                // v176g § 3: Annoter / Export keep ≥ 50 % of the screen for the map with the panel open (camera band of 96 dp).
+                val panelW = if (short) 0.75f else if (mode == Mode.NONE) 0.4f else if (mode == Mode.DRAW || mode == Mode.EXPORT) 0.25f else 0.55f
+                // One call site for the map whatever fullMap, so toggling it keeps the map view (position and zoom).
+                map(Modifier.fillMaxWidth().weight(if (fullMap) 1f else 1f - panelW))
+                if (!fullMap) panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
                 resumeBanner()
                 messageBar()
                 actionBar()
@@ -488,12 +503,14 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
 
 /** v176c: 4:3 camera frame on the full available width; its description states the share of the screen width (checked by Maestro). */
 @Composable
-private fun CameraFrame(aspect: Float, modifier: Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+private fun CameraFrame(aspect: Float, collapsed: Boolean, modifier: Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
     var ratio by remember { mutableStateOf(0f) }
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().aspectRatio(aspect)
+    // Same tree whatever [collapsed] (only the modifiers change), so the GLSurfaceView is never torn down. session_ar_camera = real or simulated.
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().then(if (collapsed) Modifier.height(96.dp).testTag("session_camera_repliee") else Modifier.aspectRatio(aspect).testTag("session_ar_camera"))
         .onGloballyPositioned { ratio = it.size.width.toFloat() / maxOf(1, it.findRootCoordinates().size.width) }
-        .semantics { contentDescription = if (ratio >= 0.98f) "Caméra pleine largeur" else "Caméra ${(ratio * 100).toInt()} % de la largeur" }
-        .then(modifier), content = content)
+        .semantics { contentDescription = if (collapsed) "Caméra repliée" else if (ratio >= 0.98f) "Caméra pleine largeur" else "Caméra ${(ratio * 100).toInt()} % de la largeur" }) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().then(modifier), content = content)
+    }
 }
 
 /** TRK pill colour (green = tracking, orange = limited, red = lost, grey = off) and the full label shown on tap. */
@@ -534,7 +551,7 @@ private fun TiltText(c: SessionController) {
 
 /** Session > Calibrer / Recaler > tableau: one row per point (n°, time, plan coordinates, residual, status, « Supprimer »). */
 @Composable
-private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String, previous: List<ControlRow> = emptyList()) {
+private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: String, previous: List<ControlRow> = emptyList(), onNext: (() -> Unit)? = null) {
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT) }
     Column(Modifier.fillMaxWidth().background(Color(0x11000000)).padding(4.dp).testTag(prefix + "_tableau")) {
         Text(if (rows.isEmpty() && previous.isEmpty()) "Aucun point." else "N° · heure · E / N (m) · résidu · statut", style = MaterialTheme.typography.labelSmall)
@@ -544,6 +561,18 @@ private fun ControlTable(c: SessionController, rows: List<ControlRow>, prefix: S
                 Text("${r.n} · ${fmt.format(java.util.Date(r.e.t.utcEpochMs))} · " + "%.1f / %.1f".format(site.e, site.n) + " · " + (r.residualM?.let { "%.2f m".format(it) } ?: "—") + " · " + r.status,
                     Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = if (r.status == "rejeté") Color(0xFFB00020) else Color.Unspecified)
                 TextButton({ c.removeControlPoint(r.e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_supprimer_" + r.n)) { Text("Supprimer") }
+            }
+        }
+        // Build 199 anomaly: once point 1 is set, the next line is always shown and can be set from the table, even while a
+        // correspondence notice (contradictory point, « Recaler quand même ») is displayed.
+        if (onNext != null && rows.isNotEmpty()) {
+            val n = rows.maxOf { it.n } + 1
+            val notice = c.state.collectAsState().value.forcible != null
+            // Own tag (…_ligne_N_a_poser): …_ligne_N keeps meaning « point N recorded ».
+            Row(Modifier.fillMaxWidth().testTag(prefix + "_ligne_" + n + "_a_poser"), verticalAlignment = Alignment.CenterVertically) {
+                Text("$n · à poser" + if (notice) " · correspondance à vérifier (voir l'avis)" else " · touchez le point sur la carte",
+                    Modifier.weight(1f).testTag(prefix + "_a_poser"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onNext, modifier = Modifier.heightIn(min = 48.dp).testTag(prefix + "_poser_" + n)) { Text("Poser") }
             }
         }
         // D13: points of the earlier AR frame, kept for the record (not used by the live solve, not deletable here).
@@ -568,14 +597,15 @@ private fun CalibratePanel(c: SessionController, pickedTxt: String, ref: (String
         OutlinedTextField(heading, { heading = it }, label = { Text("Cap de visée du 1er point (°)") }, modifier = Modifier.testTag("session_calibrer_cap_de_visee"))
         OutlinedButton(enabled = compass != null, onClick = { heading = "%.1f".format(java.util.Locale.ROOT, compass ?: 0.0) }, modifier = Modifier.testTag("session_calibrer_boussole_0f_prec")) { Text(compass?.let { "Boussole %.0f° (préc. ${c.sensors.headingAccuracy})".format(it) } ?: "Boussole indisponible") }
     }
-    Button(onClick = {
-        val r = ref("Calibrage ${rows.size + 1}") ?: return@Button
+    val validate: () -> Unit = validate@{
+        val r = ref("Calibrage ${rows.size + 1}") ?: return@validate
         val h = if (rows.isEmpty()) heading.replace(',', '.').toDoubleOrNull() else null
         c.addControlPoint("CALIBRATION", r, h, h?.let { if (compass != null && "%.1f".format(java.util.Locale.ROOT, compass) == heading) "COMPASS_ROTATION_VECTOR" else "MANUAL" })
-    }, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
+    }
+    Button(onClick = validate, modifier = Modifier.testTag("session_calibrer_valider_la_calibration")) { Text("Valider le point ${rows.size + 1}") }
     ForceOverride(c, "CALIBRATION", "session_calibrer")
     if (rows.size >= 2) OutlinedButton({ ref("Contrôle")?.let { c.controlCheck(it) } }, modifier = Modifier.testTag("session_calibrer_controler_ici")) { Text("Contrôler ici (hors calcul)") }
-    ControlTable(c, rows, "session_calibrer", c.previousControlRows())
+    ControlTable(c, rows, "session_calibrer", c.previousControlRows(), onNext = validate)
     Text("Conseil : au moins 3 points, idéalement 4 à 6 aux extrémités du bâtiment, jamais alignés, + 1 point de contrôle.",
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("session_calibrer_conseil"))
     c.calibrationGrade()?.let { g ->
@@ -759,6 +789,39 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     var label by remember { mutableStateOf("S" + java.text.SimpleDateFormat("HHmm", java.util.Locale.ROOT).format(java.util.Date())) }
     var secours by remember { mutableStateOf(false) }
     var cale by remember { mutableStateOf<Int?>(null) }
+    // v176g 1e: one synchro process — this tab reads the same NearbyMesh state as Accueil > Sync (banner, role, slaves, journal).
+    val mesh by app.lumisite.android.sync.NearbyMesh.state.collectAsState()
+    val startRole = rememberSyncStarter()
+    val masterOn = mesh.running && mesh.role == app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE
+    val nConnected = mesh.peers.count { it.link == app.lumisite.core.sync.Link.CONNECTED }
+    if (mesh.running) {
+        SyncBanner(mesh)
+        Text("Rôle : " + if (masterOn) "Saisie (maître)" else "Captation-synchro (esclave)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("session_synchro_role"))
+        mesh.peers.forEach { p -> Text("${p.name} · ${p.link.label} · " + if (p.clock == app.lumisite.core.sync.Clock.ALIGNED) app.lumisite.core.sync.SyncDisplay.alignmentText(p.offsetNs, p.uncertaintyNs) else p.clock.label, style = MaterialTheme.typography.bodySmall) }
+    } else {
+        Text("Synchro maître non lancée (même fonction que Accueil > Sync).", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton({ startRole(app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE) }, modifier = Modifier.testTag("session_synchro_demarrer_maitre")) { Text("Démarrer la synchro maître") }
+    }
+    if (masterOn) Button(enabled = !busy && !mesh.roundBusy && nConnected > 0, onClick = {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return@Button }
+        busy = true; result = "Top en cours…"
+        scope.launch {
+            result = withContext(Dispatchers.IO) {
+                try {
+                    val prefs = activity.getSharedPreferences("lumisite_sync", android.content.Context.MODE_PRIVATE)
+                    val counter = (prefs.getInt("counter", 0) + 1) and 0xFF
+                    prefs.edit().putInt("counter", counter).apply()
+                    val wav = File(c.sessionDir(), "sync_${label}_${System.currentTimeMillis()}.wav")
+                    val r = app.lumisite.android.sync.NearbyMesh.masterRound(activity, counter, wav)
+                    cale = c.syncRound(label, r, counter)
+                    "Top terminé : résultat par téléphone dans le journal."
+                } catch (e: Exception) { "Échec audio : ${e.message}" }
+            }
+            busy = false
+        }
+    }, modifier = Modifier.fillMaxWidth().testTag("session_synchro_top")) { Text("Lancer un top de synchro ($nConnected esclave(s))") }
+    if (masterOn) TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (!masterOn || secours) {
     Text("Synchronisation : touchez « Synchroniser » sur tous les appareils à quelques secondes d'intervalle. Chacun écoute ${AudioSync.WINDOW_MS / 1000} s et émet son chirp (2–6 kHz, 60 ms) suivi de son identifiant.", style = MaterialTheme.typography.labelLarge)
     Text("L'enregistrement audio (WAV) est toujours gardé dans le dossier de la session.", style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(label, { label = it.uppercase().take(12) }, label = { Text("Code de synchro (généré, facultatif)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_de_synchro_genere_facultati"))
@@ -786,9 +849,10 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
             if ((cale ?: 0) < 2) secours = true
         }
     }, modifier = Modifier.testTag("session_synchro_synchroniser")) { Text("Synchroniser") }
+    }
     // Locally only "heard" is known; "Calé" needs the other journal (SyncReciprocity, shown after import).
     cale?.let { n -> Text(if (n >= 2) "Entendu (${n - 1} autre(s)), à confirmer" else "Non calé", color = if (n >= 2) Color(0xFFE65100) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium) }
-    TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
+    if (!masterOn) TextButton({ secours = !secours }, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme")) { Text(if (secours) "Masquer le secours" else "Secours…") }
     if (secours) {
         OutlinedTextField(code, { code = it.uppercase().take(12) }, label = { Text("Code du top manuel (même code partout)") }, singleLine = true, modifier = Modifier.testTag("session_synchro_code_du_top_manuel_meme_2"))
         OutlinedButton(enabled = code.isNotBlank(), onClick = { c.syncManual(code) }, modifier = Modifier.testTag("session_synchro_top_manuel_appuyer_au_signal")) { Text("TOP manuel (appuyer au signal)") }
@@ -797,6 +861,7 @@ private fun SyncPanel(activity: Activity, c: SessionController) {
     val st by c.state.collectAsState()
     Text("Événements de synchro : " + st.events.filterIsInstance<SyncEvent>().joinToString { "${it.syncCode}/${it.method}" }.ifEmpty { "aucun" }, style = MaterialTheme.typography.bodySmall)
     result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    SyncJournal(mesh, "session_synchro_journal")
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

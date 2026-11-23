@@ -14,10 +14,14 @@ name: "v176a Detail compteurs et famille actuelle"
     timeout: 20000
 - waitForAnimationToEnd
 - tapOn: { id: ".*:id/shutter_button" }
-- extendedWaitUntil:
-    visible: { id: ".*:id/(done_button|shutter_button)" }
-    timeout: 20000
-- tapOn: { id: ".*:id/done_button", optional: true }
+# Confirmation de l'appareil photo système : l'écran de revue arrive après un délai variable (Google Camera sur Pixel),
+# on réessaie la validation jusqu'au retour dans l'appli (anomalie du 17/11 : écran resté sur la confirmation).
+- repeat:
+    while: { notVisible: "Photo vue \\(1\\)" }
+    times: 15
+    commands:
+      - tapOn: { id: ".*:id/(done_button|btn_done|confirm_button|ok_button)", optional: true }
+      - waitForAnimationToEnd: { timeout: 2000 }
 - extendedWaitUntil:
     visible: "Photo vue \\(1\\)"
     timeout: 20000

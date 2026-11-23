@@ -24,6 +24,9 @@ name: "Scénario 1.1 — Créer un relevé"
 - scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
 - assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
+# Le nom reste « Maestro bureau » : les coordonnées ne s'y ajoutent jamais (anomalie du 22/11).
+- scrollUntilVisible: { element: { id: "nouveau_site_nom_du_site" }, direction: UP }
+- assertVisible: { id: "nouveau_site_nom_du_site", text: "Maestro bureau" }
 - scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
 - tapOn: { id: "nouveau_site_creer" }
 # Site : le titre complet est affiché (colonne unique en portrait, jamais coupé lettre par lettre).

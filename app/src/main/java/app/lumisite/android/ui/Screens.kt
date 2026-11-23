@@ -2,6 +2,7 @@ package app.lumisite.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -95,7 +97,8 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
     }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text("LumiSite : diagnostic éclairage", style = MaterialTheme.typography.headlineSmall)
-        Text(appVersionLabel(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_version"))
+        Text(buildLabel(), style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("accueil_version"))
+        Text(appVersionLabel(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("accueil_version_detail"))
         Text("Toutes les données restent sur l'appareil jusqu'à l'export.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -104,6 +107,12 @@ fun HomeScreen(repo: Repository, onOpen: (Site) -> Unit, onNew: () -> Unit, onSe
             OutlinedButton(onClick = onSync, modifier = Modifier.testTag("accueil_synchro")) { Text("Sync", maxLines = 1) }
         }
         exportMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+        val mesh by app.lumisite.android.sync.NearbyMesh.state.collectAsState()
+        if (mesh.running && mesh.role == app.lumisite.core.sync.SyncRole2.SAISIE_MAITRE) {
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.AssistChip(onClick = onSync, label = { Text(app.lumisite.core.sync.SyncDisplay.homeChip(mesh.peers.count { it.link == app.lumisite.core.sync.Link.CONNECTED })) },
+                modifier = Modifier.testTag("accueil_synchro_active"))
+        }
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sites) { s ->
@@ -133,6 +142,9 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
     var query by remember { mutableStateOf("") }
     var lastSearched by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Geocoding.Place>>(emptyList()) }
+    val siteCtx = androidx.compose.ui.platform.LocalContext.current
+    var recentAddresses by remember { mutableStateOf(app.lumisite.android.data.AddressStore.load(siteCtx)) }
+    val here = remember { app.lumisite.android.data.AddressStore.lastPosition(siteCtx) }
     var latText by remember { mutableStateOf("") }
     var lonText by remember { mutableStateOf("") }
     var origin by remember { mutableStateOf<LatLon?>(null) }
@@ -182,7 +194,7 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
         if (busy || q.length < 3 || q == lastSearched) return
         lastSearched = q; busy = true; status = null
         scope.launch {
-            try { results = withContext(Dispatchers.IO) { OsmClient.search(q) }; if (results.isEmpty()) status = "Aucun résultat." }
+            try { results = withContext(Dispatchers.IO) { OsmClient.search(q, here) }; if (results.isEmpty()) status = "Aucun résultat." }
             catch (e: Exception) { status = "Recherche impossible (réseau ?) : ${e.message}. Utilisez des coordonnées ou la carte." }
             finally { busy = false }
         }
@@ -292,24 +304,50 @@ fun SiteEditorScreen(recentZones: List<RecentZone>, stageOsmSource: (OsmClient.F
             }
             OutlinedTextField(
                 name, { name = it }, label = { Text("Nom du site *") }, modifier = Modifier.testTag("nouveau_site_nom_du_site").fillMaxWidth(), singleLine = true,
+                // Done closes the keyboard and drops the focus, so nothing typed afterwards (coordinates) can land in the name.
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }),
                 isError = name.isBlank(), supportingText = { if (name.isBlank()) Text("Nom de projet requis") },
             )
             HorizontalDivider()
             Text("1. Rechercher (IGN, puis Nominatim), saisir des coordonnées ou toucher la carte", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(
-                query, { query = it }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { lastSearched = ""; doSearch() }),
+                query, { query = it; if (it != lastSearched) results = emptyList() }, label = { Text("Adresse / lieu") }, modifier = Modifier.testTag("nouveau_site_adresse_lieu").fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
+                    if (query.isNotBlank()) recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, query, null, null)
+                    lastSearched = ""; doSearch()
+                }),
             )
+            // v176g § 4: recent addresses on this phone, from the first letter and without network (nearest first, then most recent).
+            if (results.isEmpty()) app.lumisite.core.osm.AddressHistory.suggest(recentAddresses, query, here?.first, here?.second)
+                .filter { app.lumisite.core.osm.AddressHistory.normalize(it.text) != app.lumisite.core.osm.AddressHistory.normalize(query) || it.lat != null }
+                .forEachIndexed { i, a ->
+                    Text("↺ " + a.text, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                        focusManager.clearFocus()
+                        query = a.text; lastSearched = a.text // known address: no network search needed
+                        recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, a.text, a.lat, a.lon)
+                        val la = a.lat; val lo = a.lon
+                        if (la != null && lo != null) {
+                            setOrigin(LatLon(la, lo), "RECENT"); zoom = 18.0; missingOrigin = false
+                            if (name.isBlank()) name = a.text.substringBefore(",")
+                        } else { lastSearched = ""; doSearch() }
+                    }.padding(horizontal = 6.dp, vertical = 12.dp).testTag("nouveau_site_adresse_recente_$i"), style = MaterialTheme.typography.bodyMedium)
+                }
             results.forEach { r ->
                 Text("${r.name} (${r.source})", Modifier.fillMaxWidth().clickable {
                     setOrigin(LatLon(r.lat, r.lon), "${r.source} ${r.ref ?: ""}".trim()); zoom = 18.0; missingOrigin = false
+                    recentAddresses = app.lumisite.android.data.AddressStore.record(siteCtx, r.name, r.lat, r.lon)
                     if (name.isBlank()) name = r.name.substringBefore(","); results = emptyList()
                 }.padding(6.dp), style = MaterialTheme.typography.bodySmall)
             }
             Row {
-                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
+                OutlinedTextField(latText, { latText = it }, label = { Text("Latitude (WGS84)") }, isError = missingOrigin, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }), modifier = Modifier.testTag("nouveau_site_latitude_wgs84").weight(1f))
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
+                OutlinedTextField(lonText, { lonText = it }, label = { Text("Longitude") }, isError = missingOrigin, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }), modifier = Modifier.testTag("nouveau_site_longitude").weight(1f))
             }
             OutlinedButton(onClick = {
                 focusManager.clearFocus() // otherwise the focused field is brought back into view whenever the form grows (OSM results)
@@ -455,4 +493,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
 }
 
 /** Accueil and Réglages > À propos: « v0.3.0-alpha (build <versionCode>) ». */
+/** « Build 210 · v176g »: versionCode + package name (BuildConfig.PAQUET, from the CI branch); « Build 210 » alone if unknown. */
+fun buildLabel(): String = app.lumisite.core.BuildLabel.format(app.lumisite.android.BuildConfig.VERSION_CODE, app.lumisite.android.BuildConfig.PAQUET)
+
 fun appVersionLabel(): String = "v${app.lumisite.android.BuildConfig.VERSION_NAME} (build ${app.lumisite.android.BuildConfig.VERSION_CODE})"

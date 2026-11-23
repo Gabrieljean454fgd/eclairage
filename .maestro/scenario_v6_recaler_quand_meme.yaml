@@ -40,7 +40,7 @@ name: "Calibrage recaler quand meme"
       - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
 # Marge : le bouton doit être entièrement sous la carte, sinon l'appui tombe sur la carte.
 - swipe: { start: "50%,74%", end: "50%,86%", duration: 600 }
-- tapOn: { point: "30%,50%" }
+- tapOn: { id: "session_carte", point: "20%,50%" }  # point relatif à la carte (la caméra garde sa hauteur depuis v176g)
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
 - extendedWaitUntil:
     visible: ".*Correspondance contradictoire.*"
@@ -58,11 +58,12 @@ name: "Calibrage recaler quand meme"
     visible: ".*Point forcé enregistré \\(cause : perte de suivi ARCore.*"
     timeout: 10000
 # v176c : caméra pleine largeur, panneau plus bas : défiler jusqu'au texte de la ligne 3, pas seulement jusqu'à son bord.
+# v176g : bloc caméra de hauteur constante, panneau plus court : petits pas, jusqu'à la ligne entière (pas seulement son texte).
 - repeat:
-    while: { notVisible: { text: "3 · .* · forcé", childOf: { id: "session_calibrer_ligne_3" } } }
-    times: 8
+    while: { notVisible: { id: "session_calibrer_ligne_3" } }
+    times: 12
     commands:
-      - swipe: { start: "50%,74%", end: "50%,62%", duration: 600 }
+      - swipe: { start: "50%,76%", end: "50%,70%", duration: 600 }
 - assertVisible: { id: "session_calibrer_ligne_3" }
 - assertVisible: { text: "3 · .* · forcé", childOf: { id: "session_calibrer_ligne_3" } }
 - assertNotVisible: { id: "session_calibrer_recaler_quand_meme" }

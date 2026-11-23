@@ -53,7 +53,7 @@ enum class PositionMethod { AR_PLANE, AR_LAST_PLANE, AR_FLOOR_ESTIMATE, AR_CAMER
     }
 }
 
-enum class PositionQuality(val label: String) { GOOD("bonne"), MEDIUM("moyenne"), LOW("faible"), MANUAL("manuelle"), NONE("aucune") }
+enum class PositionQuality(val label: String) { GOOD("bonne"), MEDIUM("moyenne"), LOW("faible"), ESTIMATED("estimée"), MANUAL("manuelle"), NONE("aucune") }
 
 /** Provenance of every position: method, time (monotonic ns + time base, UTC ms for display), frame, quality. */
 data class PositionProvenance(
@@ -75,6 +75,7 @@ object Provenance {
         val quality = when {
             r.site == null -> PositionQuality.NONE
             manual -> PositionQuality.MANUAL
+            s.positionSource == app.lumisite.core.compute.ArPlanes.CEILING_ESTIMATED -> PositionQuality.ESTIMATED
             method == PositionMethod.AR_PLANE -> PositionQuality.GOOD
             method == PositionMethod.AR_LAST_PLANE || method == PositionMethod.AR_FLOOR_ESTIMATE -> PositionQuality.MEDIUM
             else -> PositionQuality.LOW

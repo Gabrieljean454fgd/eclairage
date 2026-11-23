@@ -20,6 +20,8 @@ for f in .maestro/*.yaml; do
     # Appli arrêtée et vidée avant chaque parcours : un parcours qui s'est fini dans Session laisse sinon, sur émulateur,
     # un écran noir de plus de 90 s au lancement suivant (non reproduit à la main, ni signalé sur le Pixel 7).
     adb shell am force-stop app.lumisite.android; adb shell pm clear app.lumisite.android >/dev/null; adb shell input keyevent KEYCODE_HOME; sleep 2
+    # Esclave simulé (APK debug) pour ce seul parcours : les autres doivent rester à « 0 appareil ».
+    case "$name" in *esclave_simule*) adb shell "settings put global lumisite_simuler_esclave 'Xiaomi 13T Pro'";; *) adb shell settings delete global lumisite_simuler_esclave >/dev/null 2>&1;; esac
     if maestro test "$f" --format junit --output "maestro-out/${name}-${attempt}.xml" --debug-output "maestro-out/${name}-${attempt}" > "maestro-out/${name}-${attempt}.log" 2>&1; then
       ok=1; break
     fi
@@ -35,7 +37,7 @@ for f in .maestro/*.yaml; do
 done
 # LOT 1.5 : conservation des données à la mise à jour. Version N = dernière pré-release publiée de la même étape (même clé
 # de test), session créée, arrêt brutal, puis adb install -r de cette version N+1 : la session doit rester lisible et exportable.
-N_ETAPE=$(basename "$APK" | sed -nE 's/^lumisite-etape([0-9]+)-.*/\1/p')
+N_ETAPE=${N_ETAPE:-$(basename "$APK" | sed -nE 's/^lumisite-etape([0-9]+)-.*/\1/p')}
 PREV_TAG=$(gh release list --limit 50 --json tagName -q ".[] | .tagName" 2>/dev/null | grep -E "^etape${N_ETAPE}-" | head -1)
 if [ -n "$PREV_TAG" ] && gh release download "$PREV_TAG" -p '*.apk' -D prev >/dev/null 2>&1; then
   PREV_APK=$(ls prev/*.apk | head -1)

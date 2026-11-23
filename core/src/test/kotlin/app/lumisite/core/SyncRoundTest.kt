@@ -28,7 +28,7 @@ class SyncRoundTest {
         val a = SyncRoundCalc.offset("r1", 7, "018A", masterHeard, "02B7", slaveResult())
         assertEquals(off, a.offsetNs)
         assertEquals(SyncRoundCalc.UNCERTAINTY_NS, a.uncertaintyNs)
-        assertEquals("Xiaomi : entendu, décalage 12,3 ms ± 1,0", a.text("Xiaomi").replace('.', ','))
+        assertEquals("Xiaomi : entendu, aligné à ± 1,0 ms", a.text("Xiaomi"))
     }
 
     @Test fun oneWayHearingGivesNoOffset() {

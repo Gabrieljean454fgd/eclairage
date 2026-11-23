@@ -1,0 +1,26 @@
+# v176g § 1a/1c/1g : esclave simulé (APK debug, `adb shell settings put global lumisite_simuler_esclave "Xiaomi 13T Pro"`,
+# posé par .github/scripts/maestro-ci.sh pour ce seul parcours). Le maître affiche son nom lisible, « Connecté » en vert,
+# l'alignement « aligné à ± x ms », jamais le décalage brut entre horloges monotones.
+appId: app.lumisite.android
+name: b199 synchro nom esclave simule
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_maitre" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_bandeau_connexion", text: "Connecté : Xiaomi 13T Pro \\(SIMU\\).*" }
+    timeout: 20000
+- assertVisible: { id: "synchro_bandeau_connexion", text: "Connecté : Xiaomi 13T Pro \\(SIMU\\) · synchronisé" }
+- scrollUntilVisible: { element: { id: "synchro_esclave_1_alignement" } }
+- assertVisible: { id: "synchro_esclave_1_nom", text: "Xiaomi 13T Pro \\(SIMU\\)" }
+- assertVisible: { id: "synchro_esclave_1_alignement", text: "Alignement temporel : aligné à ± [0-9]+,[0-9] ms" }
+- assertNotVisible: ".*décalage.*"
+- assertNotVisible: ".*987654321.*"
+- back
+- assertVisible: "Sync maître active · 1 esclave\\(s\\)"

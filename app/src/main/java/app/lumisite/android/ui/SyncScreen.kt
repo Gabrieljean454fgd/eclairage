@@ -35,17 +35,17 @@ import app.lumisite.core.sync.Clock
 import app.lumisite.core.sync.Link
 import app.lumisite.core.sync.SyncRole2
 import app.lumisite.core.sync.MasterMesh
+import app.lumisite.core.sync.SyncDisplay
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** Accueil > Synchro (paquet 2): role choice, then the 4 separate states (connexion, alignement, capture, repère). */
+/** Starts a Nearby role after the runtime permissions: same function for Accueil > Sync and Session > Synchro. */
 @Composable
-fun SyncScreen(onBack: () -> Unit) {
+fun rememberSyncStarter(): (SyncRole2) -> Unit {
     val ctx = LocalContext.current
-    val st by NearbyMesh.state.collectAsState()
     var wanted by remember { mutableStateOf<SyncRole2?>(null) }
     val perms = remember {
         buildList {
@@ -56,10 +56,55 @@ fun SyncScreen(onBack: () -> Unit) {
         }.toTypedArray()
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { wanted?.let { NearbyMesh.start(ctx, it) } }
-    fun begin(role: SyncRole2) {
+    return { role ->
         wanted = role
-        if (perms.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }) NearbyMesh.start(ctx, role) else launcher.launch(perms)
+        // Notification « Synchro LumiSite active » of the foreground service (Android 13+), asked with the others.
+        val all = if (Build.VERSION.SDK_INT >= 33) perms + Manifest.permission.POST_NOTIFICATIONS else perms
+        if (all.all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }) NearbyMesh.start(ctx, role) else launcher.launch(all)
     }
+}
+
+/** Monotonic « now », refreshed every second: « il y a N s » keeps counting without recomposition from the mesh. */
+@Composable
+fun rememberMonoNow(): Long {
+    val t by produceState(app.lumisite.android.data.AndroidClock.monotonicNs()) {
+        while (true) { kotlinx.coroutines.delay(1000); value = app.lumisite.android.data.AndroidClock.monotonicNs() }
+    }
+    return t
+}
+
+/** v176g 1b: single connection banner on top of Accueil > Sync and Session > Synchro (green / orange / red). */
+@Composable
+fun SyncBanner(st: NearbyMesh.UiState) {
+    val now = rememberMonoNow()
+    val b = if (st.role == SyncRole2.SAISIE_MAITRE) SyncDisplay.masterBanner(st.peers) else {
+        val connected = st.slaveMaster?.endsWith(" (connecté)") == true
+        when {
+            st.slaveMaster == null -> SyncDisplay.slaveBanner(null, null)
+            !connected -> SyncDisplay.Banner("Connexion à ${st.slaveMaster.removeSuffix(" (connexion…)")}…", SyncDisplay.Tone.ORANGE)
+            else -> SyncDisplay.slaveBanner(st.slaveMaster.removeSuffix(" (connecté)"), st.slaveLastPingNs.takeIf { it > 0 }?.let { (now - it) / 1_000_000_000 })
+        }
+    }
+    val bg = when (b.tone) { SyncDisplay.Tone.VERT -> Color(0xFF2E7D32); SyncDisplay.Tone.ORANGE -> Color(0xFFE65100); SyncDisplay.Tone.ROUGE -> Color(0xFFC62828) }
+    androidx.compose.material3.Surface(color = bg, contentColor = Color.White, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+        Text(b.text, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(10.dp).testTag("synchro_bandeau_connexion"))
+    }
+}
+
+/** Same journal on both screens (15 latest lines, most recent first). */
+@Composable
+fun SyncJournal(st: NearbyMesh.UiState, tag: String) {
+    if (st.log.isEmpty()) return
+    Text("Journal (horodaté, le plus récent en haut)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag(tag))
+    st.log.takeLast(15).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
+}
+
+/** Accueil > Synchro (paquet 2): role choice, then the 4 separate states (connexion, alignement, capture, repère). */
+@Composable
+fun SyncScreen(onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack) // system Back returns to Accueil (the sync keeps running), instead of leaving the app
+    val st by NearbyMesh.state.collectAsState()
+    val begin = rememberSyncStarter()
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Sync", style = MaterialTheme.typography.headlineSmall)
         Text("Réseau local (Nearby, sans cloud). Le maître fait le relevé ; les esclaves envoient horodatages et médias.", style = MaterialTheme.typography.bodySmall)
@@ -71,16 +116,15 @@ fun SyncScreen(onBack: () -> Unit) {
         } else {
             Text("Mode : " + if (st.role == SyncRole2.SAISIE_MAITRE) "Saisie (maître)" else "Captation-synchro (esclave)",
                 style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_mode_actif"))
-            Text(st.radio, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_radio"))
-            Prerequisites()
+            Text("Ce téléphone : ${st.selfName}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_nom_ce_telephone"))
+            SyncBanner(st)
             if (st.role == SyncRole2.SAISIE_MAITRE) MasterPanel(st) else SlavePanel(st)
+            if (!st.foreground) Text("Service de premier plan refusé : la synchro peut être coupée écran éteint (voir le journal).",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_service_refuse"))
             OutlinedButton({ NearbyMesh.stop() }, modifier = Modifier.testTag("synchro_arreter")) { Text("Arrêter la synchro") }
         }
         OutlinedButton(onBack, modifier = Modifier.testTag("synchro_retour")) { Text("Retour") }
-        if (st.log.isNotEmpty()) {
-            Text("Journal (horodaté, le plus récent en haut)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("synchro_journal"))
-            st.log.takeLast(15).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
-        }
+        SyncJournal(st, "synchro_journal")
     }
 }
 
@@ -92,6 +136,7 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
         color = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
     Text(if (ok) "synchronisé" else "non synchronisé", modifier = Modifier.testTag("synchro_etat_global"),
         color = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
+    Prerequisites()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val connected = st.peers.count { it.link == Link.CONNECTED }
@@ -106,8 +151,8 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
             prefs.edit().putInt("counter", counter).apply()
             runCatching { NearbyMesh.masterRound(ctx, counter, null) }
         }
-    }, modifier = Modifier.fillMaxWidth().testTag("synchro_top")) { Text("Lancer un top de synchro (tous les téléphones émettent)") }
-    Text(if (connected == 0) "Aucun esclave connecté : le top attend au moins un téléphone en « Captation-synchro (esclave) »." else (st.round ?: "Chaque téléphone écoute ${app.lumisite.android.capture.AudioSync.WINDOW_MS / 1000} s et émet son chirp ; le décalage s'affiche par téléphone."),
+    }, modifier = Modifier.fillMaxWidth().testTag("synchro_top")) { Text("Lancer un top de synchro ($connected esclave(s))") }
+    Text(if (connected == 0) "Aucun esclave connecté : le top attend au moins un téléphone en « Captation-synchro (esclave) »." else (st.round ?: "Chaque téléphone écoute ${app.lumisite.android.capture.AudioSync.WINDOW_MS / 1000} s et émet son chirp ; l'alignement s'affiche par téléphone."),
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_top_etat"))
     if (micRefused) Text("Micro refusé : le top de synchro ne peut pas écouter. Autorisez le micro (Paramètres > Applications > LumiSite > Autorisations).",
         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("synchro_micro_refuse"))
@@ -116,14 +161,16 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
         Button({ NearbyMesh.startCapture() }, enabled = !st.capturing, modifier = Modifier.testTag("synchro_demarrer_captures")) { Text("Démarrer les captures") }
         OutlinedButton({ NearbyMesh.stopCapture() }, enabled = st.capturing, modifier = Modifier.testTag("synchro_arreter_captures")) { Text("Arrêter") }
     }
+    val now = rememberMonoNow()
     st.peers.forEachIndexed { i, p ->
         Card(Modifier.fillMaxWidth().testTag("synchro_esclave_${i + 1}")) {
             Column(Modifier.padding(8.dp)) {
-                Text(p.name, style = MaterialTheme.typography.titleSmall)
+                Text(p.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("synchro_esclave_${i + 1}_nom"))
                 Text("Connexion : ${p.link.label}", color = if (p.link == Link.LOST) MaterialTheme.colorScheme.error else Color.Unspecified)
-                Text("Alignement temporel : ${p.clock.label}" + (if (p.clock == Clock.ALIGNED) " (décalage %.1f ms ± %.1f ms)".format((p.offsetNs ?: 0) / 1e6, (p.uncertaintyNs ?: 0) / 1e6) else ""))
+                Text("Alignement temporel : " + if (p.clock == Clock.ALIGNED) SyncDisplay.alignmentText(p.offsetNs, p.uncertaintyNs) else p.clock.label,
+                    modifier = Modifier.testTag("synchro_esclave_${i + 1}_alignement"))
                 Text("Capture : ${if (p.link == Link.LOST) "inconnue (perdu)" else p.capture.label}" + if (p.media > 0) " · ${p.media} média(s)" else "")
-                Text("Dernier message : il y a ${((app.lumisite.android.data.AndroidClock.monotonicNs() - p.lastHeardNs) / 1_000_000_000).coerceAtLeast(0)} s (ping toutes les ${MasterMesh.PING_PERIOD_NS / 1_000_000_000} s, perdu après ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s)", style = MaterialTheme.typography.bodySmall)
+                Text("Dernier message : il y a ${((now - p.lastHeardNs) / 1_000_000_000).coerceAtLeast(0)} s (ping toutes les ${MasterMesh.PING_PERIOD_NS / 1_000_000_000} s, perdu après ${MasterMesh.LOST_AFTER_NS / 1_000_000_000} s)", style = MaterialTheme.typography.bodySmall)
                 p.audio?.let { a -> Text("Top : " + a.text(p.name), color = if (a.offsetNs != null) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error) }
                 if (p.sensors.isNotEmpty()) Text("Capteurs : " + p.sensors.filter { it.active }.joinToString { it.label }.ifEmpty { "aucun actif" }, style = MaterialTheme.typography.bodySmall)
                 Text("Repère spatial : ${p.frame.label}", style = MaterialTheme.typography.bodySmall)
@@ -134,6 +181,7 @@ private fun MasterPanel(st: NearbyMesh.UiState) {
 
 @Composable
 private fun SlavePanel(st: NearbyMesh.UiState) {
+    Prerequisites()
     Text("Connexion : " + (st.slaveMaster ?: "aucun maître"), modifier = Modifier.testTag("synchro_esclave_connexion"))
     Text("Alignement temporel : calculé par le maître (pings reçus)" + if (st.slaveLastPingNs > 0) "" else " · aucun ping reçu")
     Text("Capture : ${st.slaveCapture.label}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("synchro_esclave_capture"))

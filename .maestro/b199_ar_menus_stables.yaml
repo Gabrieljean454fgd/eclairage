@@ -1,0 +1,32 @@
+# v176g § 2a/2b : plus de puces Sol / Mur / Plafond (support déduit de l'inclinaison), rangée Contours / Torche / Mesure toujours
+# présente et bloc caméra de même hauteur dans Aucun / Calibrer / Relevé / Synchro ; hauteur sous plafond saisie une fois par site.
+appId: app.lumisite.android
+name: "b199 AR menus stables"
+---
+- runFlow: scenario1_1_creer_releve.yaml
+- assertNotVisible: { id: "session_ar_surface_sol" }
+- assertNotVisible: { id: "session_ar_surface_mur" }
+- assertNotVisible: { id: "session_ar_surface_plafond" }
+- assertVisible: { id: "session_ar_support_auto", text: "Visée : (sol|mur|plafond) \\(auto\\)" }
+- assertVisible: { id: "session_ar_contours" }
+- assertVisible: { id: "session_ar_torche_oui" }
+- assertVisible: { id: "session_ar_camera" }
+- tapOn: { id: "session_calibrer" }
+- assertVisible: { id: "session_ar_contours" }
+- assertVisible: { id: "session_ar_torche_oui" }
+- assertVisible: { id: "session_ar_support_auto" }
+- tapOn: { id: "session_releve" }
+- assertVisible: { id: "session_ar_contours" }
+- assertVisible: { id: "session_ar_torche_oui" }
+- tapOn: { id: "session_synchro" }
+- assertVisible: { id: "session_ar_contours" }
+- assertVisible: { id: "session_ar_torche_oui" }
+- takeScreenshot: maestro-out/captures/b199_ar_menus_stables
+# Hauteur sous plafond (plafond virtuel AR_CEILING_ESTIMATED quand aucun plan plafond n'est détecté).
+- assertVisible: { id: "session_ar_hauteur_plafond", text: "Hauteur sous plafond : non saisie" }
+- tapOn: { id: "session_ar_hauteur_modifier" }
+- tapOn: { id: "session_ar_hauteur_saisie" }
+- inputText: "2.70"
+- tapOn: { id: "session_ar_hauteur_valider" }
+- assertVisible: { id: "session_ar_hauteur_plafond", text: "Hauteur sous plafond : 2,70 m" }
+- takeScreenshot: maestro-out/captures/b199_ar_hauteur_plafond

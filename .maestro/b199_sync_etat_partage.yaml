@@ -1,0 +1,55 @@
+# v176g § 1b/1e : un seul processus de synchro. Accueil > Sync > maître → Retour (pastille « Sync maître active ») →
+# Session > Synchro : même bandeau, même rôle, même journal. Le test à deux téléphones reste manuel (Nearby entre émulateurs).
+appId: app.lumisite.android
+name: b199 synchro etat partage Accueil Sync et Session Synchro
+---
+- launchApp:
+    clearState: true
+    permissions: { all: allow }
+- extendedWaitUntil:
+    visible: { id: "accueil_synchro" }
+    timeout: 90000
+- tapOn: { id: "accueil_synchro" }
+- tapOn: { id: "synchro_mode_maitre" }
+- tapOn: { text: "(?i)autoriser|allow|while using the app|lors de l'utilisation", optional: true }
+- extendedWaitUntil:
+    visible: { id: "synchro_mode_actif" }
+    timeout: 15000
+- assertVisible: { id: "synchro_bandeau_connexion", text: "Recherche d'esclaves.*0 appareil.*" }
+- assertVisible: { id: "synchro_resume", text: "0 appareil" }
+- assertNotVisible: "Recherche d'esclaves \\(annonce active\\)"
+- scrollUntilVisible: { element: { id: "synchro_journal" } }
+- scrollUntilVisible: { element: { id: "synchro_retour" }, direction: UP }
+- tapOn: { id: "synchro_retour" }
+- assertVisible: { id: "accueil_synchro_active" }
+- assertVisible: "Sync maître active · 0 esclave\\(s\\)"
+# Session (sans clearState : la synchro doit continuer).
+- tapOn: { id: "accueil_nouveau_releve" }
+- tapOn: { id: "nouveau_site_nom_du_site" }
+- inputText: "Maestro sync"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+- tapOn: { id: "nouveau_site_latitude_wgs84" }
+- inputText: "43.6045"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+- tapOn: { id: "nouveau_site_longitude" }
+- inputText: "1.4440"
+- hideKeyboard
+- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+- tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+- tapOn: { id: "nouveau_site_creer" }
+- tapOn: { id: "site_nouvelle_session_terrain" }
+- assertVisible: { id: "session_terminer_la_session" }
+- tapOn: { id: "session_synchro" }
+- assertVisible: { id: "synchro_bandeau_connexion", text: "Recherche d'esclaves.*" }
+- assertVisible: { id: "session_synchro_role", text: "Rôle : Saisie \\(maître\\)" }
+- assertVisible: "Lancer un top de synchro \\(0 esclave\\(s\\)\\)"
+- assertNotVisible: { id: "session_synchro_synchroniser" }
+- repeat:
+    while: { notVisible: { id: "session_synchro_journal" } }
+    times: 10
+    commands:
+      - swipe: { start: "50%,74%", end: "50%,58%", duration: 600 }
+- assertVisible: { id: "session_synchro_journal" }

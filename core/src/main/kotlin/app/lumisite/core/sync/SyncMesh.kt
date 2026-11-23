@@ -65,7 +65,7 @@ data class SensorState(val kind: String, val label: String, val present: Boolean
 data class AudioOffset(val roundId: String, val masterHeardSlave: Boolean, val slaveHeardMaster: Boolean, val offsetNs: Long?, val uncertaintyNs: Long?, val error: String? = null) {
     fun text(name: String): String = when {
         error != null -> "$name : échec ($error)"
-        offsetNs != null -> "$name : entendu, décalage %.1f ms ± %.1f".format(offsetNs / 1e6, (uncertaintyNs ?: 0) / 1e6)
+        offsetNs != null -> "$name : entendu, " + SyncDisplay.alignmentText(offsetNs, uncertaintyNs ?: 0)
         !masterHeardSlave && !slaveHeardMaster -> "$name : non entendu (ni par le maître, ni l'inverse)"
         masterHeardSlave && slaveHeardMaster -> "$name : entendu dans les deux sens, mais un téléphone n'a pas détecté son propre chirp : décalage non calculable"
         !masterHeardSlave -> "$name : a entendu le maître, mais le maître ne l'a pas entendu"
@@ -162,8 +162,14 @@ data class Peer(
     val synced: Boolean get() = link == Link.CONNECTED && clock == Clock.ALIGNED
 }
 
-/** Event worth journaling (link change, alignment change, capture change, media received). */
-data class MeshLog(val tNs: Long, val endpointId: String, val what: String)
+/**
+ * Event worth journaling (link change, alignment change, capture change, media received). [what] is shown on screen;
+ * [raw] (raw offset between monotonic clocks) only goes to synchro.ndjson (v176g 1c).
+ */
+data class MeshLog(val tNs: Long, val endpointId: String, val what: String, val raw: String? = null)
+
+/** Raw offset between two monotonic clocks, for synchro.ndjson only. */
+fun rawOffsetText(offsetNs: Long?): String? = offsetNs?.let { "décalage brut %.1f ms".format(java.util.Locale.ROOT, it / 1e6) }
 
 /**
  * Master-side state machine. Every transition is returned as [MeshLog] so the caller can journal it (append-only).
@@ -185,7 +191,8 @@ class MasterMesh(val deviceId: String) {
         put(new)
         if (old?.link != new.link) add(MeshLog(tNs, new.endpointId, "connexion : ${new.link.label}"))
         if (old?.clock != new.clock) add(MeshLog(tNs, new.endpointId, "alignement : ${new.clock.label}" +
-            (new.offsetNs?.takeIf { new.clock == Clock.ALIGNED }?.let { " (décalage %.1f ms ± %.1f ms)".format(it / 1e6, (new.uncertaintyNs ?: 0) / 1e6) } ?: "")))
+            (if (new.clock == Clock.ALIGNED) " (" + SyncDisplay.alignmentText(new.offsetNs, new.uncertaintyNs) + ")" else ""),
+            raw = if (new.clock == Clock.ALIGNED) rawOffsetText(new.offsetNs) else null))
         if (old?.capture != new.capture) add(MeshLog(tNs, new.endpointId, "capture : ${new.capture.label}"))
     }
 
@@ -216,7 +223,7 @@ class MasterMesh(val deviceId: String) {
             val p = peers[id] ?: return@mapNotNull null
             val a = SyncRoundCalc.offset(r.roundId, r.counter, hex, mine, res.emitterHex, res)
             peers = peers + (id to p.copy(audio = a))
-            MeshLog(tNs, id, a.text(p.name))
+            MeshLog(tNs, id, a.text(p.name), raw = rawOffsetText(a.offsetNs))
         }
     }
 

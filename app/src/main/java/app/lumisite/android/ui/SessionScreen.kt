@@ -471,10 +471,12 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
         val statusBlock: @Composable (Modifier) -> Unit = { m ->
             Column(m.heightIn(max = topMax).verticalScroll(rememberScrollState()).testTag("session_bloc_ar")) { header() }
         }
+        // Full-screen map in landscape: the side column keeps just enough width for the 7 action labels (≥ 52 dp each).
+        val sideW = if (fullMap) maxOf(maxWidth * 0.2f, 364.dp).coerceAtMost(maxWidth * 0.45f) else maxWidth * 0.45f
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
-                map(Modifier.weight(if (fullMap) 0.8f else 0.55f).fillMaxHeight())
-                Column(Modifier.weight(if (fullMap) 0.2f else 0.45f).fillMaxHeight()) {
+                map(Modifier.weight(1f).fillMaxHeight())
+                Column(Modifier.width(sideW).fillMaxHeight()) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { statusRow(); statusBlock(Modifier) }
                     HorizontalDivider(); if (fullMap) Spacer(Modifier.weight(1f)) else panel(Modifier.weight(1f).padding(horizontal = 8.dp))
                     resumeBanner()

@@ -26,6 +26,7 @@ import app.lumisite.core.compute.ArMeasure
 import app.lumisite.core.compute.ArSiteOverlays
 import app.lumisite.core.compute.ArSymbols
 import app.lumisite.core.catalog.LsCatalog
+import app.lumisite.core.compute.ArPlaneDiagnose
 import app.lumisite.core.compute.PlaneFilter
 import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
@@ -53,14 +54,14 @@ class ArTracker(
     private val stamps: () -> StampFactory?,
     private val onFrame: (pose: PoseSample?, state: TrackingState, reason: String?) -> Unit,
 ) : GLSurfaceView.Renderer {
-    var session: Session? = null; private set
-    var lastError: String? = null; private set
+    @Volatile var session: Session? = null; private set
+    @Volatile var lastError: String? = null; private set
     private fun setError(msg: String) { lastError = msg; DiagLog.e("ARCORE", msg) }
 
     /** Debug ARCore recording / playback (task 2): set from launch extras, see [ArDebug]. */
     val playback = MutableStateFlow(false)
     val recording = MutableStateFlow(false)
-    private var datasetApplied = false
+    @Volatile private var datasetApplied = false
     private val degradedWindowMs = 3_000L
     private var everTracked = false
     private var pausedSinceMs: Long? = null
@@ -83,6 +84,7 @@ class ArTracker(
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private val lineRenderer = LineRenderer()
     private var planes: List<Plane> = emptyList()
+    private var subsumedCount = 0
     private var frameNo = 0L
 
     /** D6: ARCore anchors (control points, object groups), created / detached on the GL thread, poses reported at most once per second. */
@@ -112,9 +114,35 @@ class ArTracker(
     data class ScreenLabel(val xPx: Float, val yPx: Float, val text: String)
     val screenLabels = MutableStateFlow<List<ScreenLabel>>(emptyList())
     val planeCounts = MutableStateFlow(Triple(0, 0, 0))
+    /** Build 248 : diagnostic snapshot (rate-limited to 500 ms) publiant état tracking, depth, plans et polygones. */
+    data class ArPlaneStats(
+        val trackingState: String,
+        val failureReason: String?,
+        val depthSupported: Boolean,
+        val depthActive: String,
+        val totalPlanes: Int,
+        val trackingPlanes: Int,
+        val subsumedPlanes: Int,
+        val byType: Map<String, Int>,
+        val byState: Map<String, Int>,
+        val validPolygons: Int,
+        val invalidPolygons: Int,
+        val minAreaM2: Double,
+        val maxAreaM2: Double,
+        val avgAreaM2: Double,
+        val rendererGotPolygons: Boolean,
+        val cameraYM: Double,
+        val floorYM: Double?,
+    )
+    val planeStats = MutableStateFlow<ArPlaneStats?>(null)
     val aimSurface = MutableStateFlow<String?>("MUR")
     /** build 199 (point 5): plane counters published at most every 500 ms so the line under the camera stays stable. */
     private var lastCountsMs = 0L
+    private var lastStatsMs = 0L
+    private var lastStatsLogMs = 0L
+    @Volatile private var depthSupported = false
+    /** Depth mode is fixed at configure() time; cached so publishStats() never calls Session.getConfig() per frame. */
+    @Volatile private var depthModeName = "UNKNOWN"
     /** Last classified support (GL thread), for the tilt hysteresis. */
     private var lastSupport: SupportFromTilt.Support? = null
     /** Tilt fallback when the AR pose is unavailable (sensor rotation vector), set by the session controller. */
@@ -162,7 +190,10 @@ class ArTracker(
         if (session != null) return true
         return try {
             val s = Session(ctx)
-            // 30 fps, no depth sensor, largest image size first.
+            // Pixel 7 (et autres compatibles) : active la Depth API en mode AUTOMATIC sans exiger de capteur ToF.
+            // isDepthModeSupported est appelé avant configure() ; en cas d'échec on garde DISABLED.
+            depthSupported = runCatching { s.isDepthModeSupported(Config.DepthMode.AUTOMATIC) }.getOrDefault(false)
+            // 30 fps, no depth sensor required, largest image size first.
             runCatching {
                 val filter = CameraConfigFilter(s)
                     .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_30))
@@ -174,10 +205,12 @@ class ArTracker(
                 focusMode = Config.FocusMode.AUTO
                 planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                 lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
-                depthMode = Config.DepthMode.DISABLED
+                depthMode = if (depthSupported) Config.DepthMode.AUTOMATIC else Config.DepthMode.DISABLED
             }
             s.configure(cfg)
-            configNote = "caméra ${s.cameraConfig.imageSize.width}×${s.cameraConfig.imageSize.height}, profondeur ${s.config.depthMode}"
+            depthModeName = s.config.depthMode.name
+            configNote = "caméra ${s.cameraConfig.imageSize.width}×${s.cameraConfig.imageSize.height}, profondeur $depthModeName (depthSupported=$depthSupported)"
+            DiagLog.i("ARCORE", "Session créée : $configNote")
             session = s; lastError = null; true
         } catch (e: Exception) {
             setError("${e.javaClass.simpleName}: ${e.message}"); false
@@ -242,18 +275,25 @@ class ArTracker(
     }
 
 
-    private fun updateAim(s: Session, frame: Frame, state: TrackingState) {
+    private fun updateAim(s: Session, frame: Frame, state: TrackingState, reason: String?) {
         val cam = frame.camera
         if (!autoTorchChecked && state == TrackingState.TRACKING) { autoTorchChecked = true; if (lowLight(frame)) main.post { setTorch(true) } }
-        if (state != TrackingState.TRACKING) { aim.value = AimResult.NoTarget; return }
+        if (state != TrackingState.TRACKING) {
+            aim.value = AimResult.NoTarget
+            updateCounters(state, Triple(0, 0, 0))
+            publishStats(state, reason, emptyList(), 0, ArPlaneDiagnose.stats(emptyList()), cameraY = 0.0, floorY = null)
+            return
+        }
         // Plane list sampled every 10 frames (getAllTrackables is costly); tracking state re-checked every frame.
         if (frameNo++ % 10 == 0L) {
-            planes = s.getAllTrackables(Plane::class.java).filter { it.subsumedBy == null }
+            val all = s.getAllTrackables(Plane::class.java)
+            planes = all.filter { it.subsumedBy == null }
+            subsumedCount = all.count { it.subsumedBy != null }
         }
-        val planes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
+        val trackingPlanes = planes.filter { it.trackingState == com.google.ar.core.TrackingState.TRACKING }
         val p = cam.pose
         val cameraY = p.ty().toDouble()
-        val descs = planes.map { pl ->
+        val descs = trackingPlanes.map { pl ->
             val c = pl.centerPose
             val src = when (pl.type) { Plane.Type.VERTICAL -> "AR_WALL"; Plane.Type.HORIZONTAL_DOWNWARD_FACING -> "AR_CEILING"; else -> "AR_PLANE" }
             val area = runCatching {
@@ -265,14 +305,18 @@ class ArTracker(
         // Sol = plan le plus bas dans la bande 1,2–1,6 m sous l'appareil ; une table plus haute n'est pas le sol.
         floorY = PlaneFilter.floorLevel(descs, cameraY)
         val nFloor = descs.count { PlaneFilter.roleOf(it, floorY, cameraY) == PlaneFilter.Role.FLOOR }
-        val counts = Triple(nFloor, planes.count { it.type == Plane.Type.VERTICAL },
-            planes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
-        val countsNowMs = SystemClock.elapsedRealtime()
-        if (countsNowMs - lastCountsMs >= 500L) {
-            lastCountsMs = countsNowMs
-            if (planeCounts.value != counts) planeCounts.value = counts
-            if (planeCount.value != nFloor) planeCount.value = nFloor
+        val counts = Triple(nFloor, trackingPlanes.count { it.type == Plane.Type.VERTICAL },
+            trackingPlanes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
+        updateCounters(state, counts)
+        val diagnoseDescs = planes.map { pl ->
+            val poly = pl.polygon
+            val area = runCatching {
+                if (poly == null) 0.0 else { poly.rewind(); ArGeometry.polygonAreaM2((0 until poly.limit()).map { poly.get(it).toDouble() }) }
+            }.getOrDefault(0.0)
+            ArPlaneDiagnose.PlaneDesc(pl.type.name, pl.trackingState.name, area, if (poly == null) 0 else poly.limit() / 2)
         }
+        val diagnoseStats = ArPlaneDiagnose.stats(diagnoseDescs)
+        publishStats(state, reason, planes, subsumedCount, diagnoseStats, cameraY, floorY)
         val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
         // build 199 (point 6): aimed support from the camera elevation — ARCore pose quaternion (Tilt.fromArQuaternion,
         // same convention as SupportFromTilt.elevationFromForward), sensor rotation matrix as fallback. Hysteresis inside classify.
@@ -306,6 +350,54 @@ class ArTracker(
         }
         aim.value = Aim.resolve(origin, dir, ap, lastObjectY, true,
             fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY, extraPlanes = extras)
+    }
+
+    private fun updateCounters(state: TrackingState, counts: Triple<Int, Int, Int>) {
+        val effective = if (state == TrackingState.TRACKING) counts else Triple(0, 0, 0)
+        val countsNowMs = SystemClock.elapsedRealtime()
+        if (countsNowMs - lastCountsMs >= 500L) {
+            lastCountsMs = countsNowMs
+            if (planeCounts.value != effective) planeCounts.value = effective
+            if (planeCount.value != effective.first) planeCount.value = effective.first
+        }
+    }
+
+    private fun publishStats(state: TrackingState, reason: String?, allPlanes: List<Plane>, subsumed: Int, st: ArPlaneDiagnose.Stats, cameraY: Double, floorY: Double?) {
+        // Rate-limit before building the snapshot: avoid allocating maps/formatted strings on every GL frame.
+        val nowMs = SystemClock.elapsedRealtime()
+        val publish = nowMs - lastStatsMs >= 500L
+        val log = nowMs - lastStatsLogMs >= 2_000L
+        if (!publish && !log) return
+        if (publish) lastStatsMs = nowMs
+        if (log) lastStatsLogMs = nowMs
+        val snapshot = ArPlaneStats(
+            trackingState = state.name,
+            failureReason = reason,
+            depthSupported = depthSupported,
+            depthActive = depthModeName,
+            totalPlanes = allPlanes.size,
+            trackingPlanes = st.trackingPlanes,
+            subsumedPlanes = subsumed,
+            byType = st.byType,
+            byState = st.byState,
+            validPolygons = st.validPolygons,
+            invalidPolygons = st.invalidPolygons,
+            minAreaM2 = st.minAreaM2,
+            maxAreaM2 = st.maxAreaM2,
+            avgAreaM2 = st.avgAreaM2,
+            rendererGotPolygons = st.rendererGotPolygons,
+            cameraYM = cameraY,
+            floorYM = floorY,
+        )
+        if (publish) planeStats.value = snapshot
+        if (log) DiagLog.i("ARCORE_DIAG", "tracking=${snapshot.trackingState}${snapshot.failureReason?.let { " reason=$it" } ?: ""} " +
+                "depth=${snapshot.depthActive} supported=${snapshot.depthSupported} " +
+                "planes=${snapshot.totalPlanes} tracking=${snapshot.trackingPlanes} subsumed=${snapshot.subsumedPlanes} " +
+                "type=${snapshot.byType} state=${snapshot.byState} " +
+                "polyValid=${snapshot.validPolygons} polyInvalid=${snapshot.invalidPolygons} " +
+                "area=${"%.2f".format(snapshot.minAreaM2)}..${"%.2f".format(snapshot.maxAreaM2)} avg=${"%.2f".format(snapshot.avgAreaM2)} " +
+                "cameraY=${"%.2f".format(snapshot.cameraYM)} floorY=${snapshot.floorYM?.let { "%.2f".format(it) } ?: "null"} " +
+                "rendererGotPolygons=${snapshot.rendererGotPolygons}")
     }
 
     @Suppress("DEPRECATION")
@@ -343,7 +435,7 @@ class ArTracker(
                 state, null,
             )
         } else null
-        runCatching { updateAim(s, frame, state) }.onFailure { aim.value = AimResult.NoTarget }
+        runCatching { updateAim(s, frame, state, reason) }.onFailure { aim.value = AimResult.NoTarget }
         runCatching { updateAnchors(s, nowMs) }
         // 2c: anchors (calibration flags, luminaires) stay drawn — grey, at their last known pose — while the tracking is
         // PAUSED/degraded; only STOPPED removes them. Plane outlines are only drawn while TRACKING (they would freeze too).

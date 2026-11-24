@@ -85,6 +85,7 @@ fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boo
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val counts by c.ar.planeCounts.collectAsState()
+    val stats by c.ar.planeStats.collectAsState()
     val contours by c.ar.contoursOn.collectAsState()
     val arCoreEdges by c.ar.arCoreEdgesOn.collectAsState()
     val surface by c.ar.aimSurface.collectAsState()
@@ -101,6 +102,15 @@ fun ArControls(c: SessionController, measureReset: Int = 0, onMeasureArmed: (Boo
         // build 199 (point 5): fixed-width counters (monospace) so the line does not move while planes are found.
         Text("Plans : sol ${counts.first} · murs ${counts.second} · plafond ${counts.third}",
             style = MaterialTheme.typography.labelSmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, modifier = Modifier.testTag("session_ar_plans"))
+        // Build 248 : ligne de diagnostic légère (pas de log par frame, rafraîchie à 500 ms).
+        stats?.let {
+            Text("Diag : ${it.trackingState}${it.failureReason?.let { r -> " ($r)" } ?: ""} · depth=${it.depthActive} · " +
+                "plans ${it.totalPlanes}/${it.trackingPlanes} · poly ${it.validPolygons}/${it.totalPlanes} · " +
+                "camY=${"%.2f".format(it.cameraYM)} solY=${it.floorYM?.let { y -> "%.2f".format(y) } ?: "-"} " +
+                "renderer=${it.rendererGotPolygons}",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.testTag("session_ar_diag"))
+        }
         // build 199 (point 6): aimed support follows the camera tilt (sol / mur / plafond), no Tous / Sol / Mur / Plafond chips.
         val support = surface?.let { runCatching { SupportFromTilt.Support.valueOf(it) }.getOrNull() } ?: SupportFromTilt.Support.MUR
         Text(SupportFromTilt.label(support), style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("session_ar_support_auto"))

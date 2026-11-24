@@ -663,9 +663,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         // v176c: the AR side of the point is where the reticle hits the floor, not the phone (1 m away on 15/11). Simulated poses
         // (debug/CI, no camera) keep the phone pose.
         val aimNow = ar.aim.value
-        val floorHit = (aimNow as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_PLANE" || it.source == "AR_FLOOR_ESTIMATE" }
+        // Build 259 : un repère visé sur une ESTIMATION (sol supposé 1,4 m sous l'appareil) fausse l'échelle de 15–20 % (retour terrain
+        // 24/11 : écart de 3–4,6 m sur 22 × 13 m) → seuls un plan de sol détecté ou une distance mesurée (profondeur, visée au sol) sont admis.
+        val floorHit = (aimNow as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { floorAimOk(it.source) }
         if (simThread == null && aimNow != null && floorHit == null)
-            return fail("${if (reloc) "Recalage" else "Calibrage"} : visez au sol, avec le réticule, le point touché sur la carte.")
+            return fail(if ((aimNow as? app.lumisite.core.compute.AimResult.Hit)?.source?.let { app.lumisite.core.compute.Aim.isEstimate(it) } == true)
+                "${if (reloc) "Recalage" else "Calibrage"} : sol pas encore mesuré (estimation). Visez le sol et attendez que le réticule devienne vert ou bleu « profondeur »."
+            else "${if (reloc) "Recalage" else "Calibrage"} : visez au sol, avec le réticule, le point touché sur la carte.")
         // Anchor at the aimed point with the camera rotation: the one-point heading (toControlPoint) reads the anchor's yaw.
         val aimed = floorHit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z)) }
         // Paquet v6: same map point reused, or contradictory pair (phone ~still, map points far apart), refused before recording.
@@ -744,9 +748,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     /** Session > Calibrer > « Recaler sur 2 repères » : arme (ou ré-arme) la séquence, sans toucher aux points déjà pris. */
     fun recal2Reset() { pendingRepere = null }
 
+    /** Visée admise pour un repère de calibrage/recalage : plan de sol détecté, ou point mesuré par profondeur quand l'appareil vise le sol. */
+    private fun floorAimOk(source: String): Boolean =
+        source == "AR_PLANE" || (source == app.lumisite.core.compute.Aim.SRC_DEPTH && ar.aimSurface.value == "SOL")
+
     /** Côté AR de la visée : le point visé au réticule (comme Session > Calibrer), ou la pose du téléphone en poses simulées. */
     private fun aimedOrNull(pose: PoseSample): Pair<PoseSample?, app.lumisite.core.compute.AimResult.Hit?> {
-        val hit = (ar.aim.value as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_PLANE" || it.source == "AR_FLOOR_ESTIMATE" }
+        val hit = (ar.aim.value as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { floorAimOk(it.source) }
         return (hit?.point?.let { pose.copy(p = listOf(it.x, it.y, it.z)) }) to hit
     }
 
@@ -995,7 +1003,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (manual == null && est == null) { fail(NO_POSITION); return false }
         val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
         // 2f: a virtual-ceiling estimate must never become the « last object » floor fallback either.
-        if (manual == null && hit != null && hit.source != "ESTIMATED" && hit.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED) ar.lastObjectY = hit.point.y
+        if (manual == null && hit != null && hit.source != "ESTIMATED" && hit.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED && hit.source != app.lumisite.core.compute.Aim.SRC_DEPTH) ar.lastObjectY = hit.point.y
         if (manual == null && hit?.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED)
             DiagLog.i("POSITION", "Relevé : plafond estimé (aucun plan plafond détecté, hauteur sous plafond ${site.ceilingHeightM} m)")
         val e = SurveyEvent(

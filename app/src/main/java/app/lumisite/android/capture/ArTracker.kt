@@ -348,8 +348,34 @@ class ArTracker(
                 if (virtualCeilingY == null) listOf(Aim.ceilingEstimate(origin, floorLevel)) else emptyList()
             else -> emptyList()
         }
-        aim.value = Aim.resolve(origin, dir, ap, lastObjectY, true,
+        var result = Aim.resolve(origin, dir, ap, lastObjectY, true,
             fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY, extraPlanes = extras)
+        // Build 259 (retour terrain 24/11) : ARCore met longtemps à trouver le sol et ne détecte jamais le plafond ; tant qu'aucun plan
+        // ne répond (visée = simple estimation), on mesure la distance au réticule avec la Depth API au lieu de supposer 1,4 m / 2,5 m.
+        val needDepth = result == AimResult.ToComplete || (result is AimResult.Hit && Aim.isEstimate(result.source))
+        if (needDepth) depthAimPoint(frame, origin, dir)?.let { result = AimResult.Hit(it, Aim.SRC_DEPTH) }
+        aim.value = result
+    }
+
+    /** Depth API distance at the image centre (median of a 5×5 window, 0,2–12 m) along the camera axis, or null when unavailable. */
+    private fun depthAimPoint(frame: Frame, origin: V3, dir: V3): V3? {
+        if (!depthSupported) return null
+        val img = runCatching { frame.acquireDepthImage16Bits() }.getOrNull() ?: return null
+        try {
+            val plane = img.planes[0]
+            val buf = plane.buffer.order(ByteOrder.nativeOrder())
+            val cx = img.width / 2; val cy = img.height / 2
+            val mm = ArrayList<Int>(25)
+            for (dy in -2..2) for (dx in -2..2) {
+                val x = (cx + dx).coerceIn(0, img.width - 1); val y = (cy + dy).coerceIn(0, img.height - 1)
+                val v = buf.getShort(y * plane.rowStride + x * plane.pixelStride).toInt() and 0xFFFF
+                if (v in 200..12_000) mm.add(v)
+            }
+            if (mm.size < 8) return null
+            mm.sort()
+            val d = mm[mm.size / 2] / 1000.0
+            return origin + dir.unit() * d
+        } catch (_: Exception) { return null } finally { runCatching { img.close() } }
     }
 
     private fun updateCounters(state: TrackingState, counts: Triple<Int, Int, Int>) {

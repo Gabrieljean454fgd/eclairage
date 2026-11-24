@@ -1,4 +1,4 @@
-# Graph Report - eclairage  (2026-11-23)
+# Graph Report - eclairage  (2026-11-24)
 
 ## Corpus Check
 - cluster-only mode — file stats not available

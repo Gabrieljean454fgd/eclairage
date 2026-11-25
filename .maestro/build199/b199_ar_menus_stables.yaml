@@ -3,7 +3,7 @@
 # - l'interrupteur « Contours » et la torche restent visibles quel que soit l'onglet ouvert (ils ne « sautent » plus) ;
 # - le bloc caméra garde la même hauteur entre Aucun / Calibrer / Relevé (pas de bascule 4:3 → 2:1 pendant la visée).
 appId: app.lumisite.android
-name: "build199 AR : commandes stables, support automatique"
+name: "build199 AR - commandes stables, support automatique"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - assertNotVisible: { id: "session_ar_surface_tous" }

@@ -2,7 +2,7 @@
 # (même sans réseau ni résultat) et proposée dès qu'on retape le début, avant toute recherche en ligne.
 # Le rectangle de sélection (point 4, « impeccable ») n'est pas touché : v176_nouveau_site_rectangle.yaml doit rester vert.
 appId: app.lumisite.android
-name: "build199 Nouveau site : adresses récentes locales"
+name: "build199 Nouveau site - adresses récentes locales"
 ---
 - launchApp:
     clearState: true

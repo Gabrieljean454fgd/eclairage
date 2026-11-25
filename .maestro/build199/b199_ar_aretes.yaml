@@ -6,7 +6,7 @@
 #   filtre pur PlaneFilter branché avant Aim.resolve — vérifiable en tests JVM et au téléphone seulement.
 # En CI l'AR est simulé : on vérifie les commandes sous la caméra et l'option de diagnostic, pas le tracé.
 appId: app.lumisite.android
-name: "build199 AR : arêtes de plans, mobilier ignoré"
+name: "build199 AR - arêtes de plans, mobilier ignoré"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - assertVisible: { id: "session_ar_contours" }

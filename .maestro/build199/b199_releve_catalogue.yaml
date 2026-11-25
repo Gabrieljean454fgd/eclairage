@@ -2,7 +2,7 @@
 # (catégories), puis types ; recherche ; « Ajouter un type… » crée une entrée locale (à classer au bureau) qui
 # apparaît dans la liste et reste après redémarrage.
 appId: app.lumisite.android
-name: "build199 Relevé : catégories et ajout de type"
+name: "build199 Relevé - catégories et ajout de type"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }

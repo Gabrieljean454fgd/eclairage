@@ -6,7 +6,7 @@
 # Après le flow  : adb shell settings delete global lumisite_simuler_esclave
 # (le réglage global survit à clearState : les autres flows doivent le trouver absent).
 appId: app.lumisite.android
-name: "build199 synchro : nom de l'esclave visible sur le maître (esclave simulé)"
+name: "build199 synchro - nom de l'esclave visible sur le maître (esclave simulé)"
 ---
 - launchApp:
     clearState: true

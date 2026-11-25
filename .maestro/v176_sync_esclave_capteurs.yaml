@@ -2,7 +2,7 @@
 # la liste montre chaque capteur (absent compris). Le maître n'existe pas sur l'émulateur (Nearby ne fonctionne pas
 # entre émulateurs) : le test à deux téléphones (top audible, décalage ± incertitude) est manuel.
 appId: app.lumisite.android
-name: "v176d esclave : liste des capteurs"
+name: "v176d esclave - liste des capteurs"
 ---
 - launchApp:
     clearState: true

@@ -6,7 +6,7 @@
 #      seul STOPPED les retire ; à la reprise, dès le calibrage rétabli, une ancre est recréée par repère
 #      actif et par luminaire via la transformation carte → AR (non vérifiable en CI : contrôle manuel Pixel 7).
 appId: app.lumisite.android
-name: "build199 AR : hauteur sous plafond, ancres conservées"
+name: "build199 AR - hauteur sous plafond, ancres conservées"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_calibrer" }

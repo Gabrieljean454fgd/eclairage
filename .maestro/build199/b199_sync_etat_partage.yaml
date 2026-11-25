@@ -4,7 +4,7 @@
 # Hors CI racine (.maestro/build199/) ; efface les données (clearState via le sous-parcours) : ne pas lancer sur le Pixel
 # sans sauvegarde run-as + tar préalable.
 appId: app.lumisite.android
-name: "build199 synchro : état partagé Accueil > Sync / Session > Synchro"
+name: "build199 synchro - état partagé Accueil - Sync - Session - Synchro"
 ---
 - launchApp:
     clearState: true

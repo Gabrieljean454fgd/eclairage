@@ -6,7 +6,7 @@
 # Hors CI racine (.maestro/build199/) ; efface les données au départ seulement (pas de clearState avant la reprise) :
 # ne pas lancer sur le Pixel sans sauvegarde run-as + tar préalable.
 appId: app.lumisite.android
-name: "build199 reprise : anciens repères à confirmer + Recaler sur 2 repères"
+name: "build199 reprise - anciens repères à confirmer + Recaler sur 2 repères"
 ---
 - launchApp:
     clearState: true

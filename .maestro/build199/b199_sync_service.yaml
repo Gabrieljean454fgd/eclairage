@@ -6,7 +6,7 @@
 # elle-même et l'écran éteint 2 min sont MANUELS — voir docs/LOCAL_SYNCHRO_SERVICE.md.
 # Hors CI racine (.maestro/build199/) ; clearState initial uniquement.
 appId: app.lumisite.android
-name: "build199 synchro : service de premier plan, rôle actif et arrêt"
+name: "build199 synchro - service de premier plan, rôle actif et arrêt"
 ---
 - launchApp:
     clearState: true

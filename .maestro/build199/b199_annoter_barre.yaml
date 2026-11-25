@@ -5,7 +5,7 @@
 # « Annuler » restaure l'objet, « Refaire » ré-applique la suppression. Le fichier de session n'est
 # jamais détruit (journal append-only).
 appId: app.lumisite.android
-name: "build199 annoter : barre de creation puis d'edition"
+name: "build199 annoter - barre de creation puis d'edition"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_annoter" }

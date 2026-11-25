@@ -2,7 +2,7 @@
 # (~96 dp, session_camera_repliee) sans détruire la GLSurfaceView, « Carte plein écran » existe dans tous les onglets,
 # la barre d'actions reste visible et le panneau se replie en bandeau (session_panneau_replie).
 appId: app.lumisite.android
-name: "build199 carte : assez grande pour Annoter"
+name: "build199 carte - assez grande pour Annoter"
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_annoter" }

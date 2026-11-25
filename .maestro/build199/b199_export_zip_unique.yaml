@@ -3,7 +3,7 @@
 # L'export reste le même chemin (ExportWorker, WorkManager unique) ; on vérifie le livrable unique affiché :
 # « Un seul fichier ZIP — Fichier : <session>.zip … » sous testTag session_export_zip.
 appId: app.lumisite.android
-name: "build199 Export : un seul ZIP"
+name: "build199 Export - un seul ZIP"
 ---
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_export" }

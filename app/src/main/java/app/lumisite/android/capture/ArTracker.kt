@@ -443,6 +443,8 @@ class ArTracker(
                 "polyValid=${snapshot.validPolygons} polyInvalid=${snapshot.invalidPolygons} " +
                 "area=${"%.2f".format(snapshot.minAreaM2)}..${"%.2f".format(snapshot.maxAreaM2)} avg=${"%.2f".format(snapshot.avgAreaM2)} " +
                 "cameraY=${"%.2f".format(snapshot.cameraYM)} floorY=${snapshot.floorYM?.let { "%.2f".format(it) } ?: "null"} " +
+                "depthFloorY=${depthFloorY?.let { "%.2f".format(it) } ?: "null"} depthCeilingY=${depthCeilingY?.let { "%.2f".format(it) } ?: "null"} " +
+                "aim=${(aim.value as? AimResult.Hit)?.source ?: aim.value?.javaClass?.simpleName} " +
                 "rendererGotPolygons=${snapshot.rendererGotPolygons}")
     }
 

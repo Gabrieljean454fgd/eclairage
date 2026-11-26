@@ -14,20 +14,50 @@ name: "v176a-bis Nouveau site rectangles"
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro rectangles"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_latitude_wgs84" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_longitude" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
-- scrollUntilVisible: { element: { id: "nouveau_site_tracer_le_rectangle" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_tracer_le_rectangle" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - assertVisible: "Tracer rectangle : actif"
-- scrollUntilVisible: { element: { id: "nouveau_site_recuperer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertVisible: { id: "nouveau_site_aide_rectangle" }
 # Rectangle 1 puis rectangle 2 (un doigt sur la carte, en haut de l'écran).
 - swipe: { start: "12%, 18%", end: "38%, 28%", duration: 1200 }
@@ -40,18 +70,42 @@ name: "v176a-bis Nouveau site rectangles"
     timeout: 5000
 - takeScreenshot: maestro-out/captures/v176_rectangle_deux
 # Désactiver : un glisser déplace la carte et n'ajoute aucun rectangle.
-- scrollUntilVisible: { element: { id: "nouveau_site_tracer_le_rectangle" }, direction: UP }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_tracer_le_rectangle" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - assertVisible: "Tracer rectangle"
-- scrollUntilVisible: { element: { id: "nouveau_site_recuperer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertNotVisible: { id: "nouveau_site_aide_rectangle" }
 - swipe: { start: "50%, 38%", end: "50%, 31%", duration: 1200 }
 - assertVisible: { id: "nouveau_site_rectangles", text: "Rectangles : 2, .*" }
 # Réactiver, tracer un 3e rectangle (sélectionné d'office), l'étirer par son coin bas-droit, le déplacer, le supprimer.
-- scrollUntilVisible: { element: { id: "nouveau_site_tracer_le_rectangle" }, direction: UP }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_tracer_le_rectangle" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - assertVisible: "Tracer rectangle : actif"
-- scrollUntilVisible: { element: { id: "nouveau_site_recuperer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - swipe: { start: "30%, 32%", end: "50%, 39%", duration: 1200 }
 - extendedWaitUntil:
     visible: { id: "nouveau_site_rectangles", text: "Rectangles : 3, .*" }
@@ -71,7 +125,13 @@ name: "v176a-bis Nouveau site rectangles"
 - tapOn: { id: "nouveau_site_supprimer_rectangle" }
 - assertVisible: { id: "nouveau_site_rectangles", text: "Rectangles : 2, .*" }
 - assertNotVisible: { id: "nouveau_site_rectangle_selection" }
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_creer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_creer" }
 - assertVisible: { id: "site_titre", text: "Maestro rectangles" }
 - takeScreenshot: maestro-out/captures/v176_rectangle_site

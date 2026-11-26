@@ -6,18 +6,42 @@ appId: app.lumisite.android
 - tapOn: { id: "nouveau_site_nom_du_site" }
 - inputText: "Maestro bureau"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_latitude_wgs84" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_longitude" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
 - assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_creer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_creer" }
 # Site : le titre complet est affiché (colonne unique en portrait, jamais coupé lettre par lettre).
 - assertVisible: { id: "site_titre", text: "Maestro bureau" }

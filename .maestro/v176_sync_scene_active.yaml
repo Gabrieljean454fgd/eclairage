@@ -28,7 +28,10 @@ name: "v176d maître - scène active sans esclave"
 - scrollUntilVisible:
     element: { id: "synchro_journal" }
     direction: DOWN
-- assertVisible: ".*rôle : Saisie \\(maître\\)"
+# Journal le plus récent en haut : la ligne « rôle » est sous l'en-tête du journal, il faut encore défiler.
+- scrollUntilVisible:
+    element: ".*rôle : Saisie \\(maître\\)"
+    direction: DOWN
 - scrollUntilVisible:
     element: { id: "synchro_arreter" }
     direction: UP

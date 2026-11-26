@@ -10,24 +10,54 @@ name: "Scénario 2 — Un petit relevé sans blocage"
     visible: { id: "accueil_nouveau_releve" }
     timeout: 90000
 - tapOn: { id: "accueil_nouveau_releve" }
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_creer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_creer" }
 - assertVisible: { id: "nouveau_site_manque" }
-- scrollUntilVisible: { element: { id: "nouveau_site_latitude_wgs84" }, direction: UP }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_latitude_wgs84" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 66%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_latitude_wgs84" }
 - inputText: "43.6045"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_longitude" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_longitude" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_longitude" }
 - inputText: "1.4440"
 - hideKeyboard
-- scrollUntilVisible: { element: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_utiliser_ces_coordonnees" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
 - assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - swipe: { start: "30%,15%", end: "70%,35%", duration: 1500 }
 - waitForAnimationToEnd: { timeout: 30000 }   # la récupération OSM du rectangle allonge le formulaire
-- scrollUntilVisible: { element: { id: "nouveau_site_creer" }, centerElement: true }
+# Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
+- repeat:
+    while: { notVisible: { id: "nouveau_site_creer" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_creer" }
 - extendedWaitUntil:
     visible: { id: "site_nouvelle_session_terrain" }

@@ -6,7 +6,8 @@ name: Session releve photo automatique a l implantation
 ---
 - runFlow: scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 # build 244 : Éclairage est la 1re famille du sélecteur (visible sans défiler) ; le type n'a pas besoin d'être Sonorisation.
 - tapOn: { id: "session_releve_categorie_ECLAIRAGE" }
 - repeat:

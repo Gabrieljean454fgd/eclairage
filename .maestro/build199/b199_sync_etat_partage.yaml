@@ -20,7 +20,13 @@ name: "build199 synchro - état partagé Accueil - Sync - Session - Synchro"
     timeout: 15000
 # Nouveau : bandeau de connexion unique (SyncDisplay.masterBanner), orange « Recherche d'esclaves… » sans esclave.
 - assertVisible: { id: "synchro_bandeau_connexion", text: "Recherche d'esclaves.*" }
-- scrollUntilVisible: { element: { id: "synchro_retour" }, direction: DOWN }
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_retour" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "synchro_retour" }
 # Accueil : un indicateur montre que la synchro maître tourne toujours.
 - assertVisible: { id: "accueil_synchro_active", text: ".*maître.*" }

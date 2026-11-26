@@ -17,9 +17,13 @@ name: "v176d esclave - liste des capteurs"
     visible: { id: "synchro_mode_actif" }
     timeout: 15000
 - assertVisible: "Mode : Captation-synchro \\(esclave\\)"
-- scrollUntilVisible:
-    element: { id: "synchro_capteur_depth" }
-    direction: DOWN
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_capteur_depth" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertVisible: { id: "synchro_capteurs" }
 - assertVisible: "Micro : actif"
 - assertVisible: "Accéléromètre : actif.*"
@@ -30,8 +34,12 @@ name: "v176d esclave - liste des capteurs"
 - scrollUntilVisible:
     element: { text: ".*local · capteurs : Micro : actif.*" }
     direction: DOWN
-- scrollUntilVisible:
-    element: { id: "synchro_arreter" }
-    direction: UP
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_arreter" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 80%", end: "50%, 92%", duration: 500 }
+- swipe: { start: "50%, 80%", end: "50%, 92%", duration: 500 }
 - tapOn: { id: "synchro_arreter" }
 - assertVisible: { id: "synchro_mode_maitre" }

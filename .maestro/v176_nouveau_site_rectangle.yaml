@@ -53,7 +53,7 @@ name: "v176a-bis Nouveau site rectangles"
 - assertVisible: "Tracer rectangle : actif"
 # Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
 - repeat:
-    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    while: { notVisible: { id: "nouveau_site_creer" } }
     times: 12
     commands:
       - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
@@ -81,7 +81,7 @@ name: "v176a-bis Nouveau site rectangles"
 - assertVisible: "Tracer rectangle"
 # Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
 - repeat:
-    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    while: { notVisible: { id: "nouveau_site_creer" } }
     times: 12
     commands:
       - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
@@ -101,7 +101,7 @@ name: "v176a-bis Nouveau site rectangles"
 - assertVisible: "Tracer rectangle : actif"
 # Nouveau site : la carte occupe le haut de l'écran (58 %) ; on fait défiler le formulaire en glissant DANS le formulaire.
 - repeat:
-    while: { notVisible: { id: "nouveau_site_recuperer" } }
+    while: { notVisible: { id: "nouveau_site_creer" } }
     times: 12
     commands:
       - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }

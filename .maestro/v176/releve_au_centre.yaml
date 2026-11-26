@@ -4,7 +4,8 @@ appId: app.lumisite.android
 ---
 - runFlow: ../scenario1_1_creer_releve.yaml
 - tapOn: { id: "session_releve" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 # build 244 : SON est la 7e famille du sélecteur, plus bas que le pli — on défile jusqu'à sa puce
 # (le scénario garde « Amplificateur » : v176_detail_compteurs vérifie « Sonorisation › Amplificateur »).
 - repeat:

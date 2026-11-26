@@ -12,7 +12,13 @@ name: "Mise a jour apres session lisible et exportable"
 - tapOn: "Maestro bureau"
 - assertVisible: { id: "site_titre", text: "Maestro bureau" }
 - assertVisible: "Relevés : 1 .*"
-- scrollUntilVisible: { element: { id: "site_session_reprendre" } }
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "site_session_reprendre" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "site_session_reprendre" }
 - extendedWaitUntil:
     visible: { id: "session_terminer_la_session" }

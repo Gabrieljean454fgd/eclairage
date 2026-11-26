@@ -3,7 +3,8 @@ appId: app.lumisite.android
 name: "Calibrer deux points"
 ---
 - tapOn: { id: "session_calibrer" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 - tapOn: { id: "session_calibrer_cap_de_visee" }
 - inputText: "0"
 - hideKeyboard
@@ -31,7 +32,8 @@ name: "Calibrer deux points"
       # 2e point carte = position actuelle du téléphone (Centrer / Suivre puis Point à la croix), calibrée par le point 1
       # + cap, choisie juste avant Valider. Un point arbitraire de la carte est refusé comme contradictoire (paquet v6).
       - tapOn: { id: "session_trajectoire_estimee_vert_non_gar" }
-      - tapOn: { id: "session_point_a_la_croix" }
+      # 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+      - tapOn: { id: "session_carte" }
       - tapOn: { id: "session_calibrer_valider_la_calibration" }
       - repeat:
           while: { notVisible: { id: "session_calibrer_ligne_2" } }

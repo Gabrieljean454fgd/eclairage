@@ -55,7 +55,8 @@ name: "Calibrage meme point carte refuse"
 - tapOn: { id: "site_nouvelle_session_terrain" }
 - assertVisible: { id: "session_terminer_la_session" }
 - tapOn: { id: "session_calibrer" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 # Cap de visée du 1er point (sans lui, un seul point ne donne pas de transformation : retour test Pixel du 09/11).
 - tapOn: { id: "session_calibrer_cap_de_visee" }
 - inputText: "0"

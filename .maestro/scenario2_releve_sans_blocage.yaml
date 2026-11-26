@@ -47,6 +47,12 @@ name: "Scénario 2 — Un petit relevé sans blocage"
       - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "nouveau_site_utiliser_ces_coordonnees" }
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)" }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertVisible: "Origine : 43.6045000, 1.4440000 \\(COORDINATES\\)"
 - tapOn: { id: "nouveau_site_tracer_le_rectangle" }
 - swipe: { start: "30%,15%", end: "70%,35%", duration: 1500 }

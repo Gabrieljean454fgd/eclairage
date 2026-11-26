@@ -58,7 +58,8 @@ name: "Session reprise donnees affichees"
 - assertVisible: { id: "session_terminer_la_session" }
 # Calibrage 1 point (cap 0°).
 - tapOn: { id: "session_calibrer" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 - tapOn: { id: "session_calibrer_cap_de_visee" }
 - inputText: "0"
 - hideKeyboard

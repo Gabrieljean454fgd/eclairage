@@ -21,7 +21,13 @@ name: "build199 AR - arêtes de plans, mobilier ignoré"
     visible: { id: "accueil_reglages" }
     timeout: 30000
 - tapOn: { id: "accueil_reglages" }
-- scrollUntilVisible: { element: { id: "reglages_ar_polygones_bruts" } }
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "reglages_ar_polygones_bruts" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertVisible: "Polygones ARCore bruts en AR"
 - tapOn: { id: "reglages_ar_polygones_bruts" }
 - tapOn: { id: "reglages_ar_polygones_bruts" }

@@ -18,22 +18,34 @@ name: "v176d maître - scène active sans esclave"
 # anomalie constatée, hors périmètre, pour Devin / v176g : « 0 appareil » manquait sur synchro_resume
 # sur l'appareil — le flux reste strict.
 - assertVisible: { id: "synchro_resume", text: "0 appareil" }
-- scrollUntilVisible:
-    element: { id: "synchro_scene_active" }
-    direction: DOWN
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_scene_active" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - assertVisible: "Scène active : aucun esclave.*"
 - assertVisible: "Lancer un top de synchro \\(tous les téléphones émettent\\)"
 - assertVisible: "Aucun esclave connecté.*"
 - takeScreenshot: v176_sync_scene_active
-- scrollUntilVisible:
-    element: { id: "synchro_journal" }
-    direction: DOWN
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_journal" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 # Journal le plus récent en haut : la ligne « rôle » est sous l'en-tête du journal, il faut encore défiler.
 - scrollUntilVisible:
     element: ".*rôle : Saisie \\(maître\\)"
     direction: DOWN
-- scrollUntilVisible:
-    element: { id: "synchro_arreter" }
-    direction: UP
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "synchro_arreter" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 80%", end: "50%, 92%", duration: 500 }
+- swipe: { start: "50%, 80%", end: "50%, 92%", duration: 500 }
 - tapOn: { id: "synchro_arreter" }
 - assertVisible: { id: "synchro_mode_maitre" }

@@ -6,7 +6,13 @@ name: "Scénario 1.5 — Réglages, Journal, Partager le journal"
     permissions: { all: allow }
 - tapOn: { id: "accueil_reglages" }
 # Réglages : les sections Synchro et Relevé (build 248) repoussent « Partager le journal » sous la ligne de flottaison.
-- scrollUntilVisible: { element: { id: "reglages_journal_partager" } }
+# Défilement dans le bas de l'écran (jamais au centre : carte / caméra).
+- repeat:
+    while: { notVisible: { id: "reglages_journal_partager" } }
+    times: 12
+    commands:
+      - swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
+- swipe: { start: "50%, 90%", end: "50%, 78%", duration: 500 }
 - tapOn: { id: "reglages_journal_partager" }
 - assertVisible: "(?i).*partager le journal.*|.*share.*"
 - back

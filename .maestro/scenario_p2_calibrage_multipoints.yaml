@@ -56,7 +56,8 @@ name: "Session calibrage multipoints"
 - tapOn: { id: "site_nouvelle_session_terrain" }
 - assertVisible: { id: "session_terminer_la_session" }
 - tapOn: { id: "session_calibrer" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 - tapOn: { id: "session_calibrer_cap_de_visee" }
 - inputText: "0"
 - hideKeyboard
@@ -79,7 +80,8 @@ name: "Session calibrage multipoints"
 # 2e point carte = position actuelle du téléphone (Centrer / Suivre puis Point à la croix), calibrée par le point 1 + cap, choisie juste avant Valider (le téléphone simulé avance de 0,6 m/s) :
 # correspondance cohérente avec les poses simulées. Un point arbitraire de la carte est refusé comme contradictoire (paquet v6).
 - tapOn: { id: "session_trajectoire_estimee_vert_non_gar" }
-- tapOn: { id: "session_point_a_la_croix" }
+# 9cd8e6f : la croix n'existe plus hors calibrage ; toucher le centre de la carte place le même point.
+- tapOn: { id: "session_carte" }
 - tapOn: { id: "session_calibrer_valider_la_calibration" }
 # anomalie constatée, hors périmètre, pour Devin / v176g : la ligne 2 du calibrage est parfois absente
 # sur l'appareil (2e point refusé sans message) — le flux reste strict.

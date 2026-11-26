@@ -337,24 +337,44 @@ class ArTracker(
         // (sol détecté, sinon l'estimation 1,4 m sous l'appareil ; la source du point reste AR_CEILING_ESTIMATED).
         val origin = V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble())
         val dir = Aim.forward(q)
-        val floorLevel = floorY ?: (origin.y - Aim.DEFAULT_CAMERA_HEIGHT_M)
+        // Build 262 : sol / plafond appris par la profondeur (moyenne glissante) avant les valeurs supposées 1,4 m / 2,5 m.
+        val floorLevel = floorY ?: depthFloorY ?: (origin.y - Aim.DEFAULT_CAMERA_HEIGHT_M)
         val virtualCeilingY = if (support == SupportFromTilt.Support.PLAFOND)
-            ceilingHeightM?.let { floorLevel + it } else null
+            (ceilingHeightM?.let { floorLevel + it } ?: depthCeilingY) else null
         // Retour terrain 22/11 : si ARCore n'a pas de plan mur/plafond, estimation d'après l'inclinaison
         // (source explicite AR_WALL_ESTIMATE / AR_CEILING_ESTIMATED), au lieu de « position à compléter ».
         val extras = when (support) {
             SupportFromTilt.Support.MUR -> listOf(Aim.wallEstimate(origin, dir))
             SupportFromTilt.Support.PLAFOND ->
                 if (virtualCeilingY == null) listOf(Aim.ceilingEstimate(origin, floorLevel)) else emptyList()
-            else -> emptyList()
+            // SOL sans plan de sol détecté : le sol appris par la profondeur remplace « 1,4 m sous l'appareil » (reste une estimation).
+            else -> if (floorY == null) listOfNotNull(depthFloorY?.let { Aim.Plane(V3(origin.x, it, origin.z), Aim.UP, "AR_FLOOR_ESTIMATE") }) else emptyList()
         }
         var result = Aim.resolve(origin, dir, ap, lastObjectY, true,
             fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY, extraPlanes = extras)
         // Build 259 (retour terrain 24/11) : ARCore met longtemps à trouver le sol et ne détecte jamais le plafond ; tant qu'aucun plan
         // ne répond (visée = simple estimation), on mesure la distance au réticule avec la Depth API au lieu de supposer 1,4 m / 2,5 m.
         val needDepth = result == AimResult.ToComplete || (result is AimResult.Hit && Aim.isEstimate(result.source))
-        if (needDepth) depthAimPoint(frame, origin, dir)?.let { result = AimResult.Hit(it, Aim.SRC_DEPTH) }
+        if (needDepth) depthAimPoint(frame, origin, dir)?.let { p ->
+            result = AimResult.Hit(p, Aim.SRC_DEPTH)
+            when (support) {
+                SupportFromTilt.Support.SOL -> depthFloorY = smoothY(depthFloorY, p.y)
+                SupportFromTilt.Support.PLAFOND -> depthCeilingY = smoothY(depthCeilingY, p.y)
+                else -> {}
+            }
+        }
         aim.value = result
+    }
+
+    /** Sol / plafond mesurés par la profondeur (repère de session ARCore), lissés ; null tant qu'aucune mesure. */
+    @Volatile private var depthFloorY: Double? = null
+    @Volatile private var depthCeilingY: Double? = null
+
+    /** Moyenne glissante (20 % de la nouvelle mesure) ; un saut > 0,6 m est ignoré (meuble, personne dans le champ). */
+    private fun smoothY(old: Double?, y: Double): Double = when {
+        old == null -> y
+        kotlin.math.abs(y - old) > 0.6 -> old
+        else -> old * 0.8 + y * 0.2
     }
 
     /** Depth API distance at the image centre (median of a 5×5 window, 0,2–12 m) along the camera axis, or null when unavailable. */

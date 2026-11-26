@@ -1,7 +1,7 @@
 # Génération de la carte
 
 - Branche source : `etape-3-v176j-ar-diagnostic`
-- Commit source : `c3495e6959d437552d6fdeabbddcce3368c8520a`
+- Commit source : `048c0396a7cdde00b47b924a185d21d0a6ca4fdb`
 - Version de Graphify : `0.9.112` (paquet PyPI `graphifyy`, dépôt [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify), licence Apache-2.0)
 - Commandes : `graphify extract . --code-only --out <répertoire> --exclude build/ --exclude .gradle/ --exclude docs/graphify/` puis `graphify cluster-only <répertoire> --no-label`
 - Exclusions : `build/`, `.gradle/`, `docs/graphify/` (en plus de ce que `.gitignore` ignore déjà)

@@ -1,4 +1,4 @@
-# Graph Report - eclairage  (2026-11-25)
+# Graph Report - eclairage  (2026-11-26)
 
 ## Corpus Check
 - cluster-only mode — file stats not available
@@ -9,7 +9,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c3495e69`
+- Built from commit: `048c0396`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 

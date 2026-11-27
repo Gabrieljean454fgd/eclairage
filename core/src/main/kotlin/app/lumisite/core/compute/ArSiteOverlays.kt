@@ -73,8 +73,9 @@ object ArSiteOverlays {
             addAll(site.selectedBuildingOsmRefs)
         }
         if (selected.isNotEmpty()) site.osm?.features.orEmpty().filter { it.ref in selected }.forEach { f ->
-            if (f.geometry.size >= 3) rings += ring(f.geometry, ltp, transform, floorY)
-            f.outers.forEach { if (it.size >= 3) rings += ring(it, ltp, transform, floorY) }
+            f.outers.ifEmpty { listOf(f.geometry) }.filter { it.size >= 3 }.forEach { outer ->
+                rings += ring(outer, ltp, transform, floorY)
+            }
             f.holes.forEach { if (it.size >= 3) rings += ring(it, ltp, transform, floorY) }
         }
         val rects = site.rects.ifEmpty { listOfNotNull(site.bbox) }

@@ -2,6 +2,7 @@ package app.lumisite.core.contract
 
 import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.compute.TrajectoryCorrector
+import app.lumisite.core.compute.Triangulation
 import app.lumisite.core.geo.Enu
 import app.lumisite.core.geo.Vec2
 import app.lumisite.core.model.SurveyEvent
@@ -42,12 +43,13 @@ data class SitePoint(val eM: Double, val nM: Double, val height: SiteHeight = Si
     fun toEnu() = Enu(eM, nM, (height as? SiteHeight.AboveFloor)?.metres ?: 0.0)
 }
 
-enum class PositionMethod { AR_PLANE, AR_LAST_PLANE, AR_FLOOR_ESTIMATE, AR_CAMERA, ESTIMATED, MAP_TAP, UNKNOWN;
+enum class PositionMethod { AR_PLANE, AR_LAST_PLANE, AR_FLOOR_ESTIMATE, AR_CAMERA, ESTIMATED, MAP_TAP, UNKNOWN, AR_TRIANGULATION;
     companion object {
         /** Mapping of the journal's positionSource strings (unchanged, append-only). */
         fun of(positionSource: String): PositionMethod = when (positionSource) {
             "AR_PLANE" -> AR_PLANE; "AR_LAST_PLANE" -> AR_LAST_PLANE; "AR_FLOOR_ESTIMATE" -> AR_FLOOR_ESTIMATE
             "AR_POSE" -> AR_CAMERA; "ESTIMATED" -> ESTIMATED
+            Triangulation.SOURCE -> AR_TRIANGULATION
             else -> if (positionSource.startsWith("MANUAL")) MAP_TAP else UNKNOWN
         }
     }
@@ -76,7 +78,7 @@ object Provenance {
             r.site == null -> PositionQuality.NONE
             manual -> PositionQuality.MANUAL
             method == PositionMethod.AR_PLANE -> PositionQuality.GOOD
-            method == PositionMethod.AR_LAST_PLANE || method == PositionMethod.AR_FLOOR_ESTIMATE -> PositionQuality.MEDIUM
+            method == PositionMethod.AR_LAST_PLANE || method == PositionMethod.AR_FLOOR_ESTIMATE || method == PositionMethod.AR_TRIANGULATION -> PositionQuality.MEDIUM
             else -> PositionQuality.LOW
         }
         return PositionProvenance(method, s.t.monotonicNs, s.t.timeBaseId, s.t.utcEpochMs, frame, quality)

@@ -23,7 +23,6 @@ import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
 import app.lumisite.core.compute.ArGeometry
 import app.lumisite.core.compute.ArMeasure
-import app.lumisite.core.compute.ArSiteOverlays
 import app.lumisite.core.compute.ArSymbols
 import app.lumisite.core.catalog.LsCatalog
 import app.lumisite.core.compute.ArPlaneDiagnose
@@ -104,7 +103,7 @@ class ArTracker(
     /** build 199 (point 2d) : polygones ARCore bruts en blanc, Réglages > Diagnostic. */
     val rawPolygonsOn = MutableStateFlow(false)
     @Volatile var catalog: LsCatalog? = null
-    @Volatile var siteContourRings: List<List<V3>> = emptyList()
+    @Volatile var siteContours: List<List<V3>> = emptyList()
     private val luminaireMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, String?>>()
     fun setLuminaireMeta(id: String, symbolId: String?, shortLabel: String?) { luminaireMeta[id] = symbolId to shortLabel }
     val measureA = MutableStateFlow<V3?>(null)
@@ -191,8 +190,6 @@ class ArTracker(
         return try {
             val s = Session(ctx)
             // Pixel 7 (et autres compatibles) : active la Depth API en mode AUTOMATIC sans exiger de capteur ToF.
-            // isDepthModeSupported est appelé avant configure() ; en cas d'échec on garde DISABLED.
-            depthSupported = runCatching { s.isDepthModeSupported(Config.DepthMode.AUTOMATIC) }.getOrDefault(false)
             // 30 fps, no depth sensor required, largest image size first.
             runCatching {
                 val filter = CameraConfigFilter(s)
@@ -200,6 +197,8 @@ class ArTracker(
                     .setDepthSensorUsage(EnumSet.of(CameraConfig.DepthSensorUsage.DO_NOT_USE))
                 s.getSupportedCameraConfigs(filter).maxByOrNull { it.imageSize.width * it.imageSize.height }?.let { s.cameraConfig = it }
             }
+            // Le support de la profondeur dépend de la configuration caméra sélectionnée.
+            depthSupported = runCatching { s.isDepthModeSupported(Config.DepthMode.AUTOMATIC) }.getOrDefault(false)
             val cfg = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
@@ -502,7 +501,7 @@ class ArTracker(
                     .map { (id, a) -> Mark(id, anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
                         live && a.trackingState == com.google.ar.core.TrackingState.TRACKING) },
                 rawPolygonsOn.value,
-                if (contoursOn.value) siteContourRings else emptyList(),
+                if (contoursOn.value && live) siteContours else emptyList(),
                 measureA.value, measureB.value,
                 catalog, luminaireMeta, forward,
             )

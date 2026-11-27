@@ -485,7 +485,7 @@ fun SiteScreen(site: Site, sessions: List<SessionHeader>, surveys: List<SurveyPo
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val narrow = maxWidth < 600.dp
         val map = @Composable { mapMod: Modifier ->
-            OsmMap(mapMod, site.origin, 18.0, fitBox = site.bbox ?: site.osm?.bbox, content = MapContent(
+            OsmMap(mapMod, site.origin, 18.0, fitBox = app.lumisite.core.osm.OsmSelection.workBounds(site), content = MapContent(
             origin = site.origin, features = site.osm?.features.orEmpty(), selectedFeatureRef = site.selectedBuildingOsmRef, selectedFeatureRefs = site.selectedBuildingOsmRefs.toSet(),
             rect = if (site.rects.size > 1) null else site.bbox ?: site.osm?.bbox, rects = if (site.rects.size > 1) site.rects else emptyList(),
             points = surveys.mapNotNull { r -> r.site?.let { MapPoint(ltp.toLatLon(it.copy(u = 0.0)), "${r.event.kind} ${r.event.note ?: ""}", android.graphics.Color.MAGENTA) } },

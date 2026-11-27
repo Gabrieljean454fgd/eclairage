@@ -124,7 +124,10 @@ data class LiveState(
     val forcible: ForcibleControlPoint? = null,
     /** 2f: hauteur sous plafond du site (saisie/mesure dans Session > Calibrer), affichée et utilisée par la visée PLAFOND. */
     val ceilingHeightM: Double? = null,
+    val aimCue: AimCue? = null,
 )
+
+data class AimCue(val text: String, val complete: Boolean = false)
 
 /** A point refused as contradictory, kept until the user forces it, adds another point or clears the table. */
 data class ForcibleControlPoint(val kind: String, val ref: ReferencePoint, val headingDeg: Double?, val headingSource: String?,
@@ -485,14 +488,18 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             if (e is ShapeEvent) features.appendShape(e)
             if (e is app.lumisite.core.model.ZoneEvent) features.appendShape(e.asShape())
         }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
-        _state.update { it.copy(events = it.events + e, message = msg) }
+        _state.update { it.copy(events = it.events + e, message = msg, aimCue = null) }
         val calibrationChanged = e is CalibrationEvent || e is RelocalizationEvent
         if (calibrationChanged) recompute()
         if (calibrationChanged || e is app.lumisite.core.model.ZoneEvent) refreshSiteContours()
     }
 
-    fun clearMessage() = _state.update { it.copy(message = null) }
+    fun clearMessage() = _state.update { it.copy(message = null, aimCue = null) }
+    fun clearAimCue() = _state.update { it.copy(aimCue = null) }
     private fun fail(msg: String) = _state.update { it.copy(message = msg) }
+
+    private fun guideAim(short: String, detail: String = short) =
+        _state.update { it.copy(aimCue = AimCue(short), message = detail) }
 
     private fun poseUnavailable(what: String): String {
         val st = _state.value
@@ -1011,14 +1018,18 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val direction: V3 get() = Aim.forward(pose.q)
     }
 
-    fun captureSurveySight(): SurveySight? {
-        val seg = activeSegment() ?: run { fail("Deux visées : calibrez le site avant de relever le point."); return null }
+    fun startSurveySight(): SurveySight? = captureSurveySight()?.also {
+        guideAim("Visée 1/2 · Décalez-vous", "Décalez-vous sur le côté, puis visez le même point au réticule.")
+    }
+
+    private fun captureSurveySight(): SurveySight? {
+        val seg = activeSegment() ?: run { guideAim("Calibrez le site"); return null }
         val st = _state.value
         val trackingEvent = st.events.lastOrNull { it is TrackingStateChanged } as? TrackingStateChanged
         val pose = trackedPose()?.takeIf {
             AndroidClock.monotonicNs() - it.t.monotonicNs in 0..500_000_000L &&
                 (trackingEvent == null || it.t.monotonicNs >= trackingEvent.t.monotonicNs)
-        } ?: run { fail(poseUnavailable("Visée")); return null }
+        } ?: run { guideAim("Suivi indisponible · Stabilisez", poseUnavailable("Visée")); return null }
         return SurveySight(pose, seg.eventId, trackingEvent?.id)
     }
 
@@ -1032,24 +1043,32 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         val triangulated = if (firstSight != null && secondSight != null) {
             if (firstSight.calibrationId != seg?.eventId || firstSight.calibrationId != secondSight.calibrationId ||
                 firstSight.trackingId != secondSight.trackingId) {
-                fail("Le suivi ou le calibrage a changé. Annulez la première visée et reprenez les deux depuis le même repère.")
+                guideAim("Suivi changé · Recommencez", "Le suivi ou le calibrage a changé. Annulez la première visée et reprenez les deux depuis le même repère.")
                 return false
             }
             when (val result = Triangulation.intersect(firstSight.origin, firstSight.direction, secondSight.origin, secondSight.direction)) {
                 is Triangulation.Result.Point -> result
                 is Triangulation.Result.Refused -> {
-                    fail(when (result) {
-                        Triangulation.Result.Refused.BASELINE, Triangulation.Result.Refused.ANGLE -> "Visées trop proches : décalez-vous sur le côté et visez à nouveau le même point."
-                        Triangulation.Result.Refused.OUT_OF_RANGE, Triangulation.Result.Refused.RAY_GAP -> "Les visées ne se recoupent pas assez. Visez exactement le même point ou recommencez les deux visées."
-                    })
+                    when (result) {
+                        Triangulation.Result.Refused.BASELINE, Triangulation.Result.Refused.ANGLE ->
+                            guideAim("Visée 1/2 · Écartez-vous", "Visées trop proches : décalez-vous sur le côté et visez à nouveau le même point.")
+                        Triangulation.Result.Refused.OUT_OF_RANGE, Triangulation.Result.Refused.RAY_GAP ->
+                            guideAim("Visée 1/2 · Revisez", "Les visées ne se recoupent pas assez. Visez exactement le même point ou recommencez les deux visées.")
+                    }
                     return false
                 }
             }
         } else null
         val aim = if (triangulated != null) AimResult.Hit(triangulated.position, Triangulation.SOURCE)
             else if (pose != null && seg != null) ar.aim.value else null
-        if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
-        if (manual == null && aim == app.lumisite.core.compute.AimResult.ToComplete) { fail("Position à compléter : visez un plan détecté (sol, mur ou plafond), ou touchez le point sur la carte."); return false }
+        if (manual == null && aim == AimResult.Grazing) {
+            guideAim("Visée rasante · Inclinez", "Visée rasante : inclinez le téléphone et visez de nouveau.")
+            return false
+        }
+        if (manual == null && aim == AimResult.ToComplete) {
+            guideAim("Visée incomplète · Revisez", "Visez un plan détecté, prenez deux visées ou touchez le point sur la carte.")
+            return false
+        }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit
         val est = if (pose != null && seg != null) hit?.let { app.lumisite.core.compute.Aim.toSite(it.point, seg.transform) }
             ?: seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
@@ -1083,6 +1102,10 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             else -> "position AR"
         }
         record(e, "Relevé « ${fam.label} » enregistré ($positionLabel).")
+        if (manual == null) _state.update { state -> state.copy(aimCue = when {
+            Aim.isEstimate(source) || source == "AR_POSE" -> AimCue("Relevé à vérifier")
+            else -> AimCue("Relevé enregistré", complete = true)
+        }) }
         if (manual == null && hit != null && pose != null) {
             ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
             val item = lsItem(familyId)

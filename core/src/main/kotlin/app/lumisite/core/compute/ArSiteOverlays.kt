@@ -102,7 +102,7 @@ object ArSiteOverlays {
             val incoming = p - vertices[(i + vertices.lastIndex) % vertices.size]
             val outgoing = vertices[(i + 1) % vertices.size] - p
             if (incoming.norm() < 0.05 || outgoing.norm() < 0.05 || (incoming.unit() dot outgoing.unit()) > 0.966) null
-            else p to (p + V3(0.0, 0.8, 0.0))
+            else p to p.copy(y = p.y + 0.8)
         }
     }
 

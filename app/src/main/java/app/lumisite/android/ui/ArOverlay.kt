@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,13 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.lumisite.android.SessionController
+import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
 import app.lumisite.core.compute.SupportFromTilt
 import app.lumisite.core.compute.V3
 import app.lumisite.core.model.TrackingState
+import kotlinx.coroutines.delay
 
 private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, String> = when {
     tracking == TrackingState.INITIALIZING -> Color(0xFFFFC107) to "Initialisation : bougez lentement"
@@ -54,13 +59,31 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     else -> Color(0xFFD50000) to "Point visé : pas de cible"
 }
 
-/** Drawn over the camera view (inside its Box): only the reticle, coloured by tracking/aim state (v176c: no text in the image). */
+/** Réticule et consigne courte, hors du centre de l'image. */
 @Composable
 fun androidx.compose.foundation.layout.BoxScope.ArReticle(c: SessionController) {
     val st by c.state.collectAsState()
     val aim by c.ar.aim.collectAsState()
     val (color, _) = aimState(st.tracking, aim)
     Text("+", Modifier.align(Alignment.Center), fontSize = 36.sp, color = color, style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)))
+    LaunchedEffect(st.aimCue) {
+        if (st.aimCue?.complete == true) { delay(1_800); c.clearAimCue() }
+    }
+    val source = (aim as? AimResult.Hit)?.source
+    val aimCue = st.aimCue
+    val cue = when {
+        st.tracking == TrackingState.INITIALIZING -> "Suivi en cours · Bougez lentement" to false
+        st.tracking != TrackingState.TRACKING -> "Suivi perdu · Stabilisez" to false
+        aimCue != null -> aimCue.text to aimCue.complete
+        aim == AimResult.Grazing -> "Visée rasante · Inclinez" to false
+        source == null || Aim.isEstimate(source) -> "Visée incomplète · Revisez" to false
+        source == Aim.SRC_DEPTH -> "Profondeur mesurée" to true
+        else -> "Visée OK" to true
+    }
+    Text(cue.first, modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 8.dp, vertical = 6.dp)
+        .background(if (cue.second) Color(0xE6166141) else Color(0xE69E2029), RoundedCornerShape(6.dp))
+        .padding(horizontal = 8.dp, vertical = 3.dp).testTag("session_ar_consigne"),
+        color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Libellés projetés (noms courts des luminaires, longueur A–B) par-dessus la vue caméra. */

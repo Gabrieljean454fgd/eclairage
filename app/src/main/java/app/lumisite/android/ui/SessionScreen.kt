@@ -103,6 +103,7 @@ import app.lumisite.core.model.SurveyEvent
 import app.lumisite.core.model.SyncRole
 import androidx.compose.material3.TextButton
 import app.lumisite.core.model.TrackingState
+import app.lumisite.core.osm.OsmSelection
 import app.lumisite.core.sync.DeviceSyncLog
 import app.lumisite.core.sync.SyncEstimator
 import app.lumisite.core.sync.SyncRole2
@@ -124,9 +125,11 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
     var mode by remember { mutableStateOf(Mode.SYNC) }
     var picked by remember { mutableStateOf<LatLon?>(null) }
     var mapCenter by remember { mutableStateOf<LatLon?>(c.site.origin) }
-    var mapZoom by rememberSaveable { mutableStateOf(19.0) }
-    var mapLat by rememberSaveable { mutableStateOf(c.site.origin.lat) }
-    var mapLon by rememberSaveable { mutableStateOf(c.site.origin.lon) }
+    var mapZoom by rememberSaveable(c.sessionId) { mutableStateOf(19.0) }
+    var mapLat by rememberSaveable(c.sessionId) { mutableStateOf(c.site.origin.lat) }
+    var mapLon by rememberSaveable(c.sessionId) { mutableStateOf(c.site.origin.lon) }
+    var mapCameraSaved by rememberSaveable(c.sessionId) { mutableStateOf(false) }
+    val workBounds = remember(c.site) { OsmSelection.workBounds(c.site) }
     var measureArmed by remember { mutableStateOf(false) }
     var measureReset by remember { mutableStateOf(0) }
     var arReady by remember { mutableStateOf(false) }
@@ -303,6 +306,7 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                     selectedFeatureRefs = c.site.selectedBuildingOsmRefs.toSet(),
                     preview = draw.preview().map { c.ltp.toLatLon(it) }, arrows = arrows,
                 ),
+                fitBox = workBounds.takeUnless { mapCameraSaved },
                 // In Annoter the tap also feeds the active draw tool; picked stays up to date for
                 // « Déplacer au point touché » in the object panel. AutoPhoto (menu bloc) applies after a pose.
                 onTap = { picked = it; if (mode == Mode.DRAW && draw.consumesTap()) draw.onTap(c, c.ltp.toEnu(it).copy(u = 0.0), AutoPhoto.enabled(activity)) },
@@ -317,7 +321,8 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
                 },
                 siteBbox = c.site.bbox ?: c.site.osm?.bbox, reticle = mode == Mode.CALIBRATE || mode == Mode.RELOCALIZE,
                 onViewport = { ctr, _ -> mapCenter = ctr },
-                onCamera = { ctr, z -> mapCenter = ctr; mapLat = ctr.lat; mapLon = ctr.lon; mapZoom = z },
+                onCamera = { ctr, z -> mapCenter = ctr; mapLat = ctr.lat; mapLon = ctr.lon; mapZoom = z; mapCameraSaved = true },
+                onCameraGesture = { follow = false },
                 onScale = { mpd -> draw.tolM = mpd * app.lumisite.core.survey.Sketch.TOUCH_DP },
                 onFinger = if (movingId != null) { phase, ll ->
                     val p = c.ltp.toEnu(ll)
@@ -568,15 +573,16 @@ fun SessionScreen(activity: Activity, repo: Repository, c: SessionController, on
             Column(Modifier.fillMaxSize()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { statusRow() }
                 cameraBlock()
-                if (split.panelStrip) {
-                    map(Modifier.fillMaxWidth().weight(1f))
-                    panelStrip()
-                } else if (split.panel > 0f) {
-                    val (mapW, panelW) = if (short) 0.25f to 0.75f else split.map to split.panel
-                    map(Modifier.fillMaxWidth().weight(mapW))
+                val hasPanel = !split.panelStrip && split.panel > 0f
+                val (mapW, panelW) = when {
+                    !hasPanel -> 1f to 0f
+                    short -> 0.25f to 0.75f
+                    else -> split.map to split.panel
+                }
+                map(Modifier.fillMaxWidth().weight(mapW))
+                if (split.panelStrip) panelStrip()
+                else if (hasPanel) {
                     panel(Modifier.weight(panelW).padding(horizontal = 8.dp, vertical = 4.dp))
-                } else {
-                    map(Modifier.fillMaxWidth().weight(1f))
                 }
                 resumeBanner()
                 messageBar()
@@ -789,24 +795,24 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
             if (AutoPhoto.enabled(ctx)) photoFor = c.lastSurveyId
         }
     }
-    Button(enabled = family != null && (!useMap || hasPick), onClick = {
+    Button(enabled = family != null && firstSight == null && (!useMap || hasPick), onClick = {
         saveSurvey()
     }, modifier = Modifier.fillMaxWidth().testTag("session_releve_enregistrer_le_releve")) { Text("Enregistrer le relevé") }
     if (family != null && !useMap && !arBlocked && c.isCalibrated() && !DebugFlags.simulatedPoses) {
         if (firstSight != null) Text("Décalez-vous sur le côté, puis visez le même point au réticule.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(enabled = tracking == TrackingState.TRACKING, onClick = {
             val first = firstSight
-            if (first == null) firstSight = c.captureSurveySight() else saveSurvey(first)
+            if (first == null) firstSight = c.startSurveySight() else saveSurvey(first)
         }, modifier = Modifier.fillMaxWidth().testTag("session_releve_deux_visees")) {
             Text(if (firstSight == null) "Prendre une première visée" else "Enregistrer avec la seconde visée")
         }
-        if (firstSight != null) TextButton(onClick = { firstSight = null }) { Text("Annuler la première visée") }
+        if (firstSight != null) TextButton(onClick = { firstSight = null; c.clearAimCue() }) { Text("Annuler la première visée") }
     }
     Text("Relevé : type du catalogue $catVersion, position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
-    LsCatalogPicker(c, family) { family = it }
+    LsCatalogPicker(c, family) { if (firstSight != null) c.clearAimCue(); family = it }
     DetailsForm(family, details)
     OutlinedTextField(note, { note = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.testTag("session_releve_commentaire_facultatif"))
-    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { if (!arBlocked) useMap = it }, enabled = !arBlocked, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
+    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(useMap, { if (!arBlocked) { if (firstSight != null) c.clearAimCue(); useMap = it } }, enabled = !arBlocked, modifier = Modifier.testTag("session_releve_checkbox")); Text("Position manuelle (point touché sur la carte)", style = MaterialTheme.typography.bodySmall) }
     if (arBlocked) Text("Position du téléphone perdue à la fermeture : relevé par point visé AR impossible. Touchez la carte, ou Calibrer (2 points).",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("session_releve_pose_ar_desactivee"))
 }

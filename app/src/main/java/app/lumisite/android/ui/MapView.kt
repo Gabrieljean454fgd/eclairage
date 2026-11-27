@@ -6,6 +6,7 @@ import android.graphics.Paint
 import kotlin.math.roundToInt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.draw.clipToBounds
@@ -19,6 +20,8 @@ import app.lumisite.core.model.OsmFeature
 import org.osmdroid.events.MapEventsReceiver
 import android.os.Build
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
 import android.widget.Magnifier
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -122,11 +125,14 @@ fun OsmMap(
     onFinger: ((FingerPhase, LatLon) -> Unit)? = null,
     /** Centre et niveau de zoom courants (conservés quand le panneau de Calibrage est replié). */
     onCamera: ((center: LatLon, zoom: Double) -> Unit)? = null,
+    onCameraGesture: (() -> Unit)? = null,
 ) {
     val fingerCb = rememberUpdatedState(onFinger)
     val reticleCb = rememberUpdatedState(reticle)
     val scaleCb = rememberUpdatedState(onScale)
     val cameraCb = rememberUpdatedState(onCamera)
+    val viewportCb = rememberUpdatedState(onViewport)
+    val cameraGestureCb = rememberUpdatedState(onCameraGesture)
     val tapCb = rememberUpdatedState(onTap)
     val featureCb = rememberUpdatedState(onFeatureTap)
     val pointCb = rememberUpdatedState(onPointTap)
@@ -138,17 +144,14 @@ fun OsmMap(
     val map = remember {
         MapView(ctx).apply {
             setMultiTouchControls(true)
-            controller.setZoom(zoom)
-            controller.setCenter(gp(center))
             // Over-zoom up to 26: tiles are never requested above the source's native zoom, osmdroid scales lower ones.
             minZoomLevel = 3.0; maxZoomLevel = Basemap.MAX_ZOOM
             isTilesScaledToDpi = false
         }
     }
-    val holder = remember { arrayOf<Any?>(null, null) }
     val gesture = remember { Gesture() }
-    if (holder[1] != basemap) {
-        holder[1] = basemap
+    if (layers.basemap != basemap) {
+        layers.basemap = basemap
         val src = tileSourceFor(basemap)
         map.setTileProvider(SiteTileProvider(ctx.applicationContext, src, SiteTileCache(basemap, siteBbox)))
         map.setTileSource(src)
@@ -168,23 +171,33 @@ fun OsmMap(
             }
         }.apply { loadingBackgroundColor = android.graphics.Color.TRANSPARENT; setLoadingLineColor(android.graphics.Color.TRANSPARENT) }
     }
-    DisposableEffect(Unit) {
+    fun reportViewport(): Boolean {
+        if (!layers.cameraApplied || map.width <= 0 || map.height <= 0) return false
+        val bb = map.boundingBox
+        val w = TileMath.widthM(bb.centerLatitude, bb.longitudeSpanWithDateLine)
+        val ctr = LatLon(map.mapCenter.latitude, map.mapCenter.longitude)
+        widthM = w
+        viewportCb.value?.invoke(ctr, w)
+        cameraCb.value?.invoke(ctr, map.zoomLevelDouble)
+        scaleCb.value?.invoke(w / (map.width / map.resources.displayMetrics.density))
+        return false
+    }
+    DisposableEffect(map) {
         val l = object : MapListener {
-            fun report(): Boolean {
-                val bb = map.boundingBox
-                val w = TileMath.widthM(bb.centerLatitude, bb.longitudeSpanWithDateLine)
-                widthM = w
-                onViewport?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), w)
-                cameraCb.value?.invoke(LatLon(map.mapCenter.latitude, map.mapCenter.longitude), map.zoomLevelDouble)
-                val dpW = map.width / map.resources.displayMetrics.density
-                if (dpW > 0) scaleCb.value?.invoke(w / dpW)
-                return false
-            }
-            override fun onScroll(event: ScrollEvent?) = report()
-            override fun onZoom(event: ZoomEvent?) = report()
+            override fun onScroll(event: ScrollEvent?) = reportViewport()
+            override fun onZoom(event: ZoomEvent?) = reportViewport()
         }
         map.addMapListener(l)
         val magnifier = if (Build.VERSION.SDK_INT >= 28) Magnifier.Builder(map).setSize(300, 200).setInitialZoom(2f).build() else null
+        val touchSlop = ViewConfiguration.get(map.context).scaledTouchSlop.toFloat()
+        val layoutListener = View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                if (Build.VERSION.SDK_INT >= 28) magnifier?.dismiss()
+                map.postInvalidateOnAnimation()
+                reportViewport()
+            }
+        }
+        map.addOnLayoutChangeListener(layoutListener)
         map.setOnTouchListener { _, e ->
             // Magnifier above the finger while placing at room scale (zoom ≥ 20).
             if (magnifier != null && Build.VERSION.SDK_INT >= 28 && reticleCb.value && map.zoomLevelDouble >= 20.0 && e.pointerCount == 1) when (e.actionMasked) {
@@ -193,6 +206,16 @@ fun OsmMap(
                 else -> magnifier.dismiss()
             } else if (magnifier != null && Build.VERSION.SDK_INT >= 28) magnifier.dismiss()
             val cb = fingerCb.value
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                gesture.panAnnounced = false; gesture.x = e.x; gesture.y = e.y
+            }
+            val panning = e.actionMasked == MotionEvent.ACTION_POINTER_DOWN ||
+                (e.actionMasked == MotionEvent.ACTION_MOVE && cb == null &&
+                    (kotlin.math.abs(e.x - gesture.x) > touchSlop || kotlin.math.abs(e.y - gesture.y) > touchSlop))
+            if (panning && !gesture.panAnnounced) {
+                gesture.panAnnounced = true
+                cameraGestureCb.value?.invoke()
+            }
             if (cb == null || gesture.reentry) return@setOnTouchListener false
             fun ll(x: Float, y: Float) = map.projection.fromPixels(x.toInt(), y.toInt()).let { LatLon(it.latitude, it.longitude) }
             when (e.actionMasked) {
@@ -217,18 +240,25 @@ fun OsmMap(
                 }
             }
         }
-        onDispose { runCatching { if (Build.VERSION.SDK_INT >= 28) magnifier?.dismiss() }; map.removeMapListener(l) }
-    }
-    DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
-    if (holder[0] != recenterKey) {
-        holder[0] = recenterKey
-        val c = gp(center)
-        // Before the first layout osmdroid ignores setCenter/setZoom; apply after layout.
-        val apply = {
-            if (fitBox != null) map.zoomToBoundingBox(BoundingBox(fitBox.north, fitBox.east, fitBox.south, fitBox.west), false, 48)
-            else { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+        onDispose {
+            if (Build.VERSION.SDK_INT >= 28) magnifier?.dismiss()
+            map.setOnTouchListener(null)
+            map.removeOnLayoutChangeListener(layoutListener)
+            map.removeMapListener(l)
         }
-        if (map.isLayoutOccurred) map.post { apply() } else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
+    }
+    DisposableEffect(map) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
+    LaunchedEffect(map, recenterKey) {
+        val c = gp(center)
+        val apply = {
+            if (fitBox != null) {
+                val margin = (24 * map.resources.displayMetrics.density).roundToInt().coerceAtMost(minOf(map.width, map.height) / 4)
+                map.zoomToBoundingBox(BoundingBox(fitBox.north, fitBox.east, fitBox.south, fitBox.west), false, margin)
+            } else { map.controller.setZoom(zoom); map.controller.setCenter(c) }
+            layers.cameraApplied = true
+            reportViewport()
+        }
+        if (map.isLayoutOccurred) apply() else map.addOnFirstLayoutListener { _, _, _, _, _ -> apply() }
     }
     val tone = LocalMapTone.current
     Box(modifier.clipToBounds()) {
@@ -466,6 +496,8 @@ private class LayerGroup { var built = false; var key: Any? = null; var overlays
 /** v176b: overlays kept between recompositions (see the AndroidView update of [OsmMap]). */
 private class MapLayers {
     val groups = HashMap<String, LayerGroup>()
+    var basemap: Basemap? = null
+    var cameraApplied = false
     var trajectory: List<List<CorrectedPoint>>? = null
     val trajLines = ArrayList<Polyline>()
     val trajSimplifiers = ArrayList<app.lumisite.core.map.GrowingSegmentSimplifier>()
@@ -480,7 +512,7 @@ private class MapLayers {
     var dirty = false
 }
 
-private class Gesture { var multi = false; var reentry = false; var x = 0f; var y = 0f }
+private class Gesture { var multi = false; var reentry = false; var panAnnounced = false; var x = 0f; var y = 0f }
 
 /** North-up map: rotating the canvas clockwise by the heading (degrees from north) points the arrow the right way. */
 private fun arrowIcon(mv: MapView, headingDeg: Double?, color: Int, sizeDp: Int = 36): android.graphics.drawable.Drawable {

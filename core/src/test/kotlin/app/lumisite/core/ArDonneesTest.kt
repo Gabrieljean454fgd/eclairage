@@ -178,6 +178,10 @@ class ArDonneesTest {
             bbox = box, rects = listOf(box),
         )
         val floorY = 0.20
+        assertEquals(BBox(origin.lat, origin.lon, origin.lat + 0.0002, origin.lon + 0.0002),
+            app.lumisite.core.osm.OsmSelection.workBounds(site))
+        assertEquals(box, app.lumisite.core.osm.OsmSelection.workBounds(
+            site.copy(selectedBuildingOsmRef = null, selectedBuildingOsmRefs = emptyList())))
         val contours = ArSiteOverlays.siteContours(site, Similarity2D.IDENTITY, floorY, ltp)
         val rings = contours.rings
         assertTrue(rings.size >= 2, "bâtiment + rectangle attendus : ${rings.size}")

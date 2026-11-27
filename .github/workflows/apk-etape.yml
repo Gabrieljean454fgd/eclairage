@@ -101,6 +101,10 @@ jobs:
     needs: apk
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [parcours-1, parcours-2, mises-a-jour]
     steps:
       - uses: actions/checkout@v4
 
@@ -135,18 +139,18 @@ jobs:
           profile: pixel_7
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: .github/scripts/maestro-ci.sh "${{ needs.apk.outputs.apk }}"
+          script: .github/scripts/maestro-ci.sh "${{ needs.apk.outputs.apk }}" "${{ matrix.suite }}"
 
       - name: Résumé
         if: always()
         run: |
-          echo "## Parcours Maestro (émulateur Pixel 7, API 34)" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Maestro ${{ matrix.suite }} (émulateur Pixel 7, API 34)" >> "$GITHUB_STEP_SUMMARY"
           cat maestro-out/resume.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "_pas de résumé_" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: maestro-rapports
+          name: maestro-rapports-${{ matrix.suite }}
           path: maestro-out/
           # Les captures de --debug-output sont sous .maestro/ (fichiers cachés, exclus par défaut).
           include-hidden-files: true

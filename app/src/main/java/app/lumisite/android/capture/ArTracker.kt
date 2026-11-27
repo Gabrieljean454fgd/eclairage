@@ -23,7 +23,6 @@ import app.lumisite.core.compute.Aim
 import app.lumisite.core.compute.AimResult
 import app.lumisite.core.compute.ArGeometry
 import app.lumisite.core.compute.ArMeasure
-import app.lumisite.core.compute.ArSiteOverlays
 import app.lumisite.core.compute.ArSymbols
 import app.lumisite.core.catalog.LsCatalog
 import app.lumisite.core.compute.ArPlaneDiagnose
@@ -104,7 +103,7 @@ class ArTracker(
     /** build 199 (point 2d) : polygones ARCore bruts en blanc, Réglages > Diagnostic. */
     val rawPolygonsOn = MutableStateFlow(false)
     @Volatile var catalog: LsCatalog? = null
-    @Volatile var siteContours = ArSiteOverlays.SiteContours()
+    @Volatile var siteContours: List<List<V3>> = emptyList()
     private val luminaireMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, String?>>()
     fun setLuminaireMeta(id: String, symbolId: String?, shortLabel: String?) { luminaireMeta[id] = symbolId to shortLabel }
     val measureA = MutableStateFlow<V3?>(null)
@@ -502,7 +501,7 @@ class ArTracker(
                     .map { (id, a) -> Mark(id, anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
                         live && a.trackingState == com.google.ar.core.TrackingState.TRACKING) },
                 rawPolygonsOn.value,
-                if (contoursOn.value && live) siteContours else null,
+                if (contoursOn.value && live) siteContours else emptyList(),
                 measureA.value, measureB.value,
                 catalog, luminaireMeta, forward,
             )
@@ -630,13 +629,13 @@ private class LineRenderer {
     fun draw(
         cam: com.google.ar.core.Camera, widthPx: Int, heightPx: Int,
         planes: List<Plane>, marks: List<ArTracker.Mark>, rawPolygons: Boolean,
-        siteContours: ArSiteOverlays.SiteContours?, measureA: V3?, measureB: V3?,
+        siteRings: List<List<V3>>, measureA: V3?, measureB: V3?,
         catalog: LsCatalog?, luminaireMeta: Map<String, Pair<String?, String?>>, forward: V3,
     ): List<ArTracker.ScreenLabel> {
         val labels = ArrayList<ArTracker.ScreenLabel>()
         if (program == 0) return labels
         val hasMeasure = measureA != null && measureB != null
-        if (planes.isEmpty() && marks.isEmpty() && siteContours?.rings.isNullOrEmpty() && !hasMeasure) return labels
+        if (planes.isEmpty() && marks.isEmpty() && siteRings.isEmpty() && !hasMeasure) return labels
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
         val viewProj = DoubleArray(16) { vp[it].toDouble() }
@@ -666,10 +665,9 @@ private class LineRenderer {
             if (t == Plane.Type.VERTICAL) segments(ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
         // Contours du site / bâtiment / zones, recalés (cyan).
-        for (ring in siteContours?.rings.orEmpty()) {
+        for (ring in siteRings) {
             if (ring.size >= 2) lines(GLES20.GL_LINE_STRIP, ring, 0.2f, 0.95f, 0.95f)
         }
-        siteContours?.corners?.let { segments(it, 0.2f, 0.95f, 0.95f) }
         val (right, up) = ArSymbols.billboardAxes(forward)
         for (mark in marks) {
             val grey = !mark.live

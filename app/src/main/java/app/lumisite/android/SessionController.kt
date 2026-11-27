@@ -585,7 +585,7 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     private fun refreshSiteContours() {
         val seg = activeSegment()
         if (seg == null) {
-            ar.siteContours = ArSiteOverlays.SiteContours()
+            ar.siteContours = emptyList()
         } else runCatching {
             ar.siteContours = ArSiteOverlays.siteContours(site, seg.transform, overlayFloorY(), ltp, visitEvents())
         }.onFailure { DiagLog.e("ARCORE", "Projection des contours du site", it) }

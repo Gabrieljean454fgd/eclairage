@@ -18,8 +18,6 @@ import java.util.Locale
 object ArSiteOverlays {
     enum class Kind { FLAG, LUMINAIRE }
 
-    data class SiteContours(val rings: List<List<V3>> = emptyList(), val corners: List<Pair<V3, V3>> = emptyList())
-
     data class VisitEvents(val visitId: String, val events: List<SessionEvent>)
 
     data class Anchor(
@@ -68,18 +66,15 @@ object ArSiteOverlays {
     fun siteContours(
         site: Site, transform: Similarity2D, floorY: Double, ltp: LocalTangentPlane,
         visits: List<VisitEvents> = emptyList(),
-    ): SiteContours {
+    ): List<List<V3>> {
         val rings = ArrayList<List<V3>>()
-        val corners = ArrayList<Pair<V3, V3>>()
         val selected = buildSet {
             site.selectedBuildingOsmRef?.let { add(it) }
             addAll(site.selectedBuildingOsmRefs)
         }
         if (selected.isNotEmpty()) site.osm?.features.orEmpty().filter { it.ref in selected }.forEach { f ->
             f.outers.ifEmpty { listOf(f.geometry) }.filter { it.size >= 3 }.forEach { outer ->
-                val building = ring(outer, ltp, transform, floorY)
-                rings += building
-                corners += buildingCorners(building)
+                rings += ring(outer, ltp, transform, floorY)
             }
             f.holes.forEach { if (it.size >= 3) rings += ring(it, ltp, transform, floorY) }
         }
@@ -91,19 +86,7 @@ object ArSiteOverlays {
                 z.holes.orEmpty().forEach { if (it.size >= 3) rings += enuRing(it, transform, floorY) }
             }
         }
-        return SiteContours(rings.filter { it.size >= 2 }, corners)
-    }
-
-    /** Petits traits verticaux aux angles de l'emprise. Leur hauteur est graphique. */
-    private fun buildingCorners(ring: List<V3>): List<Pair<V3, V3>> {
-        val vertices = ring.dropLast(1)
-        if (vertices.size < 3) return emptyList()
-        return vertices.mapIndexedNotNull { i, p ->
-            val incoming = p - vertices[(i + vertices.lastIndex) % vertices.size]
-            val outgoing = vertices[(i + 1) % vertices.size] - p
-            if (incoming.norm() < 0.05 || outgoing.norm() < 0.05 || (incoming.unit() dot outgoing.unit()) > 0.966) null
-            else p to p.copy(y = p.y + 0.8)
-        }
+        return rings.filter { it.size >= 2 }
     }
 
     private fun ring(latLon: List<app.lumisite.core.geo.LatLon>, ltp: LocalTangentPlane, tr: Similarity2D, floorY: Double): List<V3> {

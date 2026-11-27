@@ -29,6 +29,10 @@ import app.lumisite.core.catalog.LsItem
 import app.lumisite.core.compute.SurveyPositions
 import app.lumisite.core.compute.ArSiteOverlays
 import app.lumisite.core.compute.ArSymbols
+import app.lumisite.core.compute.Aim
+import app.lumisite.core.compute.AimResult
+import app.lumisite.core.compute.Triangulation
+import app.lumisite.core.compute.V3
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -482,7 +486,9 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             if (e is app.lumisite.core.model.ZoneEvent) features.appendShape(e.asShape())
         }.onFailure { _state.update { s -> s.copy(message = "Écriture GeoJSON impossible : ${it.message}") } }
         _state.update { it.copy(events = it.events + e, message = msg) }
-        if (e is CalibrationEvent || e is RelocalizationEvent) recompute()
+        val calibrationChanged = e is CalibrationEvent || e is RelocalizationEvent
+        if (calibrationChanged) recompute()
+        if (calibrationChanged || e is app.lumisite.core.model.ZoneEvent) refreshSiteContours()
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
@@ -557,27 +563,36 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
      * and per luminaire at its map-projected position (Aim.toSession); ARCore then tracks them normally. Repères are
      * map points (u = 0): their flag is planted at the detected floor level.
      */
-    private fun visitEvents(): List<ArSiteOverlays.VisitEvents> {
-        val current = _state.value.events
-        val listed = repo.sessions(site.id).map { h ->
-            val evs = if (h.id == sessionId) current
-            else runCatching { SessionReader.read(repo.sessionDir(h.id), includeImu = false).events }.getOrDefault(emptyList())
+    private val pastVisits by lazy {
+        repo.sessions(site.id).filter { it.id != sessionId }.map { h ->
+            val evs = runCatching { SessionReader.read(repo.sessionDir(h.id), includeImu = false).events }.getOrDefault(emptyList())
             ArSiteOverlays.VisitEvents(h.id, evs)
         }
-        return if (listed.any { it.visitId == sessionId }) listed
-        else listed + ArSiteOverlays.VisitEvents(sessionId, current)
+    }
+
+    private fun visitEvents(): List<ArSiteOverlays.VisitEvents> =
+        pastVisits + ArSiteOverlays.VisitEvents(sessionId, _state.value.events)
+
+    private fun overlayFloorY() = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M) ?: 0.0
+
+    private fun refreshSiteContours() {
+        val seg = activeSegment()
+        if (seg == null) {
+            ar.siteContours = ArSiteOverlays.SiteContours()
+        } else runCatching {
+            ar.siteContours = ArSiteOverlays.siteContours(site, seg.transform, overlayFloorY(), ltp, visitEvents())
+        }.onFailure { DiagLog.e("ARCORE", "Projection des contours du site", it) }
     }
 
     private fun restoreAnchors(seg: TrajectoryCorrector.Segment) {
         val tr = seg.transform
-        val floorY = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M) ?: 0.0
+        val floorY = overlayFloorY()
         val now = stamps.now()
         fun anchorPose(at: app.lumisite.core.compute.V3) = PoseSample(now, listOf(at.x, at.y, at.z), listOf(0.0, 0.0, 0.0, 1.0), TrackingState.TRACKING)
         val cat = _lsCatalog.value
         ar.catalog = cat
         val visits = visitEvents()
         val loaded = ArSiteOverlays.anchors(visits, tr, floorY, cat)
-        ar.siteContourRings = ArSiteOverlays.siteContours(site, tr, floorY, ltp, visits)
         loaded.forEach { a ->
             val kind = if (a.kind == ArSiteOverlays.Kind.FLAG) ArTracker.AnchorKind.FLAG else ArTracker.AnchorKind.LUMINAIRE
             ar.requestAnchor(a.id, anchorPose(a.session), kind)
@@ -991,13 +1006,48 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
     var lastSurveyId: String? = null
         private set
 
-    fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null): Boolean {
+    data class SurveySight(val pose: PoseSample, val calibrationId: String, val trackingId: String?) {
+        val origin: V3 get() = V3(pose.p[0], pose.p[1], pose.p[2])
+        val direction: V3 get() = Aim.forward(pose.q)
+    }
+
+    fun captureSurveySight(): SurveySight? {
+        val seg = activeSegment() ?: run { fail("Deux visées : calibrez le site avant de relever le point."); return null }
+        val st = _state.value
+        val trackingEvent = st.events.lastOrNull { it is TrackingStateChanged } as? TrackingStateChanged
+        val pose = trackedPose()?.takeIf {
+            AndroidClock.monotonicNs() - it.t.monotonicNs in 0..500_000_000L &&
+                (trackingEvent == null || it.t.monotonicNs >= trackingEvent.t.monotonicNs)
+        } ?: run { fail(poseUnavailable("Visée")); return null }
+        return SurveySight(pose, seg.eventId, trackingEvent?.id)
+    }
+
+    fun survey(familyId: String, note: String?, manual: ReferencePoint?, details: JsonObject? = null, firstSight: SurveySight? = null): Boolean {
         val fam = resolveFamily(familyId) ?: return fail("Famille inconnue du catalogue : « $familyId »").let { false }
         val st = _state.value
-        val pose = trackedPose()
+        val secondSight = if (firstSight != null && manual == null) captureSurveySight() ?: return false else null
+        val pose = secondSight?.pose ?: trackedPose()
         val seg = activeSegment()
         if (manual == null && needsReposition()) { fail("Position du téléphone perdue à la fermeture : pas de point visé AR. Touchez le point sur la carte, ou touchez 2 points déjà calibrés (Calibrer, 2 points)."); return false }
-        val aim = if (pose != null && seg != null) ar.aim.value else null
+        val triangulated = if (firstSight != null && secondSight != null) {
+            if (firstSight.calibrationId != seg?.eventId || firstSight.calibrationId != secondSight.calibrationId ||
+                firstSight.trackingId != secondSight.trackingId) {
+                fail("Le suivi ou le calibrage a changé. Annulez la première visée et reprenez les deux depuis le même repère.")
+                return false
+            }
+            when (val result = Triangulation.intersect(firstSight.origin, firstSight.direction, secondSight.origin, secondSight.direction)) {
+                is Triangulation.Result.Point -> result
+                is Triangulation.Result.Refused -> {
+                    fail(when (result) {
+                        Triangulation.Result.Refused.BASELINE, Triangulation.Result.Refused.ANGLE -> "Visées trop proches : décalez-vous sur le côté et visez à nouveau le même point."
+                        Triangulation.Result.Refused.OUT_OF_RANGE, Triangulation.Result.Refused.RAY_GAP -> "Les visées ne se recoupent pas assez. Visez exactement le même point ou recommencez les deux visées."
+                    })
+                    return false
+                }
+            }
+        } else null
+        val aim = if (triangulated != null) AimResult.Hit(triangulated.position, Triangulation.SOURCE)
+            else if (pose != null && seg != null) ar.aim.value else null
         if (manual == null && aim == app.lumisite.core.compute.AimResult.Grazing) { fail("Visée rasante refusée : orientez l'appareil vers le sol."); return false }
         if (manual == null && aim == app.lumisite.core.compute.AimResult.ToComplete) { fail("Position à compléter : visez un plan détecté (sol, mur ou plafond), ou touchez le point sur la carte."); return false }
         val hit = aim as? app.lumisite.core.compute.AimResult.Hit
@@ -1009,24 +1059,35 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
         if (manual == null && hit?.source == "AR_PLANE") ar.lastObjectY = hit.point.y
         if (manual == null && hit?.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED)
             DiagLog.i("POSITION", "Relevé : plafond estimé (aucun plan plafond détecté, hauteur sous plafond ${site.ceilingHeightM} m)")
+        val equipment = fam.payload(details)
         val e = SurveyEvent(
             id = Ids.new("srv"), t = stamps.now(), kind = fam.kind, note = note?.ifBlank { null }, pose = pose ?: latestPose,
             tracking = st.tracking, estimatedSite = est, positionSource = source, manualSite = manual?.site, lastGps = st.lastGps,
-            payloadSchema = fam.schema, payload = fam.payload(details),
+            payloadSchema = fam.schema, payload = if (triangulated == null) equipment else buildJsonObject {
+                equipment.forEach { (key, value) -> put(key, value) }
+                put("ar_triangulation", buildJsonObject {
+                    put("angle_deg", triangulated.angleDeg)
+                    put("ray_gap_m", triangulated.rayGapM)
+                })
+            },
             dxf = fam.dxf,
+            poseT = secondSight?.pose?.t,
             aimSession = if (manual == null) hit?.point?.let { listOf(it.x, it.y, it.z) } else null,
         )
         pushUndo(e.id)
         lastSurveyId = e.id
-        record(e, "Relevé « ${fam.label} » enregistré (${if (manual != null) "position manuelle" else "position AR"}).")
+        val positionLabel = when {
+            manual != null -> "position manuelle"
+            triangulated != null -> "deux visées · écart %.0f cm".format(java.util.Locale.FRANCE, triangulated.rayGapM * 100)
+            Aim.isEstimate(source) || source == "AR_POSE" -> "position AR estimée"
+            else -> "position AR"
+        }
+        record(e, "Relevé « ${fam.label} » enregistré ($positionLabel).")
         if (manual == null && hit != null && pose != null) {
             ar.requestAnchor(e.id, pose.copy(p = listOf(hit.point.x, hit.point.y, hit.point.z), q = listOf(0.0, 0.0, 0.0, 1.0)), app.lumisite.android.capture.ArTracker.AnchorKind.LUMINAIRE)
             val item = lsItem(familyId)
             val code = item?.code ?: e.payload?.get("ls_code")?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
             if (code != null) ar.setLuminaireMeta(e.id, ArSymbols.symbolId(_lsCatalog.value, code), ArSymbols.shortLabel(_lsCatalog.value, code))
-        }
-        activeSegment()?.let { seg ->
-            runCatching { ar.siteContourRings = ArSiteOverlays.siteContours(site, seg.transform, ar.floorY ?: 0.0, ltp, visitEvents()) }
         }
         if (manual == null && pose != null) {
             val at = hit?.point?.let { listOf(it.x, it.y, it.z) } ?: pose.p

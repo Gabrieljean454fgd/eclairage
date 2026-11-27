@@ -12,6 +12,7 @@ import app.lumisite.core.export.ResumableExport
 import app.lumisite.android.ExportWorker
 
 import app.lumisite.android.ControlRow
+import app.lumisite.android.DebugFlags
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
@@ -776,11 +777,31 @@ private fun SurveyPanel(c: SessionController, tracking: TrackingState, hasPick: 
     photoFor?.let { id -> key(id) { PhotoPrompt(c, id) { photoFor = null } }; return }
     val catVersion = c.lsCatalog.collectAsState().value.version
     val details = remember { mutableStateMapOf<String, String>() }
+    var firstSight by remember(c, family, useMap, arBlocked) { mutableStateOf<SessionController.SurveySight?>(null) }
+    fun saveSurvey(first: SessionController.SurveySight? = null) {
+        val selected = family ?: return
+        val manual = if (useMap) ref("Relevé") ?: return else null
+        val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return }
+        if (c.survey(selected, note, manual, d, first)) {
+            firstSight = null
+            note = ""
+            LastDetails.byFamily[selected] = details.toMap()
+            if (AutoPhoto.enabled(ctx)) photoFor = c.lastSurveyId
+        }
+    }
     Button(enabled = family != null && (!useMap || hasPick), onClick = {
-        val manual = if (useMap) ref("Relevé") else null
-        val d = try { Details.build(details) } catch (e: IllegalArgumentException) { c.notify(e.message ?: "Détail invalide"); return@Button }
-        if (!useMap || manual != null) { if (c.survey(family!!, note, manual, d)) { note = ""; LastDetails.byFamily[family!!] = details.toMap(); if (AutoPhoto.enabled(ctx)) photoFor = c.lastSurveyId } }
+        saveSurvey()
     }, modifier = Modifier.fillMaxWidth().testTag("session_releve_enregistrer_le_releve")) { Text("Enregistrer le relevé") }
+    if (family != null && !useMap && !arBlocked && c.isCalibrated() && !DebugFlags.simulatedPoses) {
+        if (firstSight != null) Text("Décalez-vous sur le côté, puis visez le même point au réticule.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(enabled = tracking == TrackingState.TRACKING, onClick = {
+            val first = firstSight
+            if (first == null) firstSight = c.captureSurveySight() else saveSurvey(first)
+        }, modifier = Modifier.fillMaxWidth().testTag("session_releve_deux_visees")) {
+            Text(if (firstSight == null) "Prendre une première visée" else "Enregistrer avec la seconde visée")
+        }
+        if (firstSight != null) TextButton(onClick = { firstSight = null }) { Text("Annuler la première visée") }
+    }
     Text("Relevé : type du catalogue $catVersion, position AR calibrée ou point touché sur la carte.", style = MaterialTheme.typography.labelLarge)
     LsCatalogPicker(c, family) { family = it }
     DetailsForm(family, details)

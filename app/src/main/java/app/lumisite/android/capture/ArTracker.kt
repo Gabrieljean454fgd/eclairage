@@ -104,7 +104,7 @@ class ArTracker(
     /** build 199 (point 2d) : polygones ARCore bruts en blanc, Réglages > Diagnostic. */
     val rawPolygonsOn = MutableStateFlow(false)
     @Volatile var catalog: LsCatalog? = null
-    @Volatile var siteContourRings: List<List<V3>> = emptyList()
+    @Volatile var siteContours = ArSiteOverlays.SiteContours()
     private val luminaireMeta = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, String?>>()
     fun setLuminaireMeta(id: String, symbolId: String?, shortLabel: String?) { luminaireMeta[id] = symbolId to shortLabel }
     val measureA = MutableStateFlow<V3?>(null)
@@ -191,8 +191,6 @@ class ArTracker(
         return try {
             val s = Session(ctx)
             // Pixel 7 (et autres compatibles) : active la Depth API en mode AUTOMATIC sans exiger de capteur ToF.
-            // isDepthModeSupported est appelé avant configure() ; en cas d'échec on garde DISABLED.
-            depthSupported = runCatching { s.isDepthModeSupported(Config.DepthMode.AUTOMATIC) }.getOrDefault(false)
             // 30 fps, no depth sensor required, largest image size first.
             runCatching {
                 val filter = CameraConfigFilter(s)
@@ -200,6 +198,8 @@ class ArTracker(
                     .setDepthSensorUsage(EnumSet.of(CameraConfig.DepthSensorUsage.DO_NOT_USE))
                 s.getSupportedCameraConfigs(filter).maxByOrNull { it.imageSize.width * it.imageSize.height }?.let { s.cameraConfig = it }
             }
+            // Le support de la profondeur dépend de la configuration caméra sélectionnée.
+            depthSupported = runCatching { s.isDepthModeSupported(Config.DepthMode.AUTOMATIC) }.getOrDefault(false)
             val cfg = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
@@ -502,7 +502,7 @@ class ArTracker(
                     .map { (id, a) -> Mark(id, anchorKinds.getValue(id), V3(a.pose.tx().toDouble(), a.pose.ty().toDouble(), a.pose.tz().toDouble()),
                         live && a.trackingState == com.google.ar.core.TrackingState.TRACKING) },
                 rawPolygonsOn.value,
-                if (contoursOn.value) siteContourRings else emptyList(),
+                if (contoursOn.value && live) siteContours else null,
                 measureA.value, measureB.value,
                 catalog, luminaireMeta, forward,
             )
@@ -630,13 +630,13 @@ private class LineRenderer {
     fun draw(
         cam: com.google.ar.core.Camera, widthPx: Int, heightPx: Int,
         planes: List<Plane>, marks: List<ArTracker.Mark>, rawPolygons: Boolean,
-        siteRings: List<List<V3>>, measureA: V3?, measureB: V3?,
+        siteContours: ArSiteOverlays.SiteContours?, measureA: V3?, measureB: V3?,
         catalog: LsCatalog?, luminaireMeta: Map<String, Pair<String?, String?>>, forward: V3,
     ): List<ArTracker.ScreenLabel> {
         val labels = ArrayList<ArTracker.ScreenLabel>()
         if (program == 0) return labels
         val hasMeasure = measureA != null && measureB != null
-        if (planes.isEmpty() && marks.isEmpty() && siteRings.isEmpty() && !hasMeasure) return labels
+        if (planes.isEmpty() && marks.isEmpty() && siteContours?.rings.isNullOrEmpty() && !hasMeasure) return labels
         cam.getProjectionMatrix(proj, 0, 0.05f, 100f); cam.getViewMatrix(view, 0)
         android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
         val viewProj = DoubleArray(16) { vp[it].toDouble() }
@@ -666,9 +666,10 @@ private class LineRenderer {
             if (t == Plane.Type.VERTICAL) segments(ArGeometry.verticalEdges(world), 1f, 1f, 1f)
         }
         // Contours du site / bâtiment / zones, recalés (cyan).
-        for (ring in siteRings) {
+        for (ring in siteContours?.rings.orEmpty()) {
             if (ring.size >= 2) lines(GLES20.GL_LINE_STRIP, ring, 0.2f, 0.95f, 0.95f)
         }
+        siteContours?.corners?.let { segments(it, 0.2f, 0.95f, 0.95f) }
         val (right, up) = ArSymbols.billboardAxes(forward)
         for (mark in marks) {
             val grey = !mark.live

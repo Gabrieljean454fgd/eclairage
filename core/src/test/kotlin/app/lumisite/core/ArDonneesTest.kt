@@ -178,19 +178,28 @@ class ArDonneesTest {
             bbox = box, rects = listOf(box),
         )
         val floorY = 0.20
-        val rings = ArSiteOverlays.siteContours(site, Similarity2D.IDENTITY, floorY, ltp)
+        val contours = ArSiteOverlays.siteContours(site, Similarity2D.IDENTITY, floorY, ltp)
+        val rings = contours.rings
         assertTrue(rings.size >= 2, "bâtiment + rectangle attendus : ${rings.size}")
         rings.forEach { ring ->
             assertTrue(ring.size >= 4)
             assertTrue(ring.first().distanceTo(ring.last()) < 1e-6, "anneau non fermé")
             ring.forEach { p -> assertEquals(floorY, p.y, 1e-9) }
         }
+        assertEquals(4, contours.corners.size, "seul le bâtiment sélectionné porte des traits verticaux")
+        contours.corners.forEach { (base, top) ->
+            assertEquals(floorY, base.y, 1e-9)
+            assertEquals(0.8, top.y - base.y, 1e-9)
+            assertEquals(base.x, top.x)
+            assertEquals(base.z, top.z)
+        }
         val zone = ZoneEvent("z1", Fixtures.stamp(1), listOf(Enu(0.0, 0.0, 0.0), Enu(2.0, 0.0, 0.0), Enu(2.0, 3.0, 0.0), Enu(0.0, 3.0, 0.0)))
         val withZone = ArSiteOverlays.siteContours(
             site, Similarity2D.IDENTITY, floorY, ltp,
             listOf(ArSiteOverlays.VisitEvents("ses_a", listOf(zone))),
         )
-        assertTrue(withZone.size > rings.size, "la zone du relevé doit s'ajouter aux contours du site")
+        assertTrue(withZone.rings.size > rings.size, "la zone du relevé doit s'ajouter aux contours du site")
+        assertEquals(contours.corners, withZone.corners)
     }
 
     // ----- 5. Mesure A–B -----

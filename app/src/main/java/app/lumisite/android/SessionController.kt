@@ -541,10 +541,13 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
 
     /** Session > Calibrer > « Mesurer en visant l'angle mur/plafond » : H = hauteur du point visé − niveau du sol. */
     fun measureCeilingHeight(): Boolean {
+        if (trackedPose() == null) { fail(poseUnavailable("Mesure de la hauteur")); return false }
         val hit = (ar.aim.value as? app.lumisite.core.compute.AimResult.Hit)?.takeIf { it.source == "AR_WALL" || it.source == "AR_CEILING" }
         if (hit == null) { fail("Mesure de la hauteur : visez l'angle mur/plafond (mur ou plafond détecté)."); return false }
-        val fy = ar.floorY ?: latestPose?.p?.get(1)?.minus(app.lumisite.core.compute.Aim.DEFAULT_CAMERA_HEIGHT_M)
-        if (fy == null) { fail("Mesure de la hauteur : sol non détecté et pose AR indisponible."); return false }
+        val fy = ar.floorY ?: run {
+            fail("Mesure de la hauteur : visez d'abord le sol pour le détecter, ou saisissez la hauteur mesurée au mètre.")
+            return false
+        }
         return setCeilingHeight(hit.point.y - fy, "mesurée en visant l'angle mur/plafond")
     }
 
@@ -1002,8 +1005,8 @@ class SessionController(private val ctx: Context, private val repo: Repository, 
             ?: seg.transform.apply(PoseGeometry.plane(pose)).let { Enu(it.x, it.y, PoseGeometry.height(pose)) } else null
         if (manual == null && est == null) { fail(NO_POSITION); return false }
         val source = if (manual != null) "MANUAL_MAP" else hit?.source ?: "AR_POSE"
-        // 2f: a virtual-ceiling estimate must never become the « last object » floor fallback either.
-        if (manual == null && hit != null && hit.source != "ESTIMATED" && hit.source != app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED && hit.source != app.lumisite.core.compute.Aim.SRC_DEPTH) ar.lastObjectY = hit.point.y
+        // La hauteur réutilisée pour la visée au sol provient d'un plan de sol détecté.
+        if (manual == null && hit?.source == "AR_PLANE") ar.lastObjectY = hit.point.y
         if (manual == null && hit?.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED)
             DiagLog.i("POSITION", "Relevé : plafond estimé (aucun plan plafond détecté, hauteur sous plafond ${site.ceilingHeightM} m)")
         val e = SurveyEvent(

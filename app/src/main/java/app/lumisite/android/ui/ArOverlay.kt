@@ -46,11 +46,11 @@ private fun aimState(tracking: TrackingState, aim: AimResult?): Pair<Color, Stri
     aim is AimResult.Hit && aim.source == "AR_PLANE" -> Color(0xFF00C853) to "Sol détecté"
     aim is AimResult.Hit && aim.source == "AR_WALL" -> Color(0xFF00C853) to "Mur détecté"
     aim is AimResult.Hit && aim.source == "AR_CEILING" -> Color(0xFF00C853) to "Plafond détecté"
-    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_DEPTH -> Color(0xFF00B0FF) to "Distance mesurée (profondeur, ±10 %)"
-    aim is AimResult.Hit && aim.source == "AR_LAST_PLANE" -> Color(0xFF00B0FF) to "Pas de plan : hauteur du dernier objet"
-    // 2f: plafond virtuel (sol + hauteur saisie) — estimée, jamais silencieuse.
-    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED -> Color(0xFFFFEB3B) to "Plafond estimé (hauteur sous plafond saisie)"
-    aim is AimResult.Hit -> Color(0xFFFFEB3B) to "Pas de plan : sol estimé 1,4 m sous l'appareil"
+    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_DEPTH -> Color(0xFF00B0FF) to "Distance mesurée par profondeur"
+    aim is AimResult.Hit && aim.source == "AR_LAST_PLANE" -> Color(0xFFFFEB3B) to "Sol estimé d'après la dernière visée au sol"
+    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_CEILING_ESTIMATED -> Color(0xFFFFEB3B) to "Plafond estimé"
+    aim is AimResult.Hit && aim.source == app.lumisite.core.compute.Aim.SRC_WALL_ESTIMATE -> Color(0xFFFFEB3B) to "Mur estimé"
+    aim is AimResult.Hit -> Color(0xFFFFEB3B) to "Sol estimé"
     else -> Color(0xFFD50000) to "Point visé : pas de cible"
 }
 

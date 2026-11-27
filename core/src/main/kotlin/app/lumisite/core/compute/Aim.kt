@@ -45,12 +45,13 @@ object Aim {
     const val SRC_CEILING_ESTIMATED = "AR_CEILING_ESTIMATED"
     /** Inclination fallback when ARCore has no wall plane (explicit estimate, never silent). */
     const val SRC_WALL_ESTIMATE = "AR_WALL_ESTIMATE"
-    /** Point measured by the ARCore Depth API at the reticle (no plane needed, ≈ ±5–10 % at 2–6 m). Build 259. */
+    /** Point measured by the ARCore Depth API at the reticle without a detected plane. */
     const val SRC_DEPTH = "AR_DEPTH"
 
-    /** True for every hit that is a guess (assumed camera height / default ceiling / 50 cm), never a measurement. */
+    /** True for an inferred hit, including one based on a previously detected plane's height. */
     fun isEstimate(source: String?): Boolean =
-        source == "ESTIMATED" || source == "AR_FLOOR_ESTIMATE" || source == SRC_CEILING_ESTIMATED || source == SRC_WALL_ESTIMATE
+        source == "ESTIMATED" || source == "AR_FLOOR_ESTIMATE" || source == "AR_LAST_PLANE" ||
+            source == SRC_CEILING_ESTIMATED || source == SRC_WALL_ESTIMATE
 
     /** Default ceiling height used only when the user has not entered « hauteur sous plafond ». */
     const val DEFAULT_CEILING_HEIGHT_M = 2.5

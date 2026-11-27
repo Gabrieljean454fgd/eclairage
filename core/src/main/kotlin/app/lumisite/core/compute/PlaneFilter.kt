@@ -29,20 +29,18 @@ object PlaneFilter {
 
     enum class Role { FLOOR, FURNITURE, KEPT, TOO_SMALL }
 
-    /**
-     * Hauteur du sol. Sans [cameraY] : le plan horizontal assez grand le plus bas (comportement 199).
-     * Avec [cameraY] : le plus bas dans la bande 1,2–1,6 m sous l'appareil, sinon le plus bas s'il est
-     * au moins 1,2 m sous l'appareil, sinon l'estimation cameraY − 1,4 m (une table seule n'est pas le sol).
-     */
-    fun <T> floorLevel(planes: List<Desc<T>>, cameraY: Double? = null): Double? {
+    /** Plan horizontal détecté retenu comme sol. Une table seule ne fournit aucun niveau de sol. */
+    fun <T> detectedFloorLevel(planes: List<Desc<T>>, cameraY: Double? = null): Double? {
         val cands = planes.filter { it.source == "AR_PLANE" && it.areaM2 >= MIN_AREA_M2 }
-        if (cands.isEmpty()) return cameraY?.minus(CAMERA_FLOOR_NOM_M)
-        val lowest = cands.minOf { it.point.y }
+        val lowest = cands.minOfOrNull { it.point.y } ?: return null
         if (cameraY == null) return lowest
         val inBand = cands.filter { (cameraY - it.point.y) in CAMERA_FLOOR_MIN_M..CAMERA_FLOOR_MAX_M }
-        if (inBand.isNotEmpty()) return inBand.minOf { it.point.y }
-        return if (cameraY - lowest >= CAMERA_FLOOR_MIN_M) lowest else cameraY - CAMERA_FLOOR_NOM_M
+        return inBand.minOfOrNull { it.point.y } ?: lowest.takeIf { cameraY - it >= CAMERA_FLOOR_MIN_M }
     }
+
+    /** Niveau de référence pour filtrer le mobilier, avec estimation si aucun sol n'est détecté. */
+    fun <T> floorLevel(planes: List<Desc<T>>, cameraY: Double? = null): Double? =
+        detectedFloorLevel(planes, cameraY) ?: cameraY?.minus(CAMERA_FLOOR_NOM_M)
 
     fun <T> roleOf(d: Desc<T>, floorY: Double?, cameraY: Double? = null): Role = when {
         d.areaM2 < MIN_AREA_M2 -> Role.TOO_SMALL

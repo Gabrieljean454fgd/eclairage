@@ -9,7 +9,8 @@ import kotlin.test.assertTrue
 /** Build 259 : un repère visé sur une estimation n'est jamais une mesure ; la profondeur et les plans détectés le sont. */
 class AimDepthTest {
     @Test fun estimatesAreRecognised() {
-        listOf("ESTIMATED", "AR_FLOOR_ESTIMATE", Aim.SRC_CEILING_ESTIMATED, Aim.SRC_WALL_ESTIMATE).forEach { assertTrue(Aim.isEstimate(it), it) }
+        listOf("ESTIMATED", "AR_FLOOR_ESTIMATE", "AR_LAST_PLANE", Aim.SRC_CEILING_ESTIMATED, Aim.SRC_WALL_ESTIMATE)
+            .forEach { assertTrue(Aim.isEstimate(it), it) }
     }
 
     @Test fun measurementsAreNotEstimates() {

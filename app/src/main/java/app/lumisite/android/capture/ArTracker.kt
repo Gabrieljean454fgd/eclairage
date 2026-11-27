@@ -279,6 +279,7 @@ class ArTracker(
         val cam = frame.camera
         if (!autoTorchChecked && state == TrackingState.TRACKING) { autoTorchChecked = true; if (lowLight(frame)) main.post { setTorch(true) } }
         if (state != TrackingState.TRACKING) {
+            floorY = null
             aim.value = AimResult.NoTarget
             updateCounters(state, Triple(0, 0, 0))
             publishStats(state, reason, emptyList(), 0, ArPlaneDiagnose.stats(emptyList()), cameraY = 0.0, floorY = null)
@@ -303,8 +304,9 @@ class ArTracker(
             PlaneFilter.Desc(V3(c.tx().toDouble(), c.ty().toDouble(), c.tz().toDouble()), src, area, pl)
         }
         // Sol = plan le plus bas dans la bande 1,2–1,6 m sous l'appareil ; une table plus haute n'est pas le sol.
-        floorY = PlaneFilter.floorLevel(descs, cameraY)
-        val nFloor = descs.count { PlaneFilter.roleOf(it, floorY, cameraY) == PlaneFilter.Role.FLOOR }
+        val detectedFloor = PlaneFilter.detectedFloorLevel(descs, cameraY)
+        floorY = detectedFloor
+        val nFloor = descs.count { PlaneFilter.roleOf(it, detectedFloor, cameraY) == PlaneFilter.Role.FLOOR }
         val counts = Triple(nFloor, trackingPlanes.count { it.type == Plane.Type.VERTICAL },
             trackingPlanes.count { it.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING })
         updateCounters(state, counts)
@@ -316,7 +318,7 @@ class ArTracker(
             ArPlaneDiagnose.PlaneDesc(pl.type.name, pl.trackingState.name, area, if (poly == null) 0 else poly.limit() / 2)
         }
         val diagnoseStats = ArPlaneDiagnose.stats(diagnoseDescs)
-        publishStats(state, reason, planes, subsumedCount, diagnoseStats, cameraY, floorY)
+        publishStats(state, reason, planes, subsumedCount, diagnoseStats, cameraY, detectedFloor)
         val q = listOf(p.qx().toDouble(), p.qy().toDouble(), p.qz().toDouble(), p.qw().toDouble())
         // build 199 (point 6): aimed support from the camera elevation — ARCore pose quaternion (Tilt.fromArQuaternion,
         // same convention as SupportFromTilt.elevationFromForward), sensor rotation matrix as fallback. Hysteresis inside classify.
@@ -338,7 +340,7 @@ class ArTracker(
         val origin = V3(p.tx().toDouble(), p.ty().toDouble(), p.tz().toDouble())
         val dir = Aim.forward(q)
         // Build 262 : sol / plafond appris par la profondeur (moyenne glissante) avant les valeurs supposées 1,4 m / 2,5 m.
-        val floorLevel = floorY ?: depthFloorY ?: (origin.y - Aim.DEFAULT_CAMERA_HEIGHT_M)
+        val floorLevel = detectedFloor ?: depthFloorY ?: (origin.y - Aim.DEFAULT_CAMERA_HEIGHT_M)
         val virtualCeilingY = if (support == SupportFromTilt.Support.PLAFOND)
             (ceilingHeightM?.let { floorLevel + it } ?: depthCeilingY) else null
         // Retour terrain 22/11 : si ARCore n'a pas de plan mur/plafond, estimation d'après l'inclinaison
@@ -348,7 +350,7 @@ class ArTracker(
             SupportFromTilt.Support.PLAFOND ->
                 if (virtualCeilingY == null) listOf(Aim.ceilingEstimate(origin, floorLevel)) else emptyList()
             // SOL sans plan de sol détecté : le sol appris par la profondeur remplace « 1,4 m sous l'appareil » (reste une estimation).
-            else -> if (floorY == null) listOfNotNull(depthFloorY?.let { Aim.Plane(V3(origin.x, it, origin.z), Aim.UP, "AR_FLOOR_ESTIMATE") }) else emptyList()
+            else -> if (detectedFloor == null) listOfNotNull(depthFloorY?.let { Aim.Plane(V3(origin.x, it, origin.z), Aim.UP, "AR_FLOOR_ESTIMATE") }) else emptyList()
         }
         var result = Aim.resolve(origin, dir, ap, lastObjectY, true,
             fallbacks = support == SupportFromTilt.Support.SOL, virtualCeilingY = virtualCeilingY, extraPlanes = extras)

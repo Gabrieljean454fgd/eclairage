@@ -62,4 +62,13 @@ class PlaneFilterTest {
         assertEquals(2, out.size)
         assertEquals(null, PlaneFilter.floorLevel(out))
     }
+
+    @Test fun aNominalCameraHeightDoesNotCountAsADetectedFloor() {
+        val cameraY = 1.5
+        val table = pl(0.9)
+        assertEquals(null, PlaneFilter.detectedFloorLevel(listOf(table), cameraY))
+        assertEquals(null, PlaneFilter.detectedFloorLevel(emptyList<PlaneFilter.Desc<Unit>>(), cameraY))
+        assertEquals(0.1, PlaneFilter.floorLevel(listOf(table), cameraY)!!, 1e-9)
+        assertEquals(0.0, PlaneFilter.detectedFloorLevel(listOf(table, pl(0.0)), cameraY))
+    }
 }
